@@ -9,6 +9,9 @@ import expenseRoutes    from './routes/expense.routes';
 import productionRoutes from './routes/production.routes';
 import staffRoutes      from './routes/staff.routes';
 import stockRoutes      from './routes/stock.routes';
+import salesRoutes      from './routes/sales.routes';
+import accessoryRoutes  from './routes/accessory.routes';
+import financeRoutes    from './routes/finance.routes';
 
 dotenv.config();
 
@@ -24,11 +27,14 @@ app.use('/api/expenses',   expenseRoutes);
 app.use('/api/production', productionRoutes);
 app.use('/api/staff',      staffRoutes);
 app.use('/api/stock',      stockRoutes);
+app.use('/api/sales',       salesRoutes);
+app.use('/api/accessories', accessoryRoutes);
+app.use('/api/finance',    financeRoutes);
 
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err.stack);
   res.status(500).json({ message: 'Internal server error' });
 });
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));

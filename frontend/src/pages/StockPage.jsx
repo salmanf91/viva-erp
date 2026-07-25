@@ -33,16 +33,25 @@ export default function StockPage() {
 
   // Build rows keyed by raw material only
   const rows = RAW_CATS.map(cat => {
-    const rec   = get(summary?.received,  cat);
-    const alloc = get(summary?.allocated, cat);
-    const fin   = get(summary?.finished,  cat);
-    const avail = rec - alloc;
-    return { cat, rec, alloc, fin, avail };
+    const rec      = get(summary?.received,  cat);
+    const alloc    = get(summary?.allocated, cat);
+    const totalFin = get(summary?.finished,  cat);
+    const sold     = get(summary?.sold,      cat);
+    const fin      = Math.max(0, totalFin - sold); // Net finished goods on hand
+    const avail    = rec - alloc;
+    return { cat, rec, alloc, totalFin, sold, fin, avail };
   }).filter(r => r.rec > 0 || r.alloc > 0); // hide empty
 
   const totals = rows.reduce(
-    (a, r) => ({ rec: a.rec + r.rec, alloc: a.alloc + r.alloc, fin: a.fin + r.fin, avail: a.avail + r.avail }),
-    { rec: 0, alloc: 0, fin: 0, avail: 0 }
+    (a, r) => ({
+      rec: a.rec + r.rec,
+      alloc: a.alloc + r.alloc,
+      totalFin: a.totalFin + r.totalFin,
+      sold: a.sold + r.sold,
+      fin: a.fin + r.fin,
+      avail: a.avail + r.avail
+    }),
+    { rec: 0, alloc: 0, totalFin: 0, sold: 0, fin: 0, avail: 0 }
   );
 
   // Shawl nighty active batch sub-breakdown (lace vs plain)
@@ -73,7 +82,7 @@ export default function StockPage() {
         <div className="stat s-green">
           <div className="s-label">Finished Goods</div>
           <div className="s-val">{totals.fin}</div>
-          <div className="s-sub">ready to dispatch</div>
+          <div className="s-sub">{totals.totalFin} produced · {totals.sold} sold</div>
         </div>
         <div className="stat s-cyan">
           <div className="s-label">Available</div>
@@ -90,7 +99,7 @@ export default function StockPage() {
             <div className="empty-state">No stock data yet. Add purchases to begin.</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-              {rows.map(({ cat, rec, alloc, fin, avail }) => (
+              {rows.map(({ cat, rec, alloc, totalFin, sold, fin, avail }) => (
                 <div key={cat} style={{ borderLeft: `3px solid ${RAW_COLOR[cat]}`, paddingLeft: 14 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                     <span style={{ fontWeight: 700, fontSize: 15 }}>{RAW_LABEL[cat]}</span>
@@ -99,7 +108,7 @@ export default function StockPage() {
                     </span>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 6 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1.5fr', gap: 8, marginBottom: 6 }}>
                     <div>
                       <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 2 }}>Received</div>
                       <div style={{ fontWeight: 700, fontSize: 18 }}>{rec}</div>
@@ -109,8 +118,9 @@ export default function StockPage() {
                       <div style={{ fontWeight: 700, fontSize: 18, color: '#f59e0b' }}>{alloc}</div>
                     </div>
                     <div>
-                      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 2 }}>Finished</div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 2 }}>Finished (On Hand)</div>
                       <div style={{ fontWeight: 700, fontSize: 18, color: '#10b981' }}>{fin}</div>
+                      <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>({totalFin} prod. · {sold} sold)</div>
                     </div>
                   </div>
 
@@ -194,7 +204,7 @@ export default function StockPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map(({ cat, rec, alloc, fin, avail }) => (
+              {rows.map(({ cat, rec, alloc, totalFin, sold, fin, avail }) => (
                 <tr key={cat}>
                   <td>
                     <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: RAW_COLOR[cat], marginRight: 6 }} />
@@ -207,7 +217,10 @@ export default function StockPage() {
                   </td>
                   <td style={{ textAlign: 'right' }}>{rec}</td>
                   <td style={{ textAlign: 'right', color: '#f59e0b' }}>{alloc}</td>
-                  <td style={{ textAlign: 'right', color: '#10b981' }}>{fin}</td>
+                  <td style={{ textAlign: 'right', color: '#10b981' }}>
+                    <div>{fin}</div>
+                    <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 'normal' }}>({totalFin} prod. · {sold} sold)</div>
+                  </td>
                   <td style={{ textAlign: 'right' }}>
                     <span className={`badge ${avail > 0 ? 'b-green' : avail === 0 ? 'b-gray' : 'b-red'}`}>{avail}</span>
                   </td>
@@ -220,7 +233,10 @@ export default function StockPage() {
                 <td>Total</td>
                 <td style={{ textAlign: 'right' }}>{totals.rec}</td>
                 <td style={{ textAlign: 'right', color: '#f59e0b' }}>{totals.alloc}</td>
-                <td style={{ textAlign: 'right', color: '#10b981' }}>{totals.fin}</td>
+                <td style={{ textAlign: 'right', color: '#10b981' }}>
+                  <div>{totals.fin}</div>
+                  <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 'normal' }}>({totals.totalFin} prod. · {totals.sold} sold)</div>
+                </td>
                 <td style={{ textAlign: 'right' }}>
                   <span className={`badge ${totals.avail > 0 ? 'b-green' : 'b-gray'}`}>{totals.avail}</span>
                 </td>

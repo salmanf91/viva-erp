@@ -150,8 +150,8 @@ export interface ProductionBatch {
   batch_number: string;
   category: 'shawl_nighty' | 'shawl_nighty_lace' | 'ordinary_nighty';
   quantity: number;
-  cutting_master_id: number | null;
-  tailor_id: number | null;
+  cut_rate: number;
+  stitch_rate: number;
   status: 'allocated' | 'cutting' | 'stitching' | 'finished';
   batch_date: string;
 }

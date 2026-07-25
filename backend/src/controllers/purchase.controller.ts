@@ -82,30 +82,57 @@ export async function getPurchaseDetail(req: AuthRequest, res: Response): Promis
 
 export async function createPurchase(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
-  const { vendor_id, invoice_date, items, tax_rate, discount, status, note, transport, dispute } = req.body;
+  const { vendor_id, invoice_date, items, tax_rate, discount, status, note, transport, dispute, tax_inclusive, advance_paid } = req.body;
 
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
 
-    const subtotal: number = items.reduce((s: number, i: any) => s + i.quantity * i.rate_per_pc, 0);
+    const taxRate = parseFloat(tax_rate) || 0;
+    const taxInclusive = !!tax_inclusive;
+    const advancePaid = parseFloat(advance_paid) || 0;
+
+    let subtotal = 0;
+    const processedItems = [];
+
+    for (const item of items) {
+      const qty = parseInt(item.quantity) || 0;
+      const rateInput = parseFloat(item.rate_per_pc) || 0;
+      let amount = qty * rateInput;
+      let rate_per_pc = rateInput;
+
+      if (taxInclusive && taxRate > 0) {
+        const inclusiveAmount = qty * rateInput;
+        amount = parseFloat((inclusiveAmount / (1 + taxRate / 100)).toFixed(2));
+        rate_per_pc = parseFloat((amount / qty).toFixed(2));
+      }
+
+      subtotal += amount;
+      processedItems.push({
+        category: item.category,
+        quantity: qty,
+        rate_per_pc,
+        amount
+      });
+    }
+
     const discountPct = parseFloat(discount) || 0;
     const discountAmt = parseFloat(((subtotal * discountPct) / 100).toFixed(2));
-    const taxRate = parseFloat(tax_rate) || 0;
     const taxAmount = parseFloat((((subtotal - discountAmt) * taxRate) / 100).toFixed(2));
-    const total = subtotal - discountAmt + taxAmount;
+    const freightAmt = transport ? (parseFloat(transport.freight) || 0) : 0;
+    const coolieAmt = transport ? (parseFloat(transport.coolie) || 0) : 0;
+    const total = parseFloat((subtotal - discountAmt + taxAmount + freightAmt + coolieAmt).toFixed(2));
 
     const [pRes] = await conn.execute(
-      'INSERT INTO purchases (tenant_id,vendor_id,invoice_date,subtotal,discount,tax_rate,tax_amount,total,status,note) VALUES (?,?,?,?,?,?,?,?,?,?)',
-      [tenantId, vendor_id, invoice_date, subtotal, discountAmt, taxRate, taxAmount, total, status || 'paid', note || null]
+      'INSERT INTO purchases (tenant_id,vendor_id,invoice_date,subtotal,discount,tax_rate,tax_amount,total,status,note,tax_inclusive,advance_paid) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+      [tenantId, vendor_id, invoice_date, subtotal, discountAmt, taxRate, taxAmount, total, status || 'paid', note || null, taxInclusive ? 1 : 0, advancePaid]
     );
     const purchaseId = (pRes as any).insertId;
 
-    for (const item of items) {
-      const amount = item.quantity * item.rate_per_pc;
+    for (const item of processedItems) {
       await conn.execute(
         'INSERT INTO purchase_items (purchase_id,category,quantity,rate_per_pc,amount) VALUES (?,?,?,?,?)',
-        [purchaseId, item.category, item.quantity, item.rate_per_pc, amount]
+        [purchaseId, item.category, item.quantity, item.rate_per_pc, item.amount]
       );
       // record stock movement
       await conn.execute(
@@ -141,7 +168,7 @@ export async function createPurchase(req: AuthRequest, res: Response): Promise<v
 export async function updatePurchase(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
   const { id } = req.params;
-  const { vendor_id, invoice_date, tax_rate, discount, note, freight, coolie } = req.body;
+  const { vendor_id, invoice_date, tax_rate, discount, note, freight, coolie, tax_inclusive, advance_paid } = req.body;
 
   const conn = await pool.getConnection();
   try {
@@ -156,20 +183,38 @@ export async function updatePurchase(req: AuthRequest, res: Response): Promise<v
     const discountAmt = parseFloat(((subtotal * discountPct) / 100).toFixed(2));
     const taxRate     = parseFloat(tax_rate) || 0;
     const taxAmount   = parseFloat((((subtotal - discountAmt) * taxRate) / 100).toFixed(2));
-    const total       = subtotal - discountAmt + taxAmount;
+
+    // Fetch existing/new advance_paid from purchases:
+    let advancePaid = 0;
+    if (advance_paid !== undefined) {
+      advancePaid = parseFloat(advance_paid) || 0;
+    } else {
+      const [curr] = await conn.execute('SELECT advance_paid FROM purchases WHERE id=? AND tenant_id=?', [id, tenantId]) as any[];
+      advancePaid = (curr as any[]).length > 0 ? Number((curr as any[])[0].advance_paid || 0) : 0;
+    }
+
+    const [existingTransport] = await conn.execute('SELECT freight, coolie FROM purchase_transport WHERE purchase_id=?', [id]) as any[];
+    const hasTransport = (existingTransport as any[]).length > 0;
+    const currentFreight = hasTransport ? Number((existingTransport as any[])[0].freight || 0) : 0;
+    const currentCoolie = hasTransport ? Number((existingTransport as any[])[0].coolie || 0) : 0;
+
+    const freightAmt = freight !== undefined ? (parseFloat(freight) || 0) : currentFreight;
+    const coolieAmt = coolie !== undefined ? (parseFloat(coolie) || 0) : currentCoolie;
+
+    const total       = subtotal - discountAmt + taxAmount + freightAmt + coolieAmt;
+    const taxInclusive = tax_inclusive !== undefined ? !!tax_inclusive : false;
 
     await conn.execute(
-      'UPDATE purchases SET vendor_id=?, invoice_date=?, discount=?, tax_rate=?, tax_amount=?, total=?, note=? WHERE id=? AND tenant_id=?',
-      [vendor_id, invoice_date, discountAmt, taxRate, taxAmount, total, note || null, id, tenantId]
+      'UPDATE purchases SET vendor_id=?, invoice_date=?, discount=?, tax_rate=?, tax_amount=?, total=?, note=?, tax_inclusive=?, advance_paid=? WHERE id=? AND tenant_id=?',
+      [vendor_id, invoice_date, discountAmt, taxRate, taxAmount, total, note || null, taxInclusive ? 1 : 0, advancePaid, id, tenantId]
     );
 
     // Update transport if provided
     if (freight !== undefined || coolie !== undefined) {
-      const [existing] = await conn.execute('SELECT id FROM purchase_transport WHERE purchase_id=?', [id]) as any[];
-      if ((existing as any[]).length) {
+      if (hasTransport) {
         await conn.execute(
           'UPDATE purchase_transport SET freight=?, coolie=? WHERE purchase_id=?',
-          [freight ?? 0, coolie ?? 0, id]
+          [freight ?? currentFreight, coolie ?? currentCoolie, id]
         );
       } else if ((freight ?? 0) > 0 || (coolie ?? 0) > 0) {
         await conn.execute(
@@ -193,6 +238,8 @@ export async function deletePurchase(req: AuthRequest, res: Response): Promise<v
   const { tenantId } = req.user!;
   const { id } = req.params;
   try {
+    // Remove associated stock movement entries (inbound stock) for this purchase
+    await query('DELETE FROM stock_movements WHERE reference = CONCAT(\'PUR-\', ?)', [id]);
     await query('DELETE FROM purchases WHERE id=? AND tenant_id=?', [id, tenantId]);
     res.json({ message: 'Deleted' });
   } catch { res.status(500).json({ message: 'Server error' }); }

@@ -13,17 +13,20 @@ export default function LoginPage() {
   const { login, user }         = useAuth();
   const navigate                = useNavigate();
 
+  const [tenantsLoading, setTenantsLoading] = useState(true);
+
   useEffect(() => {
     if (user) navigate('/');
     api.get('/auth/tenants').then(r => {
       setTenants(r.data);
-      if (r.data.length === 1) setTenantId(String(r.data[0].id));
-    }).catch(() => {});
+      if (r.data.length >= 1) setTenantId(String(r.data[0].id));
+    }).catch(() => {}).finally(() => setTenantsLoading(false));
   }, []);
 
   const handleSubmit = async e => {
     e.preventDefault();
     setError('');
+    if (!tenantId) { setError('Please select a workspace'); return; }
     setLoading(true);
     try {
       await login(email, password, tenantId);
@@ -39,8 +42,7 @@ export default function LoginPage() {
     <div className="login-wrap">
       <div className="login-box">
         <div className="login-logo">
-          <div className="li">🧵</div>
-          <div className="ln">Viva Studio</div>
+          <div className="li"><img src="/logo.png" alt="Viva Studio" style={{ height: 64, width: 'auto' }} /></div>
           <div className="ls">Manufacturing ERP · Sign in to continue</div>
         </div>
 
@@ -52,15 +54,17 @@ export default function LoginPage() {
         )}
 
         <form onSubmit={handleSubmit}>
-          {tenants.length > 1 && (
-            <div className="field" style={{ marginBottom: 12 }}>
-              <label>Workspace</label>
+          <div className="field" style={{ marginBottom: 12 }}>
+            <label>Workspace</label>
+            {tenantsLoading ? (
+              <select disabled><option>Loading…</option></select>
+            ) : (
               <select value={tenantId} onChange={e => setTenantId(e.target.value)} required>
-                <option value="">Select workspace…</option>
+                {tenants.length > 1 && <option value="">— Select workspace —</option>}
                 {tenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
               </select>
-            </div>
-          )}
+            )}
+          </div>
           <div className="field" style={{ marginBottom: 12 }}>
             <label>Email</label>
             <input

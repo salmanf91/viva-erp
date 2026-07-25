@@ -7,12 +7,7 @@ export async function getBatches(req: AuthRequest, res: Response): Promise<void>
   const { tenantId } = req.user!;
   try {
     const rows = await query(
-      `SELECT pb.*,
-        cm.name AS cutting_master_name,
-        t.name  AS tailor_name
-       FROM production_batches pb
-       LEFT JOIN staff cm ON cm.id = pb.cutting_master_id
-       LEFT JOIN staff t  ON t.id  = pb.tailor_id
+      `SELECT pb.* FROM production_batches pb
        WHERE pb.tenant_id = ?
        ORDER BY pb.batch_date DESC, pb.id DESC`,
       [tenantId]
@@ -23,7 +18,7 @@ export async function getBatches(req: AuthRequest, res: Response): Promise<void>
 
 export async function createBatch(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
-  const { category, quantity, cutting_master_id, tailor_id, batch_date } = req.body;
+  const { category, quantity, cut_rate, stitch_rate, batch_date } = req.body;
 
   const conn = await pool.getConnection();
   try {
@@ -36,29 +31,25 @@ export async function createBatch(req: AuthRequest, res: Response): Promise<void
     const count = (countRows as any[])[0].cnt + 1;
     const batchNumber = `BATCH-${String(count).padStart(3, '0')}`;
 
+    // Resolve rates: if not passed, fall back to product_config defaults
+    let finalCutRate = cut_rate;
+    let finalStitchRate = stitch_rate;
+    if (finalCutRate === undefined || finalCutRate === null || finalStitchRate === undefined || finalStitchRate === null) {
+      const [cfgRows] = await conn.execute('SELECT cut_rate, stitch_rate FROM product_config WHERE tenant_id=? AND category=? LIMIT 1', [tenantId, category]);
+      const config = (cfgRows as any[])[0];
+      if (finalCutRate === undefined || finalCutRate === null) {
+        finalCutRate = config?.cut_rate ?? 5.00; // default fallback if no config
+      }
+      if (finalStitchRate === undefined || finalStitchRate === null) {
+        finalStitchRate = config?.stitch_rate ?? 15.00; // default fallback if no config
+      }
+    }
+
     const [bRes] = await conn.execute(
-      'INSERT INTO production_batches (tenant_id,batch_number,category,quantity,cutting_master_id,tailor_id,batch_date) VALUES (?,?,?,?,?,?,?)',
-      [tenantId, batchNumber, category, quantity, cutting_master_id || null, tailor_id || null, batch_date]
+      'INSERT INTO production_batches (tenant_id,batch_number,category,quantity,cut_rate,stitch_rate,batch_date) VALUES (?,?,?,?,?,?,?)',
+      [tenantId, batchNumber, category, quantity, finalCutRate, finalStitchRate, batch_date]
     );
     const batchId = (bRes as any).insertId;
-
-    // create work logs for cutting master and tailor
-    if (cutting_master_id) {
-      const [staffRows] = await conn.execute('SELECT rate_per_pc FROM staff WHERE id = ?', [cutting_master_id]);
-      const rate = (staffRows as any[])[0]?.rate_per_pc || 5;
-      await conn.execute(
-        'INSERT INTO staff_work_logs (tenant_id,staff_id,batch_id,pieces,rate,log_date) VALUES (?,?,?,?,?,?)',
-        [tenantId, cutting_master_id, batchId, quantity, rate, batch_date]
-      );
-    }
-    if (tailor_id) {
-      const [staffRows] = await conn.execute('SELECT rate_per_pc FROM staff WHERE id = ?', [tailor_id]);
-      const rate = (staffRows as any[])[0]?.rate_per_pc || 15;
-      await conn.execute(
-        'INSERT INTO staff_work_logs (tenant_id,staff_id,batch_id,pieces,rate,log_date) VALUES (?,?,?,?,?,?)',
-        [tenantId, tailor_id, batchId, quantity, rate, batch_date]
-      );
-    }
 
     // stock: mark as allocated
     await conn.execute(
@@ -81,25 +72,13 @@ export async function getBatchDetail(req: AuthRequest, res: Response): Promise<v
   const { tenantId } = req.user!;
   const { id } = req.params;
   try {
-    const [batches, workLogs] = await Promise.all([
-      query<any[]>(
-        `SELECT pb.*, cm.name AS cutting_master_name, t.name AS tailor_name
-         FROM production_batches pb
-         LEFT JOIN staff cm ON cm.id = pb.cutting_master_id
-         LEFT JOIN staff t  ON t.id  = pb.tailor_id
-         WHERE pb.id=? AND pb.tenant_id=?`,
-        [id, tenantId]
-      ),
-      query<any[]>(
-        `SELECT swl.*, swl.rate AS rate_per_pc, s.name AS staff_name, s.role
-         FROM staff_work_logs swl
-         JOIN staff s ON s.id = swl.staff_id
-         WHERE swl.batch_id=? AND swl.tenant_id=?`,
-        [id, tenantId]
-      ),
-    ]);
+    const batches = await query<any[]>(
+      `SELECT pb.* FROM production_batches pb
+       WHERE pb.id=? AND pb.tenant_id=?`,
+      [id, tenantId]
+    );
     if (!batches[0]) { res.status(404).json({ message: 'Not found' }); return; }
-    res.json({ batch: batches[0], workLogs });
+    res.json({ batch: batches[0], workLogs: [] });
   } catch { res.status(500).json({ message: 'Server error' }); }
 }
 
@@ -126,15 +105,15 @@ export async function getProductConfigs(req: AuthRequest, res: Response): Promis
 export async function updateBatch(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
   const { id } = req.params;
-  const { status, cutting_master_id, tailor_id } = req.body;
+  const { status, cut_rate, stitch_rate } = req.body;
   const allowed = ['allocated', 'cutting', 'stitching', 'finished'];
   if (status && !allowed.includes(status)) { res.status(400).json({ message: 'Invalid status' }); return; }
   try {
     const sets: string[] = [];
     const vals: any[] = [];
-    if (status !== undefined)             { sets.push('status=?');             vals.push(status); }
-    if (cutting_master_id !== undefined)  { sets.push('cutting_master_id=?');  vals.push(cutting_master_id || null); }
-    if (tailor_id !== undefined)          { sets.push('tailor_id=?');          vals.push(tailor_id || null); }
+    if (status !== undefined)      { sets.push('status=?');      vals.push(status); }
+    if (cut_rate !== undefined)    { sets.push('cut_rate=?');    vals.push(cut_rate); }
+    if (stitch_rate !== undefined) { sets.push('stitch_rate=?'); vals.push(stitch_rate); }
     if (!sets.length) { res.status(400).json({ message: 'Nothing to update' }); return; }
     await query(`UPDATE production_batches SET ${sets.join(',')} WHERE id=? AND tenant_id=?`, [...vals, id, tenantId]);
     res.json({ message: 'Updated' });

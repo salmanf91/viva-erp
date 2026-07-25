@@ -9,6 +9,12 @@ const CATEGORIES = ['shawl_nighty', 'shawl_nighty_lace', 'ordinary_nighty'];
 const CAT_LABEL  = { shawl_nighty: 'Shawl Nighty', shawl_nighty_lace: 'Shawl Nighty + Lace', ordinary_nighty: 'Ordinary Nighty' };
 const CAT_COLOR  = { shawl_nighty: 'var(--accent)', shawl_nighty_lace: 'var(--cyan)', ordinary_nighty: 'var(--green)' };
 
+// Yield: how many nighties one purchased unit covers
+const ACC_YIELD = { zip: 1, thread: 20, canvas: 40, plastic: 1, lace: 1 };
+const CANVAS_DEFAULT = 15 / 40; // ₹15/canvas ÷ 40 nighties = ₹0.375/nighty
+// cost_per_nighty = (amount / qty_purchased) / yield
+const accPerNighty = (row) => row ? (row.amount / row.qty_purchased) / (ACC_YIELD[row.accessory_type] || 1) : null;
+
 const STATUS_STEPS = ['allocated', 'cutting', 'stitching', 'finished'];
 const STATUS_LABEL = { allocated: 'Allocated', cutting: 'Cutting', stitching: 'Stitching', finished: 'Finished' };
 
@@ -38,24 +44,38 @@ function BatchFlow({ status, quantity }) {
   );
 }
 
-function CostCard({ cfg, cardQty, totalPcs, electricity, onQtyChange }) {
-  const rent     = 5000;
+function CostCard({ cfg, cardQty, totalPcs, rent, electricity, onQtyChange, accLatest, fabricRate, onFabricRateChange, onSaveFabric, isSavingFabric, sellingRate, onSellingRateChange, onSaveSelling, isSavingSelling }) {
   const ohPerPc  = totalPcs > 0 ? (rent + electricity) / totalPcs : 0;
-  const fabric   = Number(cfg.fabric_cost    || 0);
+  const fabric   = Number(fabricRate !== undefined ? fabricRate : cfg.fabric_cost || 0);
   const cut      = Number(cfg.cut_rate       || 0);
   const stitch   = Number(cfg.stitch_rate    || 0);
-  const zip      = Number(cfg.zip_cost       || 0);
-  const thread   = Number(cfg.thread_cost    || 0);
-  const canvas   = Number(cfg.canvas_cost    || 0);
-  const plastic  = Number(cfg.plastic_cost   || 0);
   const lace     = Number(cfg.lace_cost      || 0);
   const logistics= Number(cfg.logistics_cost || 0);
-  const sell     = Number(cfg.selling_rate   || 0);
-  const isLace   = cfg.category === 'shawl_nighty_lace';
-  const total    = fabric + cut + stitch + zip + thread + canvas + plastic + (isLace ? lace : 0) + logistics + ohPerPc;
+  const sell     = Number(sellingRate !== undefined ? sellingRate : cfg.selling_rate || 0);
+  const isLace    = cfg.category === 'shawl_nighty_lace';
+  const isPlastic = cfg.category !== 'ordinary_nighty';
+
+  // Live accessory prices from purchase log (amount / qty / yield = cost per nighty)
+  const accPrice = key => {
+    const a = accLatest?.find(x => x.accessory_type === key);
+    return a ? accPerNighty(a) : null;
+  };
+  const accDate = key => {
+    const a = accLatest?.find(x => x.accessory_type === key);
+    return a ? new Date(a.expense_date).toLocaleDateString('en-IN', { day:'numeric', month:'short' }) : null;
+  };
+  const zip     = accPrice('zip')     ?? Number(cfg.zip_cost     || 0);
+  const thread  = accPrice('thread')  ?? Number(cfg.thread_cost  || 0);
+  const canvas  = accPrice('canvas')  ?? CANVAS_DEFAULT;
+  const plastic = accPrice('plastic') ?? Number(cfg.plastic_cost || 0);
+
+  const total    = fabric + cut + stitch + zip + thread + canvas + (isPlastic ? plastic : 0) + (isLace ? lace : 0) + logistics + ohPerPc;
   const profit   = sell - total;
   const profitColor = profit >= 10 ? 'var(--green)' : profit >= 0 ? 'var(--yellow)' : 'var(--red)';
   const profitBg    = profit >= 10 ? 'var(--green-l)' : profit >= 0 ? 'var(--yellow-l)' : 'var(--red-l)';
+
+  const hasFabricChanged = Math.abs(fabric - Number(cfg.fabric_cost || 0)) > 0.009;
+  const hasSellingChanged = Math.abs(sell - Number(cfg.selling_rate || 0)) > 0.009;
 
   return (
     <div className="card" style={{ borderTop: `3px solid ${CAT_COLOR[cfg.category] || 'var(--accent)'}` }}>
@@ -63,16 +83,78 @@ function CostCard({ cfg, cardQty, totalPcs, electricity, onQtyChange }) {
         {CAT_LABEL[cfg.category] || cfg.category}
       </div>
 
-      <div className="cost-row"><span>Fabric (avg)</span><span>₹{f2(fabric)}</span></div>
+      <div className="cost-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          Fabric Rate
+          {hasFabricChanged && (
+            <button
+              onClick={() => onSaveFabric(cfg.category, fabric)}
+              disabled={isSavingFabric}
+              title="Save as category default"
+              style={{
+                background: 'var(--orange-l)',
+                border: '1px solid #fdba74',
+                color: 'var(--orange)',
+                borderRadius: 4,
+                padding: '1px 6px',
+                fontSize: 10,
+                fontWeight: 700,
+                cursor: 'pointer',
+                marginLeft: 4,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 2,
+              }}
+            >
+              {isSavingFabric ? 'Saving…' : '💾 Save'}
+            </button>
+          )}
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>₹</span>
+          <input
+            type="number"
+            step="0.01"
+            value={fabric}
+            onChange={e => onFabricRateChange(parseFloat(e.target.value) || 0)}
+            style={{
+              width: 66,
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+              padding: '3px 7px',
+              fontSize: 13,
+              fontWeight: 700,
+              textAlign: 'center',
+              background: '#fff',
+              outline: 'none',
+            }}
+          />
+        </div>
+      </div>
       <div className="cost-row"><span>Cutting</span><span>₹{f2(cut)}</span></div>
       <div className="cost-row"><span>Stitching</span><span>₹{f2(stitch)}</span></div>
 
       <div style={{ height: 1, background: 'var(--border)', margin: '6px 0' }} />
       <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 4 }}>🧰 Accessories</div>
-      <div className="cost-row"><span>Zip</span><span>₹{f2(zip)}</span></div>
-      <div className="cost-row"><span>Thread</span><span>₹{f2(thread)}</span></div>
-      <div className="cost-row"><span>Canvas</span><span>₹{f2(canvas)}</span></div>
-      <div className="cost-row"><span>Plastic Bag</span><span>₹{f2(plastic)}</span></div>
+      <div className="cost-row">
+        <span>Zip {accDate('zip') ? <span style={{fontSize:10,color:'var(--green)'}}>📌 {accDate('zip')}</span> : <span style={{fontSize:10,color:'var(--muted)'}}>est.</span>}</span>
+        <span>₹{f2(zip)}</span>
+      </div>
+      <div className="cost-row">
+        <span>Thread {accDate('thread') ? <span style={{fontSize:10,color:'var(--green)'}}>📌 {accDate('thread')}</span> : <span style={{fontSize:10,color:'var(--muted)'}}>est.</span>}</span>
+        <span>₹{f2(thread)}</span>
+      </div>
+      <div className="cost-row">
+        <span>Canvas {accDate('canvas') ? <span style={{fontSize:10,color:'var(--green)'}}>📌 {accDate('canvas')}</span> : <span style={{fontSize:10,color:'var(--muted)'}}>est.</span>}</span>
+        <span>₹{f2(canvas)}</span>
+      </div>
+      {isPlastic
+        ? <div className="cost-row">
+            <span>Plastic Bag {accDate('plastic') ? <span style={{fontSize:10,color:'var(--green)'}}>📌 {accDate('plastic')}</span> : <span style={{fontSize:10,color:'var(--muted)'}}>est.</span>}</span>
+            <span>₹{f2(plastic)}</span>
+          </div>
+        : <div className="cost-row" style={{ color: 'var(--muted)', fontSize: 12 }}><span>No plastic bag</span><span>—</span></div>
+      }
       {isLace
         ? <div className="cost-row" style={{ color: 'var(--cyan)', fontWeight: 600 }}><span>Lace</span><span>₹{f2(lace)}</span></div>
         : <div className="cost-row" style={{ color: 'var(--muted)', fontSize: 12 }}><span>No lace</span><span>—</span></div>
@@ -105,7 +187,55 @@ function CostCard({ cfg, cardQty, totalPcs, electricity, onQtyChange }) {
 
       <div style={{ height: 1, background: 'var(--border)', margin: '8px 0' }} />
       <div className="cost-row bold"><span>Total Cost / pc</span><span style={{ color: 'var(--red)' }}>₹{f2(total)}</span></div>
-      <div className="cost-row bold"><span>Selling Price</span><span style={{ color: 'var(--green)' }}>₹{f2(sell)}</span></div>
+      <div className="cost-row bold" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          Selling Price
+          {hasSellingChanged && (
+            <button
+              onClick={() => onSaveSelling(cfg.category, sell)}
+              disabled={isSavingSelling}
+              title="Save as category default"
+              style={{
+                background: 'var(--green-l)',
+                border: '1px solid #86efac',
+                color: 'var(--green)',
+                borderRadius: 4,
+                padding: '1px 6px',
+                fontSize: 10,
+                fontWeight: 700,
+                cursor: 'pointer',
+                marginLeft: 4,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 2,
+              }}
+            >
+              {isSavingSelling ? 'Saving…' : '💾 Save'}
+            </button>
+          )}
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <span style={{ fontSize: 13, color: 'var(--green)', fontWeight: 700 }}>₹</span>
+          <input
+            type="number"
+            step="0.01"
+            value={sell}
+            onChange={e => onSellingRateChange(parseFloat(e.target.value) || 0)}
+            style={{
+              width: 66,
+              border: '1px solid var(--border)',
+              borderRadius: 6,
+              padding: '3px 7px',
+              fontSize: 13,
+              fontWeight: 700,
+              textAlign: 'center',
+              background: '#fff',
+              outline: 'none',
+              color: 'var(--green)',
+            }}
+          />
+        </div>
+      </div>
 
       <div style={{ background: profitBg, borderRadius: 6, padding: '8px 10px', marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontSize: 12, fontWeight: 700, color: profitColor }}>Profit / pc</span>
@@ -124,22 +254,29 @@ function CostCard({ cfg, cardQty, totalPcs, electricity, onQtyChange }) {
 export default function ProductionPage() {
   const [batches, setBatches]         = useState([]);
   const [configs, setConfigs]         = useState([]);
+  const [accLatest, setAccLatest]     = useState([]);   // latest accessory prices
   const [staff, setStaff]             = useState([]);
   const [detail, setDetail]           = useState(null);
   const [showNew, setShowNew]         = useState(false);
   const [editBatch, setEditBatch]     = useState(null); // batch object being edited
   const [loading, setLoading]         = useState(true);
   const [filter, setFilter]           = useState('all');
-  const [electricity, setElectricity] = useState(2400);
+  const [electricity, setElectricity] = useState(0);
+  const [rent, setRent]               = useState(0);
   const [activeTab, setActiveTab]     = useState('batches');
   const [cardQty, setCardQty]         = useState({ shawl_nighty: 0, shawl_nighty_lace: 0, ordinary_nighty: 0 });
   const [histPage, setHistPage]       = useState(1);
+  const [fabricRates, setFabricRates] = useState({ shawl_nighty: 0, shawl_nighty_lace: 0, ordinary_nighty: 0 });
+  const [savingFabric, setSavingFabric] = useState({ shawl_nighty: false, shawl_nighty_lace: false, ordinary_nighty: false });
+  const [sellingRates, setSellingRates] = useState({ shawl_nighty: 0, shawl_nighty_lace: 0, ordinary_nighty: 0 });
+  const [savingSelling, setSavingSelling] = useState({ shawl_nighty: false, shawl_nighty_lace: false, ordinary_nighty: false });
   const HIST_PAGE_SIZE = 8;
 
   const emptyForm = () => ({
     category: 'shawl_nighty_lace', quantity: '',
     batch_date: new Date().toISOString().slice(0, 10),
-    cutting_master_id: '', tailor_id: '',
+    cut_rate: 5.00,
+    stitch_rate: 15.00,
   });
   const [form, setForm] = useState(emptyForm());
 
@@ -151,9 +288,47 @@ export default function ProductionPage() {
       r.data.forEach(b => { if (qty[b.category] !== undefined) qty[b.category] += Number(b.quantity || 0); });
       setCardQty(qty);
     }),
-    api.get('/production/configs').then(r => setConfigs(r.data)),
+    api.get('/production/configs').then(r => {
+      setConfigs(r.data);
+      const rates = { shawl_nighty: 0, shawl_nighty_lace: 0, ordinary_nighty: 0 };
+      const sells = { shawl_nighty: 0, shawl_nighty_lace: 0, ordinary_nighty: 0 };
+      r.data.forEach(c => {
+        if (rates[c.category] !== undefined) rates[c.category] = Number(c.fabric_cost || 0);
+        if (sells[c.category] !== undefined) sells[c.category] = Number(c.selling_rate || 0);
+      });
+      setFabricRates(rates);
+      setSellingRates(sells);
+    }),
+    api.get('/expenses/accessory-prices').then(r => setAccLatest(r.data)).catch(() => {}),
+    api.get(`/expenses/overhead?month=${new Date().getMonth()+1}&year=${new Date().getFullYear()}`).then(r => { setRent(Number(r.data.rent ?? 0)); setElectricity(Number(r.data.electricity ?? 0)); }).catch(() => {}),
     api.get('/staff').then(r => setStaff(r.data)),
   ]).finally(() => setLoading(false));
+
+  const handleSaveFabric = async (cat, rate) => {
+    setSavingFabric(prev => ({ ...prev, [cat]: true }));
+    try {
+      await api.put(`/production/configs/${cat}`, { fabric_cost: rate });
+      const r = await api.get('/production/configs');
+      setConfigs(r.data);
+    } catch (err) {
+      alert('Failed to save fabric rate');
+    } finally {
+      setSavingFabric(prev => ({ ...prev, [cat]: false }));
+    }
+  };
+
+  const handleSaveSelling = async (cat, rate) => {
+    setSavingSelling(prev => ({ ...prev, [cat]: true }));
+    try {
+      await api.put(`/production/configs/${cat}`, { selling_rate: rate });
+      const r = await api.get('/production/configs');
+      setConfigs(r.data);
+    } catch (err) {
+      alert('Failed to save selling price');
+    } finally {
+      setSavingSelling(prev => ({ ...prev, [cat]: false }));
+    }
+  };
 
   useEffect(() => { load(); }, []);
 
@@ -188,9 +363,9 @@ export default function ProductionPage() {
 
   const saveBatchEdit = async () => {
     await api.put(`/production/${editBatch.id}`, {
-      status:             editBatch.status,
-      cutting_master_id:  editBatch.cutting_master_id || null,
-      tailor_id:          editBatch.tailor_id || null,
+      status:      editBatch.status,
+      cut_rate:    Number(editBatch.cut_rate || 0),
+      stitch_rate: Number(editBatch.stitch_rate || 0),
     });
     setEditBatch(null);
     load();
@@ -215,15 +390,21 @@ export default function ProductionPage() {
   /* New batch modal cost preview */
   const previewCfg  = configs.find(c => c.category === form.category);
   const previewQty  = +form.quantity || 0;
-  const previewCut  = cutters.find(s => s.id === +form.cutting_master_id);
-  const previewTail = tailors.find(s => s.id === +form.tailor_id);
-  const cutAmt   = previewCut  ? previewQty * Number(previewCut.rate_per_pc)  : 0;
-  const tailAmt  = previewTail ? previewQty * Number(previewTail.rate_per_pc) : 0;
+  const cutAmt      = previewQty * Number(form.cut_rate || 0);
+  const tailAmt     = previewQty * Number(form.stitch_rate || 0);
   const isLaceForm = form.category === 'shawl_nighty_lace';
-  const zipAmt     = previewQty * Number(previewCfg?.zip_cost    || 2);
-  const threadAmt  = previewQty * Number(previewCfg?.thread_cost || 1);
-  const canvasAmt  = previewQty * Number(previewCfg?.canvas_cost || 2);
-  const plasticAmt = previewQty * Number(previewCfg?.plastic_cost|| 2.5);
+  const _pvZ       = accLatest.find(x => x.accessory_type === 'zip');
+  const _pvT       = accLatest.find(x => x.accessory_type === 'thread');
+  const _pvC       = accLatest.find(x => x.accessory_type === 'canvas');
+  const _pvP       = accLatest.find(x => x.accessory_type === 'plastic');
+  const _pvZipPc   = _pvZ ? accPerNighty(_pvZ) : Number(previewCfg?.zip_cost     || 0);
+  const _pvThrPc   = _pvT ? accPerNighty(_pvT) : Number(previewCfg?.thread_cost  || 0);
+  const _pvCanPc   = _pvC ? accPerNighty(_pvC) : CANVAS_DEFAULT;
+  const _pvPlaPc   = _pvP ? accPerNighty(_pvP) : Number(previewCfg?.plastic_cost || 0);
+  const zipAmt     = previewQty * _pvZipPc;
+  const threadAmt  = previewQty * _pvThrPc;
+  const canvasAmt  = previewQty * _pvCanPc;
+  const plasticAmt = previewQty * _pvPlaPc;
   const laceAmt    = isLaceForm ? previewQty * Number(previewCfg?.lace_cost || 8) : 0;
   const labourTotal = cutAmt + tailAmt;
   const accTotal    = zipAmt + threadAmt + canvasAmt + plasticAmt + laceAmt;
@@ -238,7 +419,17 @@ export default function ProductionPage() {
             {batches.length} batch{batches.length !== 1 ? 'es' : ''} · {totalPcs} pcs total · {finishedPcs} finished
           </div>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowNew(true)}>+ New Batch</button>
+        <button className="btn btn-primary" onClick={() => {
+          const defCfg = configs.find(c => c.category === 'shawl_nighty_lace') || {};
+          setForm({
+            category: 'shawl_nighty_lace',
+            quantity: '',
+            batch_date: new Date().toISOString().slice(0, 10),
+            cut_rate: defCfg.cut_rate ?? 5.00,
+            stitch_rate: defCfg.stitch_rate ?? 15.00,
+          });
+          setShowNew(true);
+        }}>+ New Batch</button>
       </div>
 
       {/* Summary stats */}
@@ -281,16 +472,27 @@ export default function ProductionPage() {
       }}>
         <div>
           <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)' }}>📐 Monthly Overhead</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>Rent ₹5,000 + Electricity ÷ total pcs from all batches</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>Rent + Electricity ÷ total pcs from all batches</div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 'auto', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 12, color: 'var(--muted)' }}>Electricity bill ₹</span>
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>Rent ₹</span>
+          <input
+            type="number"
+            value={rent}
+            onChange={e => setRent(parseFloat(e.target.value) || 0)}
+            style={{
+              width: 72, border: '1px solid #c4b5fd', borderRadius: 7, padding: '5px 9px',
+              fontSize: 14, fontWeight: 800, textAlign: 'center', background: '#fff',
+              outline: 'none', color: 'var(--accent)',
+            }}
+          />
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>Electricity ₹</span>
           <input
             type="number"
             value={electricity}
             onChange={e => setElectricity(parseFloat(e.target.value) || 0)}
             style={{
-              width: 80, border: '1px solid #c4b5fd', borderRadius: 7, padding: '5px 9px',
+              width: 72, border: '1px solid #c4b5fd', borderRadius: 7, padding: '5px 9px',
               fontSize: 14, fontWeight: 800, textAlign: 'center', background: '#fff',
               outline: 'none', color: 'var(--yellow)',
             }}
@@ -300,7 +502,7 @@ export default function ProductionPage() {
             Total: <strong style={{ color: 'var(--accent)' }}>{cardTotalPcs.toLocaleString('en-IN')}</strong> pcs
             &nbsp;→&nbsp;
             <strong style={{ color: 'var(--accent)' }}>
-              ₹{cardTotalPcs > 0 ? f2((5000 + electricity) / cardTotalPcs) : '0.00'}/pc
+              ₹{cardTotalPcs > 0 ? f2((rent + electricity) / cardTotalPcs) : '0.00'}/pc
             </strong>
           </div>
         </div>
@@ -316,7 +518,26 @@ export default function ProductionPage() {
             {CATEGORIES.map(cat => {
               const cfg = configs.find(c => c.category === cat);
               if (!cfg) return null;
-              return <CostCard key={cat} cfg={cfg} cardQty={cardQty[cat] || 0} totalPcs={cardTotalPcs} electricity={electricity} onQtyChange={v => setCardQty(q => ({ ...q, [cat]: v }))} />;
+              return (
+                <CostCard
+                  key={cat}
+                  cfg={cfg}
+                  cardQty={cardQty[cat] || 0}
+                  totalPcs={cardTotalPcs}
+                  rent={rent}
+                  electricity={electricity}
+                  onQtyChange={v => setCardQty(q => ({ ...q, [cat]: v }))}
+                  accLatest={accLatest}
+                  fabricRate={fabricRates[cat]}
+                  onFabricRateChange={v => setFabricRates(r => ({ ...r, [cat]: v }))}
+                  onSaveFabric={handleSaveFabric}
+                  isSavingFabric={savingFabric[cat]}
+                  sellingRate={sellingRates[cat]}
+                  onSellingRateChange={v => setSellingRates(r => ({ ...r, [cat]: v }))}
+                  onSaveSelling={handleSaveSelling}
+                  isSavingSelling={savingSelling[cat]}
+                />
+              );
             })}
           </div>
         </>
@@ -350,15 +571,24 @@ export default function ProductionPage() {
         const bCfg  = configs.find(c => c.category === b.category) || {};
         const qty   = Number(b.quantity || 0);
         const isL   = b.category === 'shawl_nighty_lace';
-        const cutRate   = Number(bCfg.cut_rate    || 5);
-        const stitchRate= Number(bCfg.stitch_rate || 15);
+        const isPla = b.category !== 'ordinary_nighty';
+        const cutRate   = Number((b.cut_rate ?? bCfg.cut_rate) || 0);
+        const stitchRate= Number((b.stitch_rate ?? bCfg.stitch_rate) || 0);
         const cutAmt    = qty * cutRate;
         const stitchAmt = qty * stitchRate;
         const labTotal  = cutAmt + stitchAmt;
-        const _zip  = qty * Number(bCfg.zip_cost    || 2);
-        const _thr  = qty * Number(bCfg.thread_cost || 1);
-        const _can  = qty * Number(bCfg.canvas_cost || 2);
-        const _pla  = qty * Number(bCfg.plastic_cost|| 2.5);
+        const accZ   = accLatest.find(x => x.accessory_type === 'zip');
+        const accT   = accLatest.find(x => x.accessory_type === 'thread');
+        const accC   = accLatest.find(x => x.accessory_type === 'canvas');
+        const accP   = accLatest.find(x => x.accessory_type === 'plastic');
+        const zipPc  = accZ ? accPerNighty(accZ) : Number(bCfg.zip_cost     || 0);
+        const thrPc  = accT ? accPerNighty(accT) : Number(bCfg.thread_cost  || 0);
+        const canPc  = accC ? accPerNighty(accC) : CANVAS_DEFAULT;
+        const plaPc  = accP ? accPerNighty(accP) : Number(bCfg.plastic_cost || 0);
+        const _zip  = qty * zipPc;
+        const _thr  = qty * thrPc;
+        const _can  = qty * canPc;
+        const _pla  = isPla ? qty * plaPc : 0;
         const _lac  = isL ? qty * Number(bCfg.lace_cost || 8) : 0;
         const accTotal = _zip + _thr + _can + _pla + _lac;
         return (
@@ -379,24 +609,6 @@ export default function ProductionPage() {
 
             <BatchFlow status={b.status} quantity={b.quantity} />
 
-            {/* Staff row */}
-            {(b.cutting_master_name || b.tailor_name) && (
-              <div style={{ display: 'flex', gap: 12, marginTop: 4, fontSize: 12 }}>
-                {b.cutting_master_name && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--muted)' }}>
-                    <span style={{ background: 'var(--accent-l)', color: 'var(--accent)', borderRadius: 4, padding: '1px 6px', fontWeight: 700, fontSize: 11 }}>CUTTER</span>
-                    {b.cutting_master_name}
-                  </div>
-                )}
-                {b.tailor_name && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, color: 'var(--muted)' }}>
-                    <span style={{ background: 'var(--cyan-l)', color: 'var(--cyan)', borderRadius: 4, padding: '1px 6px', fontWeight: 700, fontSize: 11 }}>TAILOR</span>
-                    {b.tailor_name}
-                  </div>
-                )}
-              </div>
-            )}
-
             {/* Labour + Accessories breakdown */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
               <div className="calc-box" style={{ margin: 0 }}>
@@ -408,10 +620,10 @@ export default function ProductionPage() {
               </div>
               <div className="calc-box" style={{ margin: 0, background: '#f0fdf4', borderColor: '#86efac' }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 6 }}>🧰 Accessories</div>
-                <div className="calc-row"><span className="cl">Zip (₹{bCfg.zip_cost||2} × {qty})</span><span className="cv">{fmt(_zip)}</span></div>
-                <div className="calc-row"><span className="cl">Thread (₹{bCfg.thread_cost||1} × {qty})</span><span className="cv">{fmt(_thr)}</span></div>
-                <div className="calc-row"><span className="cl">Canvas (₹{bCfg.canvas_cost||2} × {qty})</span><span className="cv">{fmt(_can)}</span></div>
-                <div className="calc-row"><span className="cl">Plastic Bag (₹{bCfg.plastic_cost||2.5} × {qty})</span><span className="cv">{fmt(_pla)}</span></div>
+                <div className="calc-row"><span className="cl">Zip (₹{zipPc.toFixed(2)}/pc × {qty}{accZ ? ' 📌' : ' est.'})</span><span className="cv">{fmt(_zip)}</span></div>
+                <div className="calc-row"><span className="cl">Thread (₹{thrPc.toFixed(2)}/pc × {qty}{accT ? ' 📌' : ' est.'})</span><span className="cv">{fmt(_thr)}</span></div>
+                <div className="calc-row"><span className="cl">Canvas (₹{canPc.toFixed(2)}/pc × {qty}{accC ? ' 📌' : ' est.'})</span><span className="cv">{fmt(_can)}</span></div>
+                {isPla && <div className="calc-row"><span className="cl">Plastic Bag (₹{plaPc.toFixed(2)}/pc × {qty}{accP ? ' 📌' : ' est.'})</span><span className="cv">{fmt(_pla)}</span></div>}
                 {isL && <div className="calc-row" style={{ color: 'var(--cyan)', fontWeight: 600 }}><span className="cl">Lace (₹{bCfg.lace_cost||8} × {qty})</span><span className="cv">{fmt(_lac)}</span></div>}
                 <hr className="calc-divider" />
                 <div className="calc-row"><span className="cl">Accessories Total</span><span className="cv" style={{ color: 'var(--green)' }}>{fmt(accTotal)}</span></div>
@@ -433,7 +645,7 @@ export default function ProductionPage() {
             {/* Actions */}
             <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
               <button className="btn btn-ghost btn-sm" onClick={() => openDetail(b.id)}>View Details →</button>
-              <button className="btn btn-ghost btn-sm" onClick={() => setEditBatch({ id: b.id, batch_number: b.batch_number, category: b.category, quantity: b.quantity, status: b.status, cutting_master_id: b.cutting_master_id || '', tailor_id: b.tailor_id || '' })}>Edit</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setEditBatch({ id: b.id, batch_number: b.batch_number, category: b.category, quantity: b.quantity, status: b.status, cut_rate: b.cut_rate || 0, stitch_rate: b.stitch_rate || 0 })}>Edit</button>
               <button className="btn btn-red btn-sm" style={{ marginLeft: 'auto' }} onClick={() => deleteBatch(b.id)}>Delete</button>
             </div>
           </div>
@@ -455,8 +667,8 @@ export default function ProductionPage() {
                 <th>Category</th>
                 <th style={{ textAlign: 'right' }}>Qty</th>
                 <th>Date</th>
-                <th>Cutter</th>
-                <th>Tailor</th>
+                <th style={{ textAlign: 'right' }}>Cut Rate</th>
+                <th style={{ textAlign: 'right' }}>Stitch Rate</th>
                 <th>Status</th>
                 <th></th>
               </tr>
@@ -471,8 +683,8 @@ export default function ProductionPage() {
                   </td>
                   <td style={{ textAlign: 'right', fontWeight: 700 }}>{b.quantity}</td>
                   <td style={{ color: 'var(--muted)', fontSize: 12 }}>{fmtDate(b.batch_date)}</td>
-                  <td style={{ fontSize: 12 }}>{b.cutting_master_name || <span style={{ color: 'var(--muted)' }}>—</span>}</td>
-                  <td style={{ fontSize: 12 }}>{b.tailor_name || <span style={{ color: 'var(--muted)' }}>—</span>}</td>
+                  <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--accent)' }}>₹{b.cut_rate}</td>
+                  <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--cyan)' }}>₹{b.stitch_rate}</td>
                   <td>
                     <span className={`badge ${b.status === 'finished' ? 'b-green' : b.status === 'cutting' ? 'b-accent' : 'b-yellow'}`}>
                       {STATUS_LABEL[b.status] || b.status}
@@ -522,22 +734,16 @@ export default function ProductionPage() {
 
             <BatchFlow status={detail.batch?.status} />
 
-            {(detail.batch?.cutting_master_name || detail.batch?.tailor_name) && (
-              <div style={{ display: 'flex', gap: 12, margin: '12px 0', fontSize: 13 }}>
-                {detail.batch.cutting_master_name && (
-                  <div style={{ flex: 1, background: 'var(--accent-l)', borderRadius: 8, padding: '8px 12px' }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 2 }}>Cutting Master</div>
-                    <div style={{ fontWeight: 700 }}>{detail.batch.cutting_master_name}</div>
-                  </div>
-                )}
-                {detail.batch.tailor_name && (
-                  <div style={{ flex: 1, background: 'var(--cyan-l)', borderRadius: 8, padding: '8px 12px' }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--cyan)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 2 }}>Tailor</div>
-                    <div style={{ fontWeight: 700 }}>{detail.batch.tailor_name}</div>
-                  </div>
-                )}
+            <div style={{ display: 'flex', gap: 12, margin: '12px 0', fontSize: 13 }}>
+              <div style={{ flex: 1, background: 'var(--accent-l)', borderRadius: 8, padding: '8px 12px' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 2 }}>Cutting Rate</div>
+                <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--accent)' }}>₹{detail.batch?.cut_rate}/pc</div>
               </div>
-            )}
+              <div style={{ flex: 1, background: 'var(--cyan-l)', borderRadius: 8, padding: '8px 12px' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--cyan)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 2 }}>Stitching Rate</div>
+                <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--cyan)' }}>₹{detail.batch?.stitch_rate}/pc</div>
+              </div>
+            </div>
 
             {/* Cost breakdown — always shown from product config */}
             {(() => {
@@ -545,18 +751,24 @@ export default function ProductionPage() {
               const qty    = Number(b?.quantity || 0);
               const bCfg   = configs.find(c => c.category === b?.category) || {};
               const isL    = b?.category === 'shawl_nighty_lace';
-              // Labour: use actual work log rates if available, else fall back to config
-              const wCut   = detail.workLogs?.find(w => w.role === 'cutting_master');
-              const wTail  = detail.workLogs?.find(w => w.role === 'tailor');
-              const cutRate    = Number(wCut?.rate_per_pc  || bCfg.cut_rate    || 5);
-              const stitchRate = Number(wTail?.rate_per_pc || bCfg.stitch_rate || 15);
+              const isPla  = b?.category !== 'ordinary_nighty';
+              const cutRate    = Number(b?.cut_rate ?? bCfg.cut_rate ?? 0);
+              const stitchRate = Number(b?.stitch_rate ?? bCfg.stitch_rate ?? 0);
               const cutAmt     = qty * cutRate;
               const stitchAmt  = qty * stitchRate;
               const labTotal   = cutAmt + stitchAmt;
-              const _zip  = qty * Number(bCfg.zip_cost    || 2);
-              const _thr  = qty * Number(bCfg.thread_cost || 1);
-              const _can  = qty * Number(bCfg.canvas_cost || 2);
-              const _pla  = qty * Number(bCfg.plastic_cost|| 2.5);
+              const _accZ  = accLatest.find(x => x.accessory_type === 'zip');
+              const _accT  = accLatest.find(x => x.accessory_type === 'thread');
+              const _accC  = accLatest.find(x => x.accessory_type === 'canvas');
+              const _accP  = accLatest.find(x => x.accessory_type === 'plastic');
+              const _zipPc = _accZ ? accPerNighty(_accZ) : Number(bCfg.zip_cost     || 0);
+              const _thrPc = _accT ? accPerNighty(_accT) : Number(bCfg.thread_cost  || 0);
+              const _canPc = _accC ? accPerNighty(_accC) : CANVAS_DEFAULT;
+              const _plaPc = _accP ? accPerNighty(_accP) : Number(bCfg.plastic_cost || 0);
+              const _zip  = qty * _zipPc;
+              const _thr  = qty * _thrPc;
+              const _can  = qty * _canPc;
+              const _pla  = isPla ? qty * _plaPc : 0;
               const _lac  = isL ? qty * Number(bCfg.lace_cost || 8) : 0;
               const _acc  = _zip + _thr + _can + _pla + _lac;
               return (
@@ -571,10 +783,10 @@ export default function ProductionPage() {
                     </div>
                     <div className="calc-box" style={{ margin: 0, background: '#f0fdf4', borderColor: '#86efac' }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 6 }}>🧰 Accessories</div>
-                      <div className="calc-row"><span className="cl">Zip (₹{bCfg.zip_cost||2} × {qty})</span><span className="cv">{fmt(_zip)}</span></div>
-                      <div className="calc-row"><span className="cl">Thread (₹{bCfg.thread_cost||1} × {qty})</span><span className="cv">{fmt(_thr)}</span></div>
-                      <div className="calc-row"><span className="cl">Canvas (₹{bCfg.canvas_cost||2} × {qty})</span><span className="cv">{fmt(_can)}</span></div>
-                      <div className="calc-row"><span className="cl">Plastic Bag (₹{bCfg.plastic_cost||2.5} × {qty})</span><span className="cv">{fmt(_pla)}</span></div>
+                      <div className="calc-row"><span className="cl">Zip (₹{_zipPc.toFixed(2)}/pc × {qty}{_accZ ? ' 📌' : ' est.'})</span><span className="cv">{fmt(_zip)}</span></div>
+                      <div className="calc-row"><span className="cl">Thread (₹{_thrPc.toFixed(2)}/pc × {qty}{_accT ? ' 📌' : ' est.'})</span><span className="cv">{fmt(_thr)}</span></div>
+                      <div className="calc-row"><span className="cl">Canvas (₹{_canPc.toFixed(2)}/pc × {qty}{_accC ? ' 📌' : ' est.'})</span><span className="cv">{fmt(_can)}</span></div>
+                      {isPla && <div className="calc-row"><span className="cl">Plastic Bag (₹{_plaPc.toFixed(2)}/pc × {qty}{_accP ? ' 📌' : ' est.'})</span><span className="cv">{fmt(_pla)}</span></div>}
                       {isL && <div className="calc-row" style={{ color: 'var(--cyan)', fontWeight: 600 }}><span className="cl">Lace (₹{bCfg.lace_cost||8} × {qty})</span><span className="cv">{fmt(_lac)}</span></div>}
                       <hr className="calc-divider" />
                       <div className="calc-row"><span className="cl">Accessories Total</span><span className="cv" style={{ color: 'var(--green)' }}>{fmt(_acc)}</span></div>
@@ -640,7 +852,16 @@ export default function ProductionPage() {
             <div className="form-grid">
               <div className="field">
                 <label>Category</label>
-                <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
+                <select value={form.category} onChange={e => {
+                  const cat = e.target.value;
+                  const cfg = configs.find(c => c.category === cat) || {};
+                  setForm(f => ({
+                    ...f,
+                    category: cat,
+                    cut_rate: cfg.cut_rate ?? 5.00,
+                    stitch_rate: cfg.stitch_rate ?? 15.00,
+                  }));
+                }}>
                   {CATEGORIES.map(c => <option key={c} value={c}>{CAT_LABEL[c]}</option>)}
                 </select>
               </div>
@@ -654,18 +875,14 @@ export default function ProductionPage() {
                 <input type="date" value={form.batch_date} onChange={e => setForm(f => ({ ...f, batch_date: e.target.value }))} />
               </div>
               <div className="field">
-                <label>Cutting Master</label>
-                <select value={form.cutting_master_id} onChange={e => setForm(f => ({ ...f, cutting_master_id: e.target.value }))}>
-                  <option value="">— None —</option>
-                  {cutters.map(s => <option key={s.id} value={s.id}>{s.name} (₹{s.rate_per_pc}/pc)</option>)}
-                </select>
+                <label>Cutting Rate (₹/pc)</label>
+                <input type="number" step="0.01" value={form.cut_rate}
+                  onChange={e => setForm(f => ({ ...f, cut_rate: e.target.value }))} />
               </div>
               <div className="field">
-                <label>Tailor</label>
-                <select value={form.tailor_id} onChange={e => setForm(f => ({ ...f, tailor_id: e.target.value }))}>
-                  <option value="">— None —</option>
-                  {tailors.map(s => <option key={s.id} value={s.id}>{s.name} (₹{s.rate_per_pc}/pc)</option>)}
-                </select>
+                <label>Stitching Rate (₹/pc)</label>
+                <input type="number" step="0.01" value={form.stitch_rate}
+                  onChange={e => setForm(f => ({ ...f, stitch_rate: e.target.value }))} />
               </div>
             </div>
 
@@ -675,17 +892,17 @@ export default function ProductionPage() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
                   <div className="calc-box" style={{ margin: 0 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 6 }}>👷 Labour</div>
-                    <div className="calc-row"><span className="cl">Cutting (₹{previewCut?.rate_per_pc||5}×{previewQty})</span><span className="cv">{fmt(cutAmt)}</span></div>
-                    <div className="calc-row"><span className="cl">Stitching (₹{previewTail?.rate_per_pc||15}×{previewQty})</span><span className="cv">{fmt(tailAmt)}</span></div>
+                    <div className="calc-row"><span className="cl">Cutting (₹{form.cut_rate||0}×{previewQty})</span><span className="cv">{fmt(cutAmt)}</span></div>
+                    <div className="calc-row"><span className="cl">Stitching (₹{form.stitch_rate||0}×{previewQty})</span><span className="cv">{fmt(tailAmt)}</span></div>
                     <hr className="calc-divider" />
                     <div className="calc-row"><span className="cl">Labour Total</span><span className="cv" style={{ color: 'var(--accent)' }}>{fmt(labourTotal)}</span></div>
                   </div>
                   <div className="calc-box" style={{ margin: 0, background: '#f0fdf4', borderColor: '#86efac' }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 6 }}>🧰 Accessories</div>
-                    <div className="calc-row"><span className="cl">Zip (₹{previewCfg?.zip_cost||2}×{previewQty})</span><span className="cv">{fmt(zipAmt)}</span></div>
-                    <div className="calc-row"><span className="cl">Thread (₹{previewCfg?.thread_cost||1}×{previewQty})</span><span className="cv">{fmt(threadAmt)}</span></div>
-                    <div className="calc-row"><span className="cl">Canvas (₹{previewCfg?.canvas_cost||2}×{previewQty})</span><span className="cv">{fmt(canvasAmt)}</span></div>
-                    <div className="calc-row"><span className="cl">Plastic (₹{previewCfg?.plastic_cost||2.5}×{previewQty})</span><span className="cv">{fmt(plasticAmt)}</span></div>
+                    <div className="calc-row"><span className="cl">Zip (₹{_pvZipPc.toFixed(2)}/pc×{previewQty}{_pvZ ? ' 📌' : ' est.'})</span><span className="cv">{fmt(zipAmt)}</span></div>
+                    <div className="calc-row"><span className="cl">Thread (₹{_pvThrPc.toFixed(2)}/pc×{previewQty}{_pvT ? ' 📌' : ' est.'})</span><span className="cv">{fmt(threadAmt)}</span></div>
+                    <div className="calc-row"><span className="cl">Canvas (₹{_pvCanPc.toFixed(2)}/pc×{previewQty}{_pvC ? ' 📌' : ' est.'})</span><span className="cv">{fmt(canvasAmt)}</span></div>
+                    <div className="calc-row"><span className="cl">Plastic (₹{_pvPlaPc.toFixed(2)}/pc×{previewQty}{_pvP ? ' 📌' : ' est.'})</span><span className="cv">{fmt(plasticAmt)}</span></div>
                     {isLaceForm && <div className="calc-row" style={{ color: 'var(--cyan)', fontWeight: 600 }}><span className="cl">Lace (₹{previewCfg?.lace_cost||8}×{previewQty})</span><span className="cv">{fmt(laceAmt)}</span></div>}
                     {!isLaceForm && <div className="calc-row" style={{ color: 'var(--muted)', fontSize: 12 }}><span className="cl">Lace</span><span className="cv">—</span></div>}
                     <hr className="calc-divider" />
@@ -723,18 +940,14 @@ export default function ProductionPage() {
                 </select>
               </div>
               <div className="field">
-                <label>Cutting Master</label>
-                <select value={editBatch.cutting_master_id} onChange={e => setEditBatch(b => ({ ...b, cutting_master_id: e.target.value }))}>
-                  <option value="">— None —</option>
-                  {cutters.map(s => <option key={s.id} value={s.id}>{s.name} (₹{s.rate_per_pc}/pc)</option>)}
-                </select>
+                <label>Cutting Rate (₹/pc)</label>
+                <input type="number" step="0.01" value={editBatch.cut_rate}
+                  onChange={e => setEditBatch(b => ({ ...b, cut_rate: e.target.value }))} />
               </div>
               <div className="field">
-                <label>Tailor</label>
-                <select value={editBatch.tailor_id} onChange={e => setEditBatch(b => ({ ...b, tailor_id: e.target.value }))}>
-                  <option value="">— None —</option>
-                  {tailors.map(s => <option key={s.id} value={s.id}>{s.name} (₹{s.rate_per_pc}/pc)</option>)}
-                </select>
+                <label>Stitching Rate (₹/pc)</label>
+                <input type="number" step="0.01" value={editBatch.stitch_rate}
+                  onChange={e => setEditBatch(b => ({ ...b, stitch_rate: e.target.value }))} />
               </div>
             </div>
 

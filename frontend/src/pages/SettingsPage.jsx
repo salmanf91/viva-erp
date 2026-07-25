@@ -9,8 +9,6 @@ const CONFIG_FIELDS = [
   { key: 'fabric_cost',    label: 'Fabric Cost / pc' },
   { key: 'selling_rate',   label: 'Selling Rate / pc' },
   { key: 'lace_cost',      label: 'Lace Cost / pc' },
-  { key: 'zip_cost',       label: 'Zip Cost / pc' },
-  { key: 'thread_cost',    label: 'Thread / pc' },
   { key: 'canvas_cost',    label: 'Canvas / pc' },
   { key: 'plastic_cost',   label: 'Plastic Bag / pc' },
   { key: 'logistics_cost', label: 'Logistics / pc' },
@@ -37,7 +35,7 @@ export default function SettingsPage() {
 
   const openCfg = cat => {
     const existing = configs.find(c => c.category === cat) || {};
-    const defaults = { fabric_cost:0, selling_rate:0, lace_cost:0, zip_cost:2, thread_cost:1, canvas_cost:2, plastic_cost:2.5, logistics_cost:5.3, cut_rate:5, stitch_rate:15 };
+    const defaults = { fabric_cost:0, selling_rate:0, lace_cost:0, canvas_cost:2, plastic_cost:2.5, logistics_cost:5.3, cut_rate:5, stitch_rate:15 };
     setCfgForm({ ...defaults, ...existing });
     setEditCat(cat);
   };

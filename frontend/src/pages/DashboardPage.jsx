@@ -4,39 +4,23 @@ import api from '../api/client';
 const fmt = n => '₹' + Number(n || 0).toLocaleString('en-IN');
 
 export default function DashboardPage() {
-  const [stats, setStats]           = useState(null);
-  const [reminders, setReminders]   = useState([]);
-  const [loading, setLoading]       = useState(true);
+  const [stats, setStats]     = useState(null);
+  const [pnl, setPnl]         = useState(null);
+  const [loading, setLoading] = useState(true);
+  const now = new Date();
 
   useEffect(() => {
+    const m = now.getMonth() + 1, y = now.getFullYear();
     Promise.all([
       api.get('/stock/dashboard').then(r => setStats(r.data)),
-      api.get('/partners/reminders').then(r => setReminders(r.data)).catch(() => {}),
+      api.get(`/finance/pnl?month=${m}&year=${y}`).then(r => setPnl(r.data)).catch(() => {}),
     ]).finally(() => setLoading(false));
   }, []);
 
-  const resolveReminder = async id => {
-    await api.put(`/partners/reminders/${id}/resolve`);
-    setReminders(rs => rs.map(r => r.id === id ? { ...r, is_resolved: true } : r));
-  };
-
   if (loading) return <div className="spinner">Loading dashboard…</div>;
-
-  const pendingReminders = reminders.filter(r => !r.is_resolved);
 
   return (
     <>
-      {/* Dynamic reminder alerts */}
-      {pendingReminders.map(r => (
-        <div key={r.id} className={`alert ${r.type === 'critical' ? 'alert-red' : 'alert-yellow'} mb12`}>
-          <div className="a-icon">{r.type === 'critical' ? '⚠️' : '📌'}</div>
-          <div style={{ flex: 1 }}>
-            <div className="a-title">{r.title}</div>
-            {r.body && r.body !== r.title && <div className="a-body">{r.body}</div>}
-          </div>
-          <button className="btn btn-ghost btn-sm" onClick={() => resolveReminder(r.id)}>Dismiss</button>
-        </div>
-      ))}
 
       {/* KPI row */}
       <div className="g4 mb16">
@@ -52,8 +36,8 @@ export default function DashboardPage() {
         </div>
         <div className="stat s-cyan">
           <div className="s-label">Stock on Hand</div>
-          <div className="s-val">{stats?.stock_available ?? 0} pcs</div>
-          <div className="s-sub">Ready / unallocated</div>
+          <div className="s-val">{stats?.stock_remaining ?? 0} pcs</div>
+          <div className="s-sub">Finished &amp; ready to dispatch</div>
         </div>
         <div className="stat s-yellow">
           <div className="s-label">In Production</div>
@@ -61,6 +45,29 @@ export default function DashboardPage() {
           <div className="s-sub">{stats?.active_batches ?? 0} active batch{stats?.active_batches !== 1 ? 'es' : ''}</div>
         </div>
       </div>
+
+      {/* P&L snapshot */}
+      {pnl && (
+        <div className="card mb16">
+          <div className="card-hd">
+            📈 {now.toLocaleString('en-IN', { month: 'long' })} P&L Snapshot
+            <a href="/finance">Full Report →</a>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 0 }}>
+            {[
+              { label: 'Revenue',      value: fmt(pnl.revenue),      color: 'var(--green)' },
+              { label: 'COGS',         value: fmt(pnl.cogs.total),   color: 'var(--red)'   },
+              { label: 'OpEx',         value: fmt(pnl.opex.total),   color: 'var(--red)'   },
+              { label: 'Net Profit',   value: fmt(pnl.net_profit),   color: pnl.net_profit >= 0 ? 'var(--green)' : 'var(--red)' },
+            ].map((s, i) => (
+              <div key={s.label} style={{ padding: '10px 16px', borderLeft: i > 0 ? '1px solid var(--border)' : 'none' }}>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 3 }}>{s.label}</div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: s.color }}>{s.value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Body */}
       <div className="g21">
@@ -108,8 +115,12 @@ export default function DashboardPage() {
                 <span className="badge b-accent">{stats?.stock_allocated ?? 0} pcs</span>
               </div>
               <div className="il-row">
-                <span className="il-label">Available</span>
+                <span className="il-label">Available Fabric</span>
                 <span className="badge b-green">{stats?.stock_available ?? 0} pcs</span>
+              </div>
+              <div className="il-row">
+                <span className="il-label">Finished (On Hand)</span>
+                <span className="badge b-cyan">{stats?.stock_remaining ?? 0} pcs</span>
               </div>
             </div>
           </div>

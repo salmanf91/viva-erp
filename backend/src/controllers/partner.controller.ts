@@ -5,37 +5,67 @@ import { AuthRequest } from '../middleware/auth';
 export async function getPartners(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
   try {
-    const partners = await query(
+    const partners = await query<any[]>(
       `SELECT p.*,
-        COALESCE(SUM(cp.amount),0) AS confirmed_paid
+        COALESCE(SUM(CASE WHEN cp.type='investment' THEN cp.amount ELSE 0 END), 0) AS total_invested,
+        COALESCE(SUM(CASE WHEN cp.type='drawing'    THEN cp.amount ELSE 0 END), 0) AS total_drawn
        FROM partners p
-       LEFT JOIN capital_payments cp ON cp.partner_id = p.id
+       LEFT JOIN capital_payments cp ON cp.partner_id = p.id AND cp.tenant_id = ?
        WHERE p.tenant_id = ?
        GROUP BY p.id`,
-      [tenantId]
+      [tenantId, tenantId]
     );
-    res.json(partners);
+    const result = partners.map(p => ({
+      ...p,
+      net_capital: Number(p.total_invested) - Number(p.total_drawn),
+    }));
+    res.json(result);
   } catch { res.status(500).json({ message: 'Server error' }); }
 }
 
 export async function addCapitalPayment(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
-  const { partner_id, amount, payment_date, mode, note } = req.body;
+  const { partner_id, amount, type, source, payment_date, mode, note } = req.body;
   const date = payment_date || new Date().toISOString().slice(0, 10);
+  const txType = type || 'investment';
   try {
     const result = await query<any>(
-      'INSERT INTO capital_payments (tenant_id,partner_id,amount,payment_date,mode,note) VALUES (?,?,?,?,?,?)',
-      [tenantId, partner_id, amount, date, mode || 'cash', note || null]
+      'INSERT INTO capital_payments (tenant_id,partner_id,amount,type,source,payment_date,mode,note) VALUES (?,?,?,?,?,?,?,?)',
+      [tenantId, partner_id, amount, txType, source || null, date, mode || 'cash', note || null]
     );
-    await query(
-      'UPDATE partners SET paid_capital = paid_capital + ? WHERE id = ? AND tenant_id = ?',
-      [amount, partner_id, tenantId]
-    );
+    // Keep paid_capital in sync for backward compat (investment only)
+    if (txType === 'investment') {
+      await query(
+        'UPDATE partners SET paid_capital = paid_capital + ? WHERE id = ? AND tenant_id = ?',
+        [amount, partner_id, tenantId]
+      );
+    }
     res.status(201).json({ id: result.insertId });
   } catch (err) {
     console.error('addCapitalPayment error:', err);
     res.status(500).json({ message: 'Server error' });
   }
+}
+
+export async function getPartnerLedger(req: AuthRequest, res: Response): Promise<void> {
+  const { tenantId } = req.user!;
+  const { id } = req.params;
+  try {
+    const rows = await query<any[]>(
+      `SELECT * FROM capital_payments
+       WHERE tenant_id = ? AND partner_id = ?
+       ORDER BY payment_date ASC, id ASC`,
+      [tenantId, id]
+    );
+    // attach running balance
+    let balance = 0;
+    const ledger = rows.map(r => {
+      if (r.type === 'investment') balance += Number(r.amount);
+      else                         balance -= Number(r.amount);
+      return { ...r, balance };
+    });
+    res.json(ledger);
+  } catch { res.status(500).json({ message: 'Server error' }); }
 }
 
 export async function getCapitalPayments(req: AuthRequest, res: Response): Promise<void> {

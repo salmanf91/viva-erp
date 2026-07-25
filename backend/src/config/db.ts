@@ -14,7 +14,7 @@ const pool = mysql.createPool({
   dateStrings:        true,   // return DATE/DATETIME as strings, not JS Date objects
 });
 
-export async function query<T>(sql: string, params?: unknown[]): Promise<T> {
+export async function query<T>(sql: string, params?: any[]): Promise<T> {
   const [rows] = await pool.execute(sql, params);
   return rows as T;
 }

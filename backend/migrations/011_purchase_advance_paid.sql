@@ -1,0 +1,2 @@
+ALTER TABLE purchases
+  ADD COLUMN advance_paid DECIMAL(10,2) NOT NULL DEFAULT 0.00 AFTER note;

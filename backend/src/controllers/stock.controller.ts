@@ -41,7 +41,19 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
       [tenantId]
     );
 
-    res.json({ received, allocated, finished, shawlBreakdown });
+    // sold goods — merge shawl_nighty_lace → shawl_nighty
+    const sold = await query<any[]>(
+      `SELECT
+         CASE WHEN i.category = 'shawl_nighty_lace' THEN 'shawl_nighty' ELSE i.category END AS category,
+         SUM(i.quantity) AS qty
+       FROM sales_order_items i
+       JOIN sales_orders o ON o.id = i.order_id
+       WHERE o.tenant_id=?
+       GROUP BY CASE WHEN i.category = 'shawl_nighty_lace' THEN 'shawl_nighty' ELSE i.category END`,
+      [tenantId]
+    );
+
+    res.json({ received, allocated, finished, shawlBreakdown, sold });
   } catch { res.status(500).json({ message: 'Server error' }); }
 }
 
@@ -62,36 +74,82 @@ export async function getStockByVendor(req: AuthRequest, res: Response): Promise
 
 export async function getDashboardStats(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
+  const safe = (p: Promise<any[]>) => p.catch(() => [{}]);
+  const num  = (v: any) => Number(v || 0);
+  const earningExpr = `e.completed_pcs * CASE
+    WHEN e.work_type='stitching' THEN COALESCE((SELECT pc.stitch_rate FROM product_config pc WHERE pc.tenant_id=e.tenant_id AND pc.category=e.category LIMIT 1), 0)
+    ELSE                              COALESCE((SELECT pc.cut_rate FROM product_config pc WHERE pc.tenant_id=e.tenant_id AND pc.category=e.category LIMIT 1), s.rate_per_pc, 0)
+  END`;
+
   try {
-    const [partners, expenses, purchases, labor, stock, batches] = await Promise.all([
-      query<any[]>('SELECT SUM(paid_capital) AS total_capital, SUM(committed_capital) AS committed FROM partners WHERE tenant_id=?', [tenantId]),
-      query<any[]>('SELECT COALESCE(SUM(amount),0) AS total FROM expenses WHERE tenant_id=?', [tenantId]),
-      query<any[]>('SELECT COALESCE(SUM(total),0) AS total FROM purchases WHERE tenant_id=?', [tenantId]),
-      query<any[]>('SELECT COALESCE(SUM(amount),0) AS total FROM staff_work_logs WHERE tenant_id=? AND is_settled=0', [tenantId]),
-      query<any[]>(`SELECT
-        (SELECT COALESCE(SUM(quantity),0) FROM stock_movements WHERE tenant_id=? AND type='in') AS total_in,
-        (SELECT COALESCE(SUM(quantity),0) FROM production_batches WHERE tenant_id=?) AS total_allocated`,
-        [tenantId, tenantId]),
-      query<any[]>('SELECT COUNT(*) AS active FROM production_batches WHERE tenant_id=? AND status != "finished"', [tenantId]),
+    const [capitalRow, salesRow, purchasesRow, expCompanyRow, expReimbRow, payrollRow, laborRow, stock, batches] = await Promise.all([
+      safe(query<any[]>(`
+        SELECT
+          COALESCE(SUM(CASE WHEN type='investment' THEN amount ELSE 0 END),0) AS total_invested,
+          COALESCE(SUM(CASE WHEN type='drawing'    THEN amount ELSE 0 END),0) AS total_drawn
+        FROM capital_payments WHERE tenant_id=?`, [tenantId])),
+      safe(query<any[]>(`
+        SELECT COALESCE(SUM(amount_paid),0) AS total
+        FROM sales_orders WHERE tenant_id=?`, [tenantId])),
+      safe(query<any[]>(`
+        SELECT COALESCE(SUM(total),0) AS total FROM purchases
+        WHERE tenant_id=? AND status='paid'`, [tenantId])),
+      safe(query<any[]>(`
+        SELECT COALESCE(SUM(amount),0) AS total FROM expenses
+        WHERE tenant_id=? AND (paid_by IS NULL OR paid_by='')`, [tenantId])),
+      safe(query<any[]>(`
+        SELECT COALESCE(SUM(amount),0) AS total FROM expenses
+        WHERE tenant_id=? AND reimbursed_at IS NOT NULL`, [tenantId])),
+      safe(query<any[]>(`
+        SELECT COALESCE(SUM(${earningExpr}),0) AS total
+        FROM staff_work_entries e JOIN staff s ON s.id=e.staff_id
+        WHERE e.tenant_id=? AND e.is_settled=1`, [tenantId])),
+      safe(query<any[]>(`
+        SELECT COALESCE(SUM(${earningExpr}),0) AS total
+        FROM staff_work_entries e JOIN staff s ON s.id=e.staff_id
+        WHERE e.tenant_id=? AND e.is_settled=0 AND e.completed_pcs>0`, [tenantId])),
+      safe(query<any[]>(`
+        SELECT
+          (SELECT COALESCE(SUM(quantity),0) FROM stock_movements   WHERE tenant_id=? AND type='in') AS total_in,
+          (SELECT COALESCE(SUM(quantity),0) FROM production_batches WHERE tenant_id=?)               AS total_allocated,
+          (SELECT COALESCE(SUM(quantity),0) FROM production_batches WHERE tenant_id=? AND status='finished') AS total_finished,
+          (SELECT COALESCE(SUM(i.quantity),0) FROM sales_order_items i JOIN sales_orders o ON o.id=i.order_id WHERE o.tenant_id=?) AS total_sold`,
+        [tenantId, tenantId, tenantId, tenantId])),
+      safe(query<any[]>(`
+        SELECT COUNT(*) AS active FROM production_batches
+        WHERE tenant_id=? AND status != 'finished'`, [tenantId])),
     ]);
 
-    const capital        = Number(partners[0]?.total_capital || 0);
-    const fabricPurchases= Number(purchases[0]?.total       || 0);
-    const otherExpenses  = Number(expenses[0]?.total        || 0);
-    const totalExpenses  = fabricPurchases + otherExpenses;
-    const cashInHand     = capital - totalExpenses;
+    const totalInvested   = num(capitalRow[0]?.total_invested);
+    const totalDrawn      = num(capitalRow[0]?.total_drawn);
+    const capital         = totalInvested - totalDrawn;
+    const salesReceived   = num(salesRow[0]?.total);
+    const fabricPurchases = num(purchasesRow[0]?.total);
+    const otherExpenses   = num(expCompanyRow[0]?.total);
+    const reimbursements  = num(expReimbRow[0]?.total);
+    const payrollSettled  = num(payrollRow[0]?.total);
+    const laborLiability  = num(laborRow[0]?.total);
+
+    const cashInHand = totalInvested + salesReceived
+                     - totalDrawn - fabricPurchases - otherExpenses
+                     - reimbursements - payrollSettled;
 
     res.json({
       capital,
-      cash_in_hand:      cashInHand,
-      fabric_purchases:  fabricPurchases,
-      other_expenses:    otherExpenses,
-      total_expenses:    totalExpenses,
-      labor_liability:   Number(labor[0]?.total || 0),
-      stock_in: stock[0]?.total_in || 0,
-      stock_allocated: stock[0]?.total_allocated || 0,
-      stock_available: (stock[0]?.total_in || 0) - (stock[0]?.total_allocated || 0), // allocated merges lace→shawl in batch queries
-      active_batches: batches[0]?.active || 0,
+      cash_in_hand:     cashInHand,
+      fabric_purchases: fabricPurchases,
+      other_expenses:   otherExpenses,
+      labor_liability:  laborLiability,
+      stock_in:         num(stock[0]?.total_in),
+      stock_allocated:  num(stock[0]?.total_allocated),
+      stock_available:  num(stock[0]?.total_in) - num(stock[0]?.total_allocated),
+      stock_finished:   num(stock[0]?.total_finished),
+      stock_sold:       num(stock[0]?.total_sold),
+      stock_remaining:  Math.max(0, num(stock[0]?.total_finished) - num(stock[0]?.total_sold)),
+      active_batches:   num(batches[0]?.active),
     });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (err) {
+    console.error('getDashboardStats error:', err);
+    res.status(500).json({ message: 'Server error' });
+  }
 }

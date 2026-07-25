@@ -2,8 +2,8 @@
 -- Viva Studio ERP — MySQL Schema
 -- ============================================================
 
-CREATE DATABASE IF NOT EXISTS viva_erp CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE viva_erp;
+CREATE DATABASE IF NOT EXISTS viva_studio_erp CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE viva_studio_erp;
 
 -- ── TENANTS ──────────────────────────────────────────────────
 CREATE TABLE tenants (
@@ -19,7 +19,7 @@ CREATE TABLE users (
   name          VARCHAR(255) NOT NULL,
   email         VARCHAR(255) NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
-  role          ENUM('owner','partner','manager') DEFAULT 'partner',
+  role          ENUM('owner','partner','manager', 'staff_admin') DEFAULT 'partner',
   created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_email_tenant (email, tenant_id),
   FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
@@ -85,6 +85,7 @@ CREATE TABLE purchases (
   total        DECIMAL(12,2) NOT NULL,
   status       ENUM('paid','pending','partial') DEFAULT 'paid',
   note         TEXT,
+  advance_paid DECIMAL(10,2) NOT NULL DEFAULT 0.00,
   created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (tenant_id) REFERENCES tenants(id)  ON DELETE CASCADE,
   FOREIGN KEY (vendor_id) REFERENCES vendors(id)  ON DELETE RESTRICT
@@ -192,19 +193,17 @@ CREATE TABLE staff (
 
 -- ── PRODUCTION BATCHES ────────────────────────────────────────
 CREATE TABLE production_batches (
-  id                INT PRIMARY KEY AUTO_INCREMENT,
-  tenant_id         INT NOT NULL,
-  batch_number      VARCHAR(20) NOT NULL,
-  category          ENUM('shawl_nighty','shawl_nighty_lace','ordinary_nighty') NOT NULL,
-  quantity          INT NOT NULL,
-  cutting_master_id INT,
-  tailor_id         INT,
-  status            ENUM('allocated','cutting','stitching','finished') DEFAULT 'allocated',
-  batch_date        DATE NOT NULL,
-  created_at        TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (tenant_id)         REFERENCES tenants(id) ON DELETE CASCADE,
-  FOREIGN KEY (cutting_master_id) REFERENCES staff(id)   ON DELETE SET NULL,
-  FOREIGN KEY (tailor_id)         REFERENCES staff(id)   ON DELETE SET NULL
+  id           INT PRIMARY KEY AUTO_INCREMENT,
+  tenant_id    INT NOT NULL,
+  batch_number VARCHAR(20) NOT NULL,
+  category     ENUM('shawl_nighty','shawl_nighty_lace','ordinary_nighty') NOT NULL,
+  quantity     INT NOT NULL,
+  cut_rate     DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  stitch_rate  DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+  status       ENUM('allocated','cutting','stitching','finished') DEFAULT 'allocated',
+  batch_date   DATE NOT NULL,
+  created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE
 );
 
 -- ── STAFF WORK LOGS (payroll source) ─────────────────────────
@@ -237,6 +236,18 @@ CREATE TABLE stock_movements (
   created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
   FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE SET NULL
+);
+
+-- ── SALES PAYMENTS ────────────────────────────────────────────
+CREATE TABLE sales_payments (
+  id           INT PRIMARY KEY AUTO_INCREMENT,
+  tenant_id    INT NOT NULL,
+  order_id     INT NOT NULL,
+  amount       DECIMAL(10,2) NOT NULL,
+  payment_date DATE NOT NULL,
+  created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE CASCADE,
+  FOREIGN KEY (order_id)  REFERENCES sales_orders(id) ON DELETE CASCADE
 );
 
 -- ============================================================

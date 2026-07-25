@@ -27,10 +27,11 @@ export default function PurchasesPage() {
 
   const emptyForm = () => ({
     vendor_id: '', purchase_date: new Date().toISOString().slice(0, 10),
-    tax_percent: 0, discount: '', notes: '',
+    tax_percent: 0, tax_inclusive: false, discount: '', notes: '',
     items: [{ category: 'shawl_nighty', quantity: '', price_per_piece: '' }],
     freight: '', coolie: '',
     has_dispute: false, dispute_amount: '', dispute_description: '',
+    advance_paid: '',
   });
   const [form, setForm] = useState(emptyForm());
 
@@ -38,10 +39,12 @@ export default function PurchasesPage() {
     vendor_id:    String(p.vendor_id),
     purchase_date: (p.invoice_date || '').slice(0, 10),
     tax_percent:  p.tax_rate || 0,
+    tax_inclusive: !!p.tax_inclusive,
     discount:     p.discount_pct || '',
     notes:        p.note || '',
-    freight:      '',
-    coolie:       '',
+    freight:      p.freight ? String(p.freight) : '',
+    coolie:       p.coolie ? String(p.coolie) : '',
+    advance_paid: p.advance_paid ? String(p.advance_paid) : '',
   });
   const [editForm, setEditForm] = useState({});
 
@@ -76,10 +79,12 @@ export default function PurchasesPage() {
       vendor_id:    +editForm.vendor_id,
       invoice_date: editForm.purchase_date,
       tax_rate:     +editForm.tax_percent,
+      tax_inclusive: editForm.tax_inclusive,
       discount:     editForm.discount !== '' ? +editForm.discount : 0,
       note:         editForm.notes || null,
-      freight:      editForm.freight !== '' ? +editForm.freight : undefined,
-      coolie:       editForm.coolie  !== '' ? +editForm.coolie  : undefined,
+      freight:      editForm.freight !== '' ? +editForm.freight : 0,
+      coolie:       editForm.coolie  !== '' ? +editForm.coolie  : 0,
+      advance_paid: editForm.advance_paid !== '' ? +editForm.advance_paid : 0,
     });
     setEditTarget(null);
     loadPurchases(page);
@@ -105,6 +110,7 @@ export default function PurchasesPage() {
       vendor_id:    +form.vendor_id,
       invoice_date: form.purchase_date,
       tax_rate:     +form.tax_percent,
+      tax_inclusive: form.tax_inclusive,
       discount:     form.discount !== '' ? +form.discount : 0,
       status:       'paid',
       note:         form.notes || null,
@@ -115,6 +121,7 @@ export default function PurchasesPage() {
       dispute: form.has_dispute && form.dispute_amount
         ? { amount: +form.dispute_amount, description: form.dispute_description || null }
         : undefined,
+      advance_paid: form.advance_paid !== '' ? +form.advance_paid : 0,
     });
     setShowNew(false); setForm(emptyForm()); loadPurchases(1, search);
   };
@@ -198,7 +205,14 @@ export default function PurchasesPage() {
                   <td style={{ textAlign: 'right', color: 'var(--green)' }}>
                     {Number(p.discount_pct) > 0 ? `${p.discount_pct}%` : <span style={{ color: 'var(--muted)' }}>—</span>}
                   </td>
-                  <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmtRound(p.total)}</td>
+                  <td style={{ textAlign: 'right', fontWeight: 700 }}>
+                    {fmtRound(p.total)}
+                    {Number(p.advance_paid) > 0 && (
+                      <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 400 }}>
+                        Adv: {fmt(p.advance_paid)}
+                      </div>
+                    )}
+                  </td>
                   <td>
                     {p.tax_rate > 0
                       ? <span className="badge b-accent" style={{ fontSize: 10 }}>{p.tax_rate}%</span>
@@ -281,7 +295,7 @@ export default function PurchasesPage() {
               )}
               {Number(detail.purchase?.tax_amount) > 0 && (
                 <div className="calc-row">
-                  <span className="cl">GST ({detail.purchase?.tax_rate}%)</span>
+                  <span className="cl">GST ({detail.purchase?.tax_rate}%){detail.purchase?.tax_inclusive ? ' (inclusive)' : ''}</span>
                   <span className="cv">{fmt(detail.purchase?.tax_amount)}</span>
                 </div>
               )}
@@ -302,6 +316,20 @@ export default function PurchasesPage() {
                 <span className="cl" style={{ fontWeight: 700, fontSize: 14 }}>Grand Total</span>
                 <span className="cv" style={{ fontSize: 16, fontWeight: 800, color: 'var(--red)' }}>{fmtRound(detail.purchase?.total)}</span>
               </div>
+              {Number(detail.purchase?.advance_paid) > 0 && (
+                <>
+                  <div className="calc-row" style={{ marginTop: 6 }}>
+                    <span className="cl" style={{ color: 'var(--blue, #2563eb)' }}>Advance Paid</span>
+                    <span className="cv" style={{ color: 'var(--blue, #2563eb)', fontWeight: 600 }}>{fmt(detail.purchase.advance_paid)}</span>
+                  </div>
+                  <div className="calc-row" style={{ fontWeight: 700, fontSize: 13, marginTop: 4 }}>
+                    <span className="cl">Balance Due</span>
+                    <span className="cv" style={{ color: 'var(--red, #ef4444)' }}>
+                      {fmtRound(Number(detail.purchase.total) - Number(detail.purchase.advance_paid))}
+                    </span>
+                  </div>
+                </>
+              )}
             </div>
 
             <div style={{ fontWeight: 700, fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>
@@ -394,6 +422,10 @@ export default function PurchasesPage() {
                 <label>Coolie (₹)</label>
                 <input type="number" placeholder="Leave blank to keep existing" value={editForm.coolie} onChange={e => setEditForm(f => ({ ...f, coolie: e.target.value }))} />
               </div>
+              <div className="field">
+                <label>Advance Paid (₹)</label>
+                <input type="number" placeholder="0" value={editForm.advance_paid} onChange={e => setEditForm(f => ({ ...f, advance_paid: e.target.value }))} />
+              </div>
             </div>
             <div className="modal-actions">
               <button className="btn btn-ghost" onClick={() => setEditTarget(null)}>Cancel</button>
@@ -481,6 +513,19 @@ export default function PurchasesPage() {
                 <label>Coolie / Labour (₹)</label>
                 <input type="number" placeholder="0" value={form.coolie} onChange={e => setForm(f => ({ ...f, coolie: e.target.value }))} />
               </div>
+              <div className="field">
+                <label>Advance Paid (₹)</label>
+                <input type="number" placeholder="0" value={form.advance_paid} onChange={e => setForm(f => ({ ...f, advance_paid: e.target.value }))} />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '10px 0 0 0' }}>
+              <input type="checkbox" id="chk-tax-inclusive" checked={form.tax_inclusive}
+                onChange={e => setForm(f => ({ ...f, tax_inclusive: e.target.checked }))}
+                style={{ width: 'auto', accentColor: 'var(--accent)' }} />
+              <label htmlFor="chk-tax-inclusive" style={{ margin: 0, fontSize: 13, fontWeight: 600, cursor: 'pointer', textTransform: 'none', letterSpacing: 0, color: 'var(--text)' }}>
+                Item rates are tax-inclusive (GST is already included in rates)
+              </label>
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '10px 0' }}>
