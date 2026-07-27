@@ -54,7 +54,7 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
     );
 
     res.json({ received, allocated, finished, shawlBreakdown, sold });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function getStockByVendor(req: AuthRequest, res: Response): Promise<void> {
@@ -69,7 +69,7 @@ export async function getStockByVendor(req: AuthRequest, res: Response): Promise
       [tenantId]
     );
     res.json(rows);
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function getDashboardStats(req: AuthRequest, res: Response): Promise<void> {

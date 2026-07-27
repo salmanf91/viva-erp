@@ -10,7 +10,7 @@ export async function getReasons(req: AuthRequest, res: Response): Promise<void>
       [tenantId]
     );
     res.json(rows);
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function addReason(req: AuthRequest, res: Response): Promise<void> {
@@ -22,7 +22,7 @@ export async function addReason(req: AuthRequest, res: Response): Promise<void> 
       [tenantId, name, category, icon || '💰', accessory_type || null]
     );
     res.status(201).json({ id: r.insertId, name, category, icon, accessory_type });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 // Latest accessory cost-per-nighty derived from actual expenses
@@ -36,7 +36,7 @@ export async function reimburseExpense(req: AuthRequest, res: Response): Promise
       [reimbursed_by || null, id, tenantId]
     );
     res.json({ message: 'Reimbursed' });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function getAccessoryPrices(req: AuthRequest, res: Response): Promise<void> {
@@ -61,7 +61,7 @@ export async function getAccessoryPrices(req: AuthRequest, res: Response): Promi
       if (!latest[row.accessory_type]) latest[row.accessory_type] = row;
     }
     res.json(Object.values(latest));
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function getExpenses(req: AuthRequest, res: Response): Promise<void> {
@@ -94,7 +94,7 @@ export async function getExpenses(req: AuthRequest, res: Response): Promise<void
       is_archived = check.length > 0;
     }
     res.json({ expenses, is_archived });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function addExpense(req: AuthRequest, res: Response): Promise<void> {
@@ -106,7 +106,7 @@ export async function addExpense(req: AuthRequest, res: Response): Promise<void>
       [tenantId, reason_id, amount, expense_date, note || notes || null, paid_by || null, qty_purchased || null]
     );
     res.status(201).json({ id: r.insertId });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function updateExpense(req: AuthRequest, res: Response): Promise<void> {
@@ -125,7 +125,7 @@ export async function updateExpense(req: AuthRequest, res: Response): Promise<vo
       [amount, note || notes || null, expense_date, paidByVal, qty_purchased || null, id, tenantId]
     );
     res.json({ message: 'Updated' });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function deleteExpense(req: AuthRequest, res: Response): Promise<void> {
@@ -134,7 +134,7 @@ export async function deleteExpense(req: AuthRequest, res: Response): Promise<vo
   try {
     await query('DELETE FROM expenses WHERE id=? AND tenant_id=? AND is_archived=0', [id, tenantId]);
     res.json({ message: 'Deleted' });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function archiveMonth(req: AuthRequest, res: Response): Promise<void> {
@@ -146,7 +146,7 @@ export async function archiveMonth(req: AuthRequest, res: Response): Promise<voi
       [tenantId, month, year]
     );
     res.json({ message: `Archived ${month}/${year}` });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function getOverhead(req: AuthRequest, res: Response): Promise<void> {
@@ -158,7 +158,7 @@ export async function getOverhead(req: AuthRequest, res: Response): Promise<void
       [tenantId, month, year]
     );
     res.json(rows[0] || { rent: 0, electricity: 0 });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function upsertOverhead(req: AuthRequest, res: Response): Promise<void> {
@@ -172,7 +172,7 @@ export async function upsertOverhead(req: AuthRequest, res: Response): Promise<v
       [tenantId, month, year, rent ?? 0, electricity ?? 0]
     );
     res.json({ message: 'Saved' });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function getExpenseSummary(req: AuthRequest, res: Response): Promise<void> {
@@ -190,5 +190,5 @@ export async function getExpenseSummary(req: AuthRequest, res: Response): Promis
     sql += ' GROUP BY er.category';
     const rows = await query<any[]>(sql, params);
     res.json(rows);
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }

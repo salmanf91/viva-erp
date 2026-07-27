@@ -13,7 +13,7 @@ export async function getBatches(req: AuthRequest, res: Response): Promise<void>
       [tenantId]
     );
     res.json(rows);
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function createBatch(req: AuthRequest, res: Response): Promise<void> {
@@ -62,7 +62,7 @@ export async function createBatch(req: AuthRequest, res: Response): Promise<void
     res.status(201).json({ id: batchId, batch_number: batchNumber });
   } catch (err) {
     await conn.rollback();
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: 'Server error', error: err instanceof Error ? err.message : String(err) });
   } finally {
     conn.release();
   }
@@ -79,7 +79,7 @@ export async function getBatchDetail(req: AuthRequest, res: Response): Promise<v
     );
     if (!batches[0]) { res.status(404).json({ message: 'Not found' }); return; }
     res.json({ batch: batches[0], workLogs: [] });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function finishBatch(req: AuthRequest, res: Response): Promise<void> {
@@ -91,7 +91,7 @@ export async function finishBatch(req: AuthRequest, res: Response): Promise<void
       [id, tenantId]
     );
     res.json({ message: 'Batch marked as finished' });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function getProductConfigs(req: AuthRequest, res: Response): Promise<void> {
@@ -99,7 +99,7 @@ export async function getProductConfigs(req: AuthRequest, res: Response): Promis
   try {
     const rows = await query('SELECT * FROM product_config WHERE tenant_id=?', [tenantId]);
     res.json(rows);
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function updateBatch(req: AuthRequest, res: Response): Promise<void> {
@@ -117,7 +117,7 @@ export async function updateBatch(req: AuthRequest, res: Response): Promise<void
     if (!sets.length) { res.status(400).json({ message: 'Nothing to update' }); return; }
     await query(`UPDATE production_batches SET ${sets.join(',')} WHERE id=? AND tenant_id=?`, [...vals, id, tenantId]);
     res.json({ message: 'Updated' });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function deleteBatch(req: AuthRequest, res: Response): Promise<void> {
@@ -126,7 +126,7 @@ export async function deleteBatch(req: AuthRequest, res: Response): Promise<void
   try {
     await query('DELETE FROM production_batches WHERE id=? AND tenant_id=?', [id, tenantId]);
     res.json({ message: 'Deleted' });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function updateBatchStatus(req: AuthRequest, res: Response): Promise<void> {
@@ -138,7 +138,7 @@ export async function updateBatchStatus(req: AuthRequest, res: Response): Promis
   try {
     await query('UPDATE production_batches SET status=? WHERE id=? AND tenant_id=?', [status, id, tenantId]);
     res.json({ message: 'Updated' });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function updateProductConfig(req: AuthRequest, res: Response): Promise<void> {
@@ -158,5 +158,5 @@ export async function updateProductConfig(req: AuthRequest, res: Response): Prom
       [tenantId, category, ...vals, ...vals]
     );
     res.json({ message: 'Saved' });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }

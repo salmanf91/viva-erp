@@ -19,7 +19,7 @@ export async function getStaff(req: AuthRequest, res: Response): Promise<void> {
       [tenantId]
     );
     res.json(rows);
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function addStaff(req: AuthRequest, res: Response): Promise<void> {
@@ -33,7 +33,7 @@ export async function addStaff(req: AuthRequest, res: Response): Promise<void> {
       [tenantId, name, role, rate, phone || null, canStitch]
     );
     res.status(201).json({ id: r.insertId, name, role, rate_per_pc: rate, can_stitch: canStitch });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function updateStaff(req: AuthRequest, res: Response): Promise<void> {
@@ -49,7 +49,7 @@ export async function updateStaff(req: AuthRequest, res: Response): Promise<void
     vals.push(id, tenantId);
     await query(`UPDATE staff SET ${sets.join(',')} WHERE id=? AND tenant_id=?`, vals);
     res.json({ message: 'Updated' });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function deactivateStaff(req: AuthRequest, res: Response): Promise<void> {
@@ -58,7 +58,7 @@ export async function deactivateStaff(req: AuthRequest, res: Response): Promise<
   try {
     await query('UPDATE staff SET is_active=0 WHERE id=? AND tenant_id=?', [id, tenantId]);
     res.json({ message: 'Deactivated' });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function reactivateStaff(req: AuthRequest, res: Response): Promise<void> {
@@ -70,7 +70,7 @@ export async function reactivateStaff(req: AuthRequest, res: Response): Promise<
   try {
     await query('UPDATE staff SET is_active=1 WHERE id=? AND tenant_id=?', [id, tenantId]);
     res.json({ message: 'Reactivated' });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 // ── Staff Admin user management ─────────────────────────────────────────────
@@ -83,7 +83,7 @@ export async function getStaffAdmins(req: AuthRequest, res: Response): Promise<v
       [tenantId]
     );
     res.json(rows);
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function createStaffAdmin(req: AuthRequest, res: Response): Promise<void> {
@@ -117,7 +117,7 @@ export async function removeStaffAdmin(req: AuthRequest, res: Response): Promise
   try {
     await query("DELETE FROM users WHERE id=? AND tenant_id=? AND role='staff_admin'", [id, tenantId]);
     res.json({ message: 'Removed' });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 // ── Work Entries ────────────────────────────────────────────────────────────
@@ -152,7 +152,7 @@ export async function getWorkEntries(req: AuthRequest, res: Response): Promise<v
     const carryoverMap: Record<number, number> = {};
     for (const c of carryover as any[]) carryoverMap[c.staff_id] = Number(c.pending_pcs);
     res.json((staff as any[]).map(s => ({ ...s, entries: byStaff[s.id] || [], carryover_pcs: carryoverMap[s.id] || 0 })));
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function getStaffHistory(req: AuthRequest, res: Response): Promise<void> {
@@ -175,7 +175,7 @@ export async function getStaffHistory(req: AuthRequest, res: Response): Promise<
       vals
     );
     res.json(rows);
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function upsertWorkEntry(req: AuthRequest, res: Response): Promise<void> {
@@ -193,7 +193,7 @@ export async function upsertWorkEntry(req: AuthRequest, res: Response): Promise<
       [tenantId, staff_id, entry_date, category, work_type]
     );
     res.json(rows[0]);
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function deleteWorkEntry(req: AuthRequest, res: Response): Promise<void> {
@@ -202,7 +202,7 @@ export async function deleteWorkEntry(req: AuthRequest, res: Response): Promise<
   try {
     await query('DELETE FROM staff_work_entries WHERE id=? AND tenant_id=?', [id, tenantId]);
     res.json({ message: 'Deleted' });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 // ── Payroll ─────────────────────────────────────────────────────────────────
@@ -229,7 +229,7 @@ export async function getPayrollSummary(req: AuthRequest, res: Response): Promis
       [tenantId, month, year, tenantId]
     );
     res.json(rows);
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function settleStaff(req: AuthRequest, res: Response): Promise<void> {
@@ -243,7 +243,7 @@ export async function settleStaff(req: AuthRequest, res: Response): Promise<void
       [tenantId, staff_id, month, year]
     );
     res.json({ message: 'Settled' });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function getLaborLiability(req: AuthRequest, res: Response): Promise<void> {
@@ -257,5 +257,5 @@ export async function getLaborLiability(req: AuthRequest, res: Response): Promis
       [tenantId]
     );
     res.json({ total_liability: rows[0]?.total_liability || 0 });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }

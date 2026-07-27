@@ -8,7 +8,7 @@ export async function getVendors(req: AuthRequest, res: Response): Promise<void>
   try {
     const rows = await query('SELECT * FROM vendors WHERE tenant_id = ? ORDER BY name', [tenantId]);
     res.json(rows);
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function createVendor(req: AuthRequest, res: Response): Promise<void> {
@@ -20,7 +20,7 @@ export async function createVendor(req: AuthRequest, res: Response): Promise<voi
       [tenantId, name, phone || null]
     );
     res.status(201).json({ id: r.insertId, name, phone });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function getPurchases(req: AuthRequest, res: Response): Promise<void> {
@@ -57,7 +57,7 @@ export async function getPurchases(req: AuthRequest, res: Response): Promise<voi
     ]);
     const total = (countRows as any[])[0]?.total || 0;
     res.json({ data: purchases, total, page, pages: Math.max(1, Math.ceil(total / limit)), limit });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function getPurchaseDetail(req: AuthRequest, res: Response): Promise<void> {
@@ -77,7 +77,7 @@ export async function getPurchaseDetail(req: AuthRequest, res: Response): Promis
     ]);
     if (!(purchases as any[]).length) { res.status(404).json({ message: 'Not found' }); return; }
     res.json({ purchase: (purchases as any[])[0], items, transport: (transport as any[])[0] || null, disputes });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function createPurchase(req: AuthRequest, res: Response): Promise<void> {
@@ -159,7 +159,7 @@ export async function createPurchase(req: AuthRequest, res: Response): Promise<v
     res.status(201).json({ id: purchaseId });
   } catch (err) {
     await conn.rollback();
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: 'Server error', error: err instanceof Error ? err.message : String(err) });
   } finally {
     conn.release();
   }
@@ -228,7 +228,7 @@ export async function updatePurchase(req: AuthRequest, res: Response): Promise<v
     res.json({ message: 'Updated' });
   } catch (err) {
     await conn.rollback();
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: 'Server error', error: err instanceof Error ? err.message : String(err) });
   } finally {
     conn.release();
   }
@@ -242,7 +242,7 @@ export async function deletePurchase(req: AuthRequest, res: Response): Promise<v
     await query('DELETE FROM stock_movements WHERE reference = CONCAT(\'PUR-\', ?)', [id]);
     await query('DELETE FROM purchases WHERE id=? AND tenant_id=?', [id, tenantId]);
     res.json({ message: 'Deleted' });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function resolveDispute(req: AuthRequest, res: Response): Promise<void> {
@@ -251,5 +251,5 @@ export async function resolveDispute(req: AuthRequest, res: Response): Promise<v
   try {
     await query('UPDATE purchase_disputes SET status = ? WHERE id = ?', [status, id]);
     res.json({ message: 'Updated' });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }

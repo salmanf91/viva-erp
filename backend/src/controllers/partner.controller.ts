@@ -20,7 +20,7 @@ export async function getPartners(req: AuthRequest, res: Response): Promise<void
       net_capital: Number(p.total_invested) - Number(p.total_drawn),
     }));
     res.json(result);
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function addCapitalPayment(req: AuthRequest, res: Response): Promise<void> {
@@ -65,7 +65,7 @@ export async function getPartnerLedger(req: AuthRequest, res: Response): Promise
       return { ...r, balance };
     });
     res.json(ledger);
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function getCapitalPayments(req: AuthRequest, res: Response): Promise<void> {
@@ -77,7 +77,7 @@ export async function getCapitalPayments(req: AuthRequest, res: Response): Promi
       [tenantId, partner_id]
     );
     res.json(rows);
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function getReminders(req: AuthRequest, res: Response): Promise<void> {
@@ -88,7 +88,7 @@ export async function getReminders(req: AuthRequest, res: Response): Promise<voi
       [tenantId]
     );
     res.json(rows);
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function addReminder(req: AuthRequest, res: Response): Promise<void> {
@@ -101,7 +101,7 @@ export async function addReminder(req: AuthRequest, res: Response): Promise<void
       [tenantId, note, note, type || 'warning']
     );
     res.status(201).json({ id: result.insertId });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function resolveReminder(req: AuthRequest, res: Response): Promise<void> {
@@ -113,5 +113,5 @@ export async function resolveReminder(req: AuthRequest, res: Response): Promise<
       [id, tenantId]
     );
     res.json({ message: 'Resolved' });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
