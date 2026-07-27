@@ -51,8 +51,8 @@ export async function getPurchases(req: AuthRequest, res: Response): Promise<voi
          JOIN vendors v ON v.id = p.vendor_id
          WHERE p.tenant_id = ? ${vendorFilter}
          ORDER BY p.invoice_date DESC
-         LIMIT ? OFFSET ?`,
-        [...params, limit, offset]
+         LIMIT ${limit} OFFSET ${offset}`,
+        params
       ),
     ]);
     const total = (countRows as any[])[0]?.total || 0;
