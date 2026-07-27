@@ -11,7 +11,7 @@ export async function getAccessoryCosts(req: AuthRequest, res: Response): Promis
       [tenantId]
     );
     res.json(rows);
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 // Latest price per accessory type (used by cost calculator)
@@ -34,7 +34,7 @@ export async function getLatestAccessoryCosts(req: AuthRequest, res: Response): 
       [tenantId, tenantId]
     );
     res.json(rows);
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function addAccessoryCost(req: AuthRequest, res: Response): Promise<void> {
@@ -50,7 +50,7 @@ export async function addAccessoryCost(req: AuthRequest, res: Response): Promise
       [tenantId, accessory, qty_purchased, unit || 'pcs', total_cost, yield_pcs || 1, purchase_date, note || null]
     );
     res.status(201).json({ id: r.insertId });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function deleteAccessoryCost(req: AuthRequest, res: Response): Promise<void> {
@@ -59,5 +59,5 @@ export async function deleteAccessoryCost(req: AuthRequest, res: Response): Prom
   try {
     await query('DELETE FROM accessory_costs WHERE id=? AND tenant_id=?', [id, tenantId]);
     res.json({ message: 'Deleted' });
-  } catch { res.status(500).json({ message: 'Server error' }); }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }

@@ -38,7 +38,7 @@ export async function login(req: Request, res: Response): Promise<void> {
       role: user.role, tenant_id: user.tenant_id, tenant_name: user.tenant_name,
     });
   } catch (err) {
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: 'Server error', error: err instanceof Error ? err.message : String(err) });
   }
 }
 
@@ -46,9 +46,7 @@ export async function getTenants(_req: Request, res: Response): Promise<void> {
   try {
     const tenants = await query<{ id: number; name: string }[]>('SELECT id, name FROM tenants ORDER BY name');
     res.json(tenants);
-  } catch {
-    res.status(500).json({ message: 'Server error' });
-  }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function changePassword(req: Request, res: Response): Promise<void> {
@@ -62,7 +60,5 @@ export async function changePassword(req: Request, res: Response): Promise<void>
     const hash = await bcrypt.hash(new_password, 10);
     await query('UPDATE users SET password_hash = ? WHERE id = ?', [hash, userId]);
     res.json({ message: 'Password updated' });
-  } catch {
-    res.status(500).json({ message: 'Server error' });
-  }
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
