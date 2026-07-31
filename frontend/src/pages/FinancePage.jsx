@@ -251,7 +251,7 @@ export default function FinancePage() {
   return (
     <>
       <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: '2px solid var(--border)' }}>
-        <button style={TAB(tab === 'pnl')}    onClick={() => setTab('pnl')}>📈 P&amp;L</button>
+        <button style={TAB(tab === 'pnl')}    onClick={() => setTab('pnl')}>📈 P&amp;L (Testing UI)</button>
         <button style={TAB(tab === 'ledger')} onClick={() => setTab('ledger')}>💵 Cash Ledger</button>
       </div>
 
