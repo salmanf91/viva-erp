@@ -216,11 +216,11 @@ export async function getCashLedger(req: AuthRequest, res: Response): Promise<vo
 
     // 7. Payroll settled — group by staff+month, date = last day of that month
     const payrollRows = await query<any[]>(
-      `SELECT LAST_DAY(e.entry_date) AS date, 'payroll' AS type,
-              CONCAT('👷 Payroll — ', s.name) AS description,
+      `SELECT MAX(LAST_DAY(e.entry_date)) AS date, 'payroll' AS type,
+              CONCAT('👷 Payroll — ', MAX(s.name)) AS description,
               SUM(${earningExpr}) AS amount, 'out' AS direction,
-              CONCAT(MONTHNAME(e.entry_date), ' ', YEAR(e.entry_date)) AS ref,
-              NULL AS note, s.name AS party
+              CONCAT(MAX(MONTHNAME(e.entry_date)), ' ', MAX(YEAR(e.entry_date))) AS ref,
+              NULL AS note, MAX(s.name) AS party
        FROM staff_work_entries e
        JOIN staff s ON s.id = e.staff_id
        WHERE e.tenant_id=? AND e.is_settled=1
