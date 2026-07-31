@@ -122,9 +122,9 @@ export async function getPnL(req: AuthRequest, res: Response): Promise<void> {
       gross_profit: grossProfit,
       net_profit:   netProfit,
     });
-  } catch (err) {
+  } catch (err: any) {
     console.error('getPnL error:', err);
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: 'Server error', error: err.message, stack: err.stack });
   }
 }
 
@@ -248,8 +248,8 @@ export async function getCashLedger(req: AuthRequest, res: Response): Promise<vo
     });
 
     res.json(ledger);
-  } catch (err) {
+  } catch (err: any) {
     console.error('getCashLedger error:', err);
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: 'Server error', error: err.message, stack: err.stack });
   }
 }
