@@ -349,3 +349,87 @@ tbody td { padding: 10px 12px; vertical-align: middle; }
 .divider { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
 .empty-state { text-align: center; padding: 40px; color: var(--muted); font-size: 13px; }
 .spinner { display: flex; justify-content: center; align-items: center; padding: 60px; color: var(--muted); font-size: 13px; }
+
+/* ── RESPONSIVE MEDIA QUERIES ── */
+@media (max-width: 1024px) {
+  .g4 { grid-template-columns: repeat(2, 1fr); }
+  .g3 { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 768px) {
+  /* Sidebar */
+  .sidebar {
+    display: none !important;
+  }
+  
+  /* Main Content Area */
+  .main {
+    margin-left: 0 !important;
+    padding-bottom: 80px; /* Space for mobile bottom nav */
+  }
+
+  .topbar {
+    padding: 0 16px;
+  }
+
+  .mobile-back-btn {
+    display: inline-block !important;
+  }
+
+  .mobile-user-badge {
+    display: flex !important;
+  }
+
+  .content {
+    padding: 16px;
+  }
+
+  /* Grids and Columns */
+  .g4, .g3, .g2, .g21 {
+    grid-template-columns: 1fr !important;
+    gap: 12px;
+  }
+
+  /* Form Grid */
+  .form-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Mobile Bottom Nav */
+  .mobile-bottom-nav {
+    display: flex !important;
+  }
+
+  /* Tables and overflows */
+  .tbl-wrap {
+    margin: 0 -16px;
+    padding: 0 16px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* Header section stacking */
+  .sec-hd {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .sec-hd .btn {
+    width: 100%;
+    text-align: center;
+  }
+
+  .prod-flow {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .pf-step {
+    flex: 1 1 45%;
+    border-radius: 8px !important;
+  }
+  
+  /* Tap target improvements */
+  .btn, .tab, .nav-item, .box-menu-item {
+    min-height: 40px;
+  }
+}
