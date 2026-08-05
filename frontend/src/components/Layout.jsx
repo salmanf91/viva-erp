@@ -1,4 +1,4 @@
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
@@ -29,7 +29,9 @@ const NAV_STAFF_ADMIN = [
 export default function Layout({ children, title }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [reminderCount, setReminderCount] = useState(0);
+  const [activeSectionMenu, setActiveSectionMenu] = useState(null);
 
   useEffect(() => {
     if (!user || user.role === 'staff_admin') return;
@@ -38,16 +40,50 @@ export default function Layout({ children, title }) {
     }).catch(() => {});
   }, [user]);
 
+  // Reset active section menu on path change
+  useEffect(() => {
+    setActiveSectionMenu(null);
+  }, [location.pathname]);
+
   const isStaffAdmin = user?.role === 'staff_admin';
   const NAV = isStaffAdmin ? NAV_STAFF_ADMIN : NAV_FULL;
+
+  // Process sections for mobile bottom navigation
+  const sections = [];
+  let currentSection = null;
+
+  NAV.forEach(item => {
+    if (item.section) {
+      let icon = '📂';
+      if (item.section === 'Overview') icon = '📊';
+      else if (item.section === 'Finance') icon = '📈';
+      else if (item.section === 'Inventory') icon = '📦';
+      else if (item.section === 'Production & Sales') icon = '✂️';
+      else if (item.section === 'Admin') icon = '⚙️';
+      else if (item.section === 'Staff') icon = '👷';
+
+      currentSection = { name: item.section, icon, items: [] };
+      sections.push(currentSection);
+    } else if (currentSection) {
+      currentSection.items.push(item);
+    }
+  });
 
   const initials = user?.name
     ? user.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
     : 'U';
 
+  const handleSectionClick = (sectionName) => {
+    if (activeSectionMenu === sectionName) {
+      setActiveSectionMenu(null);
+    } else {
+      setActiveSectionMenu(sectionName);
+    }
+  };
+
   return (
     <div className="shell">
-      {/* ── SIDEBAR ── */}
+      {/* ── SIDEBAR (Hidden on mobile) ── */}
       <aside className="sidebar">
         <div className="logo">
           <img src="/logo.png" alt="Viva Studio" style={{ height: 38, width: 'auto', display: 'block' }} />
@@ -89,8 +125,8 @@ export default function Layout({ children, title }) {
           <div>
             <div className="s-name">{user?.name}</div>
             <div className="s-role" style={{ textTransform: 'capitalize' }}>
-            {user?.role === 'staff_admin' ? 'Staff Admin' : `${user?.role} · Full Access`}
-          </div>
+              {user?.role === 'staff_admin' ? 'Staff Admin' : `${user?.role} · Full Access`}
+            </div>
           </div>
           <button
             className="s-logout"
@@ -101,21 +137,137 @@ export default function Layout({ children, title }) {
         </div>
       </aside>
 
-      {/* ── MAIN ── */}
+      {/* ── MAIN CONTENT ── */}
       <div className="main">
         <div className="topbar">
-          <div className="page-title">{title}</div>
+          <div className="topbar-left" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {activeSectionMenu && (
+              <button 
+                className="mobile-back-btn" 
+                onClick={() => setActiveSectionMenu(null)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  fontSize: '16px',
+                  color: 'var(--accent)',
+                  cursor: 'pointer',
+                  padding: '4px 8px',
+                  display: 'none', // Shown only in CSS media query
+                }}
+              >
+                ← Back
+              </button>
+            )}
+            <div className="page-title">{activeSectionMenu ? activeSectionMenu : title}</div>
+          </div>
           <div className="topbar-actions">
             {reminderCount > 0 && (
               <div className="chip chip-yellow" onClick={() => navigate('/partners')} style={{ cursor: 'pointer' }}>
                 ⏰ {reminderCount} Reminder{reminderCount !== 1 ? 's' : ''}
               </div>
             )}
+            <div 
+              className="mobile-user-badge" 
+              onClick={() => { if(window.confirm('Logout?')) { logout(); navigate('/login'); } }}
+              style={{
+                width: '32px',
+                height: '32px',
+                borderRadius: '50%',
+                background: 'var(--accent)',
+                color: '#fff',
+                fontSize: '12px',
+                fontWeight: '700',
+                display: 'none', // Shown only in CSS media query
+                alignItems: 'center',
+                justifyContent: 'center',
+                cursor: 'pointer'
+              }}
+            >
+              {initials}
+            </div>
           </div>
         </div>
+
         <div className="content">
-          {children}
+          {activeSectionMenu ? (
+            /* ── MOBILE SECTION MENU VIEW (BOX TYPE LINKS) ── */
+            <div className="section-menu-container">
+              <h2 className="section-menu-title" style={{ fontSize: '16px', fontWeight: '700', marginBottom: '20px', color: 'var(--muted)' }}>Select an Option</h2>
+              <div className="section-menu-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '16px' }}>
+                {sections.find(s => s.name === activeSectionMenu)?.items.map((subItem) => (
+                  <button
+                    key={subItem.to}
+                    className="box-menu-item"
+                    onClick={() => {
+                      navigate(subItem.to);
+                      setActiveSectionMenu(null);
+                    }}
+                    style={{
+                      background: 'var(--white)',
+                      border: '1.5px solid var(--border)',
+                      borderRadius: '12px',
+                      padding: '24px 16px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: '12px',
+                      cursor: 'pointer',
+                      boxShadow: 'var(--shadow)',
+                      transition: 'all 0.2s ease',
+                      textAlign: 'center',
+                      fontFamily: 'inherit'
+                    }}
+                  >
+                    <span className="box-menu-icon" style={{ fontSize: '28px' }}>{subItem.icon}</span>
+                    <span className="box-menu-label" style={{ fontSize: '13px', fontWeight: '600', color: 'var(--text)' }}>{subItem.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            children
+          )}
         </div>
+      </div>
+
+      {/* ── MOBILE BOTTOM BAR ── */}
+      <div className="mobile-bottom-nav" style={{
+        position: 'fixed',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        height: '64px',
+        background: 'var(--white)',
+        borderTop: '1px solid var(--border)',
+        display: 'none', // Shown only in CSS media query
+        justifyContent: 'space-around',
+        alignItems: 'center',
+        zIndex: 100,
+        boxShadow: '0 -2px 10px rgba(0,0,0,0.04)'
+      }}>
+        {sections.map((sec) => (
+          <button
+            key={sec.name}
+            className={`mobile-nav-btn ${activeSectionMenu === sec.name ? 'active' : ''}`}
+            onClick={() => handleSectionClick(sec.name)}
+            style={{
+              background: 'none',
+              border: 'none',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '4px',
+              color: activeSectionMenu === sec.name ? 'var(--accent)' : 'var(--muted)',
+              cursor: 'pointer',
+              flex: 1,
+              height: '100%'
+            }}
+          >
+            <span className="mobile-nav-icon" style={{ fontSize: '20px' }}>{sec.icon}</span>
+            <span className="mobile-nav-label" style={{ fontSize: '10px', fontWeight: '600' }}>{sec.name.split(' ')[0]}</span>
+          </button>
+        ))}
       </div>
     </div>
   );
