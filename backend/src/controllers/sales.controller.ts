@@ -207,6 +207,41 @@ export async function createOrder(req: AuthRequest, res: Response): Promise<void
   } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
+export async function updateOrder(req: AuthRequest, res: Response): Promise<void> {
+  const { tenantId } = req.user!;
+  const { id } = req.params;
+  const { client_id, order_date, items, notes, include_gst, gst_percent } = req.body;
+
+  if (!client_id || !order_date || !Array.isArray(items) || items.length === 0) {
+    res.status(400).json({ message: 'client_id, order_date and items required' }); return;
+  }
+
+  try {
+    await query(
+      `UPDATE sales_orders 
+       SET client_id=?, order_date=?, notes=?, include_gst=?, gst_percent=?
+       WHERE id=? AND tenant_id=?`,
+      [client_id, order_date, notes || null, include_gst ? 1 : 0, include_gst ? (gst_percent || 0) : 0, id, tenantId]
+    );
+
+    await query('DELETE FROM sales_order_items WHERE order_id=?', [id]);
+
+    for (const item of items) {
+      await query(
+        'INSERT INTO sales_order_items (order_id, category, quantity, rate_per_pc) VALUES (?,?,?,?)',
+        [id, item.category, item.quantity, item.rate_per_pc]
+      );
+    }
+
+    const full = await query<any[]>(
+      `SELECT o.*, c.name AS client_name, c.city AS client_city FROM sales_orders o
+       JOIN clients c ON c.id = o.client_id WHERE o.id=?`,
+      [id]
+    );
+    res.json(full[0]);
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
+}
+
 export async function markPaid(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
   const { id } = req.params;

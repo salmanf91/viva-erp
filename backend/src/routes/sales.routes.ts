@@ -3,7 +3,7 @@ import { authenticate } from '../middleware/auth';
 import {
   getClients, addClient, updateClient, deactivateClient, reactivateClient,
   getCategoryRates, upsertCategoryRate,
-  getOrders, getOrder, createOrder, markPaid, recordPayment, deleteOrder, getSalesSummary,
+  getOrders, getOrder, createOrder, updateOrder, markPaid, recordPayment, deleteOrder, getSalesSummary,
   getNightiesCategorySummary,
 } from '../controllers/sales.controller';
 
@@ -27,6 +27,7 @@ router.get('/nighties-summary', getNightiesCategorySummary);
 router.get('/',             getOrders);
 router.get('/:id',          getOrder);
 router.post('/',            createOrder);
+router.put('/:id',          updateOrder);
 router.put('/:id/pay',      markPaid);
 router.post('/:id/payment', recordPayment);
 router.delete('/:id',       deleteOrder);

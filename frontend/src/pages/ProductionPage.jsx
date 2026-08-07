@@ -5,9 +5,13 @@ const f2      = n => Number(n || 0).toFixed(2);
 const fmt     = n => '₹' + Number(n || 0).toLocaleString('en-IN');
 const fmtDate = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
 
-const CATEGORIES = ['shawl_nighty', 'shawl_nighty_lace', 'ordinary_nighty'];
-const CAT_LABEL  = { shawl_nighty: 'Shawl Nighty', shawl_nighty_lace: 'Shawl Nighty + Lace', ordinary_nighty: 'Ordinary Nighty' };
-const CAT_COLOR  = { shawl_nighty: 'var(--accent)', shawl_nighty_lace: 'var(--cyan)', ordinary_nighty: 'var(--green)' };
+const DEFAULT_CAT_LABEL = { shawl_nighty: 'Shawl Nighty', shawl_nighty_lace: 'Shawl Nighty + Lace', ordinary_nighty: 'Ordinary Nighty' };
+const getProductLabel = cat => DEFAULT_CAT_LABEL[cat] || cat.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+
+const getProductColor = cat => {
+  const colors = { shawl_nighty: 'var(--accent)', shawl_nighty_lace: 'var(--cyan)', ordinary_nighty: 'var(--green)' };
+  return colors[cat] || 'var(--orange)';
+};
 
 // Yield: how many nighties one purchased unit covers
 const ACC_YIELD = { zip: 1, thread: 20, canvas: 40, plastic: 1, lace: 1 };
@@ -78,9 +82,9 @@ function CostCard({ cfg, cardQty, totalPcs, rent, electricity, onQtyChange, accL
   const hasSellingChanged = Math.abs(sell - Number(cfg.selling_rate || 0)) > 0.009;
 
   return (
-    <div className="card" style={{ borderTop: `3px solid ${CAT_COLOR[cfg.category] || 'var(--accent)'}` }}>
-      <div style={{ fontSize: 13, fontWeight: 800, color: CAT_COLOR[cfg.category] || 'var(--accent)', marginBottom: 12 }}>
-        {CAT_LABEL[cfg.category] || cfg.category}
+    <div className="card" style={{ borderTop: `3px solid ${getProductColor(cfg.category)}` }}>
+      <div style={{ fontSize: 13, fontWeight: 800, color: getProductColor(cfg.category), marginBottom: 12 }}>
+        {getProductLabel(cfg.category)}
       </div>
 
       <div className="cost-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -264,16 +268,16 @@ export default function ProductionPage() {
   const [electricity, setElectricity] = useState(0);
   const [rent, setRent]               = useState(0);
   const [activeTab, setActiveTab]     = useState('batches');
-  const [cardQty, setCardQty]         = useState({ shawl_nighty: 0, shawl_nighty_lace: 0, ordinary_nighty: 0 });
+  const [cardQty, setCardQty]         = useState({});
   const [histPage, setHistPage]       = useState(1);
-  const [fabricRates, setFabricRates] = useState({ shawl_nighty: 0, shawl_nighty_lace: 0, ordinary_nighty: 0 });
-  const [savingFabric, setSavingFabric] = useState({ shawl_nighty: false, shawl_nighty_lace: false, ordinary_nighty: false });
-  const [sellingRates, setSellingRates] = useState({ shawl_nighty: 0, shawl_nighty_lace: 0, ordinary_nighty: 0 });
-  const [savingSelling, setSavingSelling] = useState({ shawl_nighty: false, shawl_nighty_lace: false, ordinary_nighty: false });
+  const [fabricRates, setFabricRates] = useState({});
+  const [savingFabric, setSavingFabric] = useState({});
+  const [sellingRates, setSellingRates] = useState({});
+  const [savingSelling, setSavingSelling] = useState({});
   const HIST_PAGE_SIZE = 8;
 
   const emptyForm = () => ({
-    category: 'shawl_nighty_lace', quantity: '',
+    category: configs[0]?.category || 'shawl_nighty', quantity: '',
     batch_date: new Date().toISOString().slice(0, 10),
     cut_rate: 5.00,
     stitch_rate: 15.00,
@@ -283,18 +287,19 @@ export default function ProductionPage() {
   const load = () => Promise.all([
     api.get('/production').then(r => {
       setBatches(r.data);
-      // seed cardQty from actual batch totals per category
-      const qty = { shawl_nighty: 0, shawl_nighty_lace: 0, ordinary_nighty: 0 };
-      r.data.forEach(b => { if (qty[b.category] !== undefined) qty[b.category] += Number(b.quantity || 0); });
+      const qty = {};
+      r.data.forEach(b => {
+        qty[b.category] = (qty[b.category] || 0) + Number(b.quantity || 0);
+      });
       setCardQty(qty);
     }),
     api.get('/production/configs').then(r => {
       setConfigs(r.data);
-      const rates = { shawl_nighty: 0, shawl_nighty_lace: 0, ordinary_nighty: 0 };
-      const sells = { shawl_nighty: 0, shawl_nighty_lace: 0, ordinary_nighty: 0 };
+      const rates = {};
+      const sells = {};
       r.data.forEach(c => {
-        if (rates[c.category] !== undefined) rates[c.category] = Number(c.fabric_cost || 0);
-        if (sells[c.category] !== undefined) sells[c.category] = Number(c.selling_rate || 0);
+        rates[c.category] = Number(c.fabric_cost || 0);
+        sells[c.category] = Number(c.selling_rate || 0);
       });
       setFabricRates(rates);
       setSellingRates(sells);
@@ -515,9 +520,8 @@ export default function ProductionPage() {
             Cost Per Piece
           </div>
           <div className="g3 mb16">
-            {CATEGORIES.map(cat => {
-              const cfg = configs.find(c => c.category === cat);
-              if (!cfg) return null;
+            {configs.map(cfg => {
+              const cat = cfg.category;
               return (
                 <CostCard
                   key={cat}
@@ -592,17 +596,17 @@ export default function ProductionPage() {
         const _lac  = isL ? qty * Number(bCfg.lace_cost || 8) : 0;
         const accTotal = _zip + _thr + _can + _pla + _lac;
         return (
-          <div key={b.id} className="card mb16" style={{ borderTop: `3px solid ${CAT_COLOR[b.category] || 'var(--accent)'}` }}>
+          <div key={b.id} className="card mb16" style={{ borderTop: `3px solid ${getProductColor(b.category)}` }}>
             {/* Header */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
               <div>
                 <div style={{ fontWeight: 800, fontSize: 15 }}>{b.batch_number}</div>
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                  {CAT_LABEL[b.category] || b.category} · {fmtDate(b.batch_date)}
+                  {getProductLabel(b.category)} · {fmtDate(b.batch_date)}
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 22, fontWeight: 800, color: CAT_COLOR[b.category] || 'var(--accent)' }}>{b.quantity} pcs</div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: getProductColor(b.category) }}>{b.quantity} pcs</div>
                 <span className={`badge ${b.status === 'cutting' ? 'b-accent' : 'b-yellow'}`}>{STATUS_LABEL[b.status] || b.status}</span>
               </div>
             </div>
@@ -678,8 +682,8 @@ export default function ProductionPage() {
                 <tr key={b.id}>
                   <td style={{ fontWeight: 700 }}>{b.batch_number}</td>
                   <td>
-                    <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: CAT_COLOR[b.category] || 'var(--accent)', marginRight: 5 }} />
-                    {CAT_LABEL[b.category] || b.category}
+                    <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: getProductColor(b.category), marginRight: 5 }} />
+                    {getProductLabel(b.category)}
                   </td>
                   <td style={{ textAlign: 'right', fontWeight: 700 }}>{b.quantity}</td>
                   <td style={{ color: 'var(--muted)', fontSize: 12 }}>{fmtDate(b.batch_date)}</td>
@@ -728,7 +732,7 @@ export default function ProductionPage() {
               </span>
             </div>
             <div style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 16 }}>
-              {CAT_LABEL[detail.batch?.category] || detail.batch?.category}
+              {getProductLabel(detail.batch?.category)}
               {' · '}{detail.batch?.quantity} pcs{' · '}{fmtDate(detail.batch?.batch_date)}
             </div>
 
@@ -862,7 +866,7 @@ export default function ProductionPage() {
                     stitch_rate: cfg.stitch_rate ?? 15.00,
                   }));
                 }}>
-                  {CATEGORIES.map(c => <option key={c} value={c}>{CAT_LABEL[c]}</option>)}
+                  {configs.map(c => <option key={c.category} value={c.category}>{getProductLabel(c.category)}</option>)}
                 </select>
               </div>
               <div className="field">
@@ -929,7 +933,7 @@ export default function ProductionPage() {
           <div className="modal" onClick={e => e.stopPropagation()}>
             <h2>Edit Batch — {editBatch.batch_number}</h2>
             <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
-              {CAT_LABEL[editBatch.category] || editBatch.category} · {editBatch.quantity} pcs
+               {getProductLabel(editBatch.category)} · {editBatch.quantity} pcs
             </div>
 
             <div className="form-grid">

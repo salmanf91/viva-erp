@@ -3,8 +3,11 @@ import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
 
 const fmt = n => '₹' + Number(n || 0).toLocaleString('en-IN');
-const PROD_CATS = ['shawl_nighty', 'shawl_nighty_lace', 'ordinary_nighty'];
+const DEFAULT_CATS = ['shawl_nighty', 'shawl_nighty_lace', 'ordinary_nighty'];
 const CAT_LABEL = { shawl_nighty: 'Shawl Nighty', shawl_nighty_lace: 'Shawl Nighty + Lace', ordinary_nighty: 'Ordinary Nighty' };
+
+const getProductLabel = (cat) => CAT_LABEL[cat] || cat.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+
 const CONFIG_FIELDS = [
   { key: 'fabric_cost',    label: 'Fabric Cost / pc' },
   { key: 'selling_rate',   label: 'Selling Rate / pc' },
@@ -26,30 +29,59 @@ export default function SettingsPage() {
 
   const [configs, setConfigs]              = useState([]);
   const [editCat, setEditCat]              = useState(null);
+  const [isNew, setIsNew]                  = useState(false);
+  const [newCatName, setNewCatName]        = useState('');
   const [cfgForm, setCfgForm]              = useState({});
   const [cfgMsg, setCfgMsg]               = useState(null);
 
   useEffect(() => {
-    api.get('/production/configs').then(r => setConfigs(r.data)).catch(() => {});
+    loadConfigs();
   }, []);
+
+  const loadConfigs = () => {
+    api.get('/production/configs').then(r => setConfigs(r.data)).catch(() => {});
+  };
 
   const openCfg = cat => {
     const existing = configs.find(c => c.category === cat) || {};
-    const defaults = { fabric_cost:0, selling_rate:0, lace_cost:0, canvas_cost:2, plastic_cost:2.5, logistics_cost:5.3, cut_rate:5, stitch_rate:15 };
+    const defaults = { fabric_cost: 0, selling_rate: 0, lace_cost: 0, canvas_cost: 2, plastic_cost: 2.5, logistics_cost: 5.3, cut_rate: 5, stitch_rate: 15 };
     setCfgForm({ ...defaults, ...existing });
     setEditCat(cat);
+    setIsNew(false);
+  };
+
+  const openNewCfg = () => {
+    const defaults = { fabric_cost: 0, selling_rate: 0, lace_cost: 0, canvas_cost: 2, plastic_cost: 2.5, logistics_cost: 5.3, cut_rate: 5, stitch_rate: 15 };
+    setCfgForm(defaults);
+    setNewCatName('');
+    setEditCat('__new__');
+    setIsNew(true);
   };
 
   const saveCfg = async () => {
     setCfgMsg(null);
+    const catName = isNew ? newCatName.trim().toLowerCase().replace(/\s+/g, '_') : editCat;
+    if (!catName) {
+      setCfgMsg({ type: 'error', text: 'Product name cannot be empty.' });
+      return;
+    }
     try {
-      await api.put(`/production/configs/${editCat}`, cfgForm);
-      const r = await api.get('/production/configs');
-      setConfigs(r.data);
+      await api.put(`/production/configs/${catName}`, cfgForm);
+      loadConfigs();
       setCfgMsg({ type: 'success', text: 'Saved.' });
-      setTimeout(() => setCfgMsg(null), 2000);
+      setTimeout(() => setEditCat(null), 1000);
     } catch {
       setCfgMsg({ type: 'error', text: 'Failed to save.' });
+    }
+  };
+
+  const deleteCfg = async (cat) => {
+    if (!window.confirm(`Are you sure you want to delete "${getProductLabel(cat)}"?`)) return;
+    try {
+      await api.delete(`/production/configs/${cat}`);
+      loadConfigs();
+    } catch {
+      alert('Failed to delete product.');
     }
   };
 
@@ -71,32 +103,41 @@ export default function SettingsPage() {
   };
 
   const initials = user?.name
-    ? user.name.split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase()
+    ? user.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
     : 'U';
 
   return (
     <>
       {/* Product Config section */}
       <div className="card mb16">
-        <div className="card-hd">Product Cost Configuration</div>
+        <div style={{ display: 'flex', justifyContent: 'between', alignItems: 'center', marginBottom: 12 }}>
+          <div className="card-hd" style={{ margin: 0 }}>Product Management</div>
+          <button className="btn btn-primary btn-sm" onClick={openNewCfg}>➕ Add Product</button>
+        </div>
         <div className="g3" style={{ marginBottom: 0 }}>
-          {PROD_CATS.map(cat => {
-            const cfg = configs.find(c => c.category === cat);
+          {configs.map(cfg => {
+            const cat = cfg.category;
+            const isDefault = DEFAULT_CATS.includes(cat);
             return (
               <div key={cat} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 12 }}>
-                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8 }}>{CAT_LABEL[cat]}</div>
-                {cfg ? (
-                  <>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
-                      Fabric: {fmt(cfg.fabric_cost)} · Labour: {fmt(Number(cfg.cut_rate)+Number(cfg.stitch_rate))} · Logistics: {fmt(cfg.logistics_cost)}
-                    </div>
-                    <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--accent)', marginBottom: 8 }}>
-                      Selling: {fmt(cfg.selling_rate)} / pc
-                    </div>
-                  </>
-                ) : (
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>Not configured yet.</div>
-                )}
+                <div style={{ display: 'flex', justifyContent: 'between', alignItems: 'center', marginBottom: 8 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13 }}>{getProductLabel(cat)}</div>
+                  {!isDefault && (
+                    <button 
+                      onClick={() => deleteCfg(cat)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, padding: 0 }}
+                      title="Delete Product"
+                    >
+                      ❌
+                    </button>
+                  )}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
+                  Fabric: {fmt(cfg.fabric_cost)} · Labour: {fmt(Number(cfg.cut_rate) + Number(cfg.stitch_rate))} · Logistics: {fmt(cfg.logistics_cost)}
+                </div>
+                <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--accent)', marginBottom: 8 }}>
+                  Selling: {fmt(cfg.selling_rate)} / pc
+                </div>
                 <button className="btn btn-ghost btn-sm" onClick={() => openCfg(cat)}>✏️ Edit</button>
               </div>
             );
@@ -111,7 +152,7 @@ export default function SettingsPage() {
           <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginBottom: 16 }}>
             <div style={{
               width: 52, height: 52, borderRadius: '50%', background: 'var(--accent)', color: '#fff',
-              fontSize: 18, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 18, fontWeight: 800, display: 'flex', alignItems: 'center', justifycontent: 'center',
             }}>
               {initials}
             </div>
@@ -164,20 +205,32 @@ export default function SettingsPage() {
           </form>
         </div>
       </div>
+
       {/* Product config edit modal */}
       {editCat && (
         <div className="modal-overlay" onClick={() => setEditCat(null)}>
           <div className="modal" style={{ width: 500 }} onClick={e => e.stopPropagation()}>
-            <h2>Configure — {CAT_LABEL[editCat]}</h2>
+            <h2>{isNew ? 'Create New Product' : `Configure — ${getProductLabel(editCat)}`}</h2>
             {cfgMsg && (
               <div className={`alert ${cfgMsg.type === 'error' ? 'alert-red' : 'alert-accent'} mb12`}>
                 <div className="a-icon">{cfgMsg.type === 'error' ? '⚠️' : '✅'}</div>
                 <div><div className="a-title">{cfgMsg.text}</div></div>
               </div>
             )}
+            {isNew && (
+              <div className="field" style={{ marginBottom: 16 }}>
+                <label>Product Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Silk Nighty Premium"
+                  value={newCatName}
+                  onChange={e => setNewCatName(e.target.value)}
+                />
+              </div>
+            )}
             <div className="form-grid">
               {CONFIG_FIELDS.map(f => (
-                f.key === 'lace_cost' && editCat !== 'shawl_nighty_lace' ? null :
+                f.key === 'lace_cost' && editCat !== 'shawl_nighty_lace' && !isNew ? null :
                 <div key={f.key} className="field">
                   <label>{f.label}</label>
                   <input

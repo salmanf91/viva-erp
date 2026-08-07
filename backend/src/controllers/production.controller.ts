@@ -160,3 +160,12 @@ export async function updateProductConfig(req: AuthRequest, res: Response): Prom
     res.json({ message: 'Saved' });
   } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
+
+export async function deleteProductConfig(req: AuthRequest, res: Response): Promise<void> {
+  const { tenantId } = req.user!;
+  const { category } = req.params;
+  try {
+    await query('DELETE FROM product_config WHERE tenant_id=? AND category=?', [tenantId, category]);
+    res.json({ message: 'Product deleted successfully' });
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
+}
