@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import api from '../api/client';
 
-const CATEGORIES = [
-  { value: 'shawl_nighty',      label: 'Shawl Nighty' },
-  { value: 'ordinary_nighty',   label: 'Ordinary Nighty' },
-  { value: 'shawl_nighty_lace', label: 'Shawl Nighty + Lace' },
-];
-const CAT_LABEL = Object.fromEntries(CATEGORIES.map(c => [c.value, c.label]));
+const DEFAULT_CAT_LABEL = {
+  shawl_nighty: 'Shawl Nighty',
+  ordinary_nighty: 'Ordinary Nighty',
+  shawl_nighty_lace: 'Shawl Nighty + Lace'
+};
+const getProductLabel = cat => DEFAULT_CAT_LABEL[cat] || cat.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
 const fmt   = n => '₹' + Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
 const fmtD  = s => new Date(s + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -46,6 +46,7 @@ function OrdersTab({ onReload }) {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter]   = useState('all');
   const [showNew, setShowNew] = useState(false);
+  const [editOrder, setEditOrder] = useState(null);
   const [invoice, setInvoice] = useState(null);
 
   const load = () => {
@@ -69,6 +70,11 @@ function OrdersTab({ onReload }) {
   const openInvoice = async order => {
     const r = await api.get(`/sales/${order.id}`);
     setInvoice(r.data);
+  };
+
+  const openEdit = async order => {
+    const r = await api.get(`/sales/${order.id}`);
+    setEditOrder(r.data);
   };
 
   const [payModal,     setPayModal]     = useState(null);
@@ -196,6 +202,9 @@ function OrdersTab({ onReload }) {
                             + Payment
                           </button>
                         )}
+                        <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--accent)' }} onClick={() => openEdit(o)}>
+                          ✏️ Edit
+                        </button>
                         <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--red)' }} onClick={() => del(o.id)}>
                           ✕
                         </button>
@@ -210,6 +219,7 @@ function OrdersTab({ onReload }) {
       )}
 
       {showNew      && <NewOrderModal onClose={() => setShowNew(false)} onSaved={() => { setShowNew(false); load(); onReload(); }} />}
+      {editOrder    && <NewOrderModal order={editOrder} onClose={() => setEditOrder(null)} onSaved={() => { setEditOrder(null); load(); onReload(); }} />}
       {invoice      && <InvoiceModal order={invoice} onClose={() => setInvoice(null)} />}
       {payModal     && <RecordPaymentModal info={payModal} onClose={() => setPayModal(null)} onSave={recordPayment} />}
       {receiptModal && <PaymentReceiptModal orderId={receiptModal} onClose={() => setReceiptModal(null)} />}
@@ -228,26 +238,33 @@ function SummaryChip({ label, value, color, small }) {
 
 // ── New Order Modal ───────────────────────────────────────────────────────────
 
-function NewOrderModal({ onClose, onSaved }) {
+function NewOrderModal({ order, onClose, onSaved }) {
+  const [products, setProducts] = useState([]);
   const [clients, setClients]   = useState([]);
-  const [clientId, setClientId] = useState('');
+  const [clientId, setClientId] = useState(order ? String(order.client_id) : '');
   const [showNewClient, setShowNewClient] = useState(false);
   const [newClientName, setNewClientName] = useState('');
   const [newClientCity, setNewClientCity] = useState('');
   const [newClientPhone, setNewClientPhone] = useState('');
 
-  const [date, setDate]         = useState(today());
-  const [notes, setNotes]       = useState('');
-  const [includeGst, setIncludeGst] = useState(false);
-  const [gstPct, setGstPct]     = useState('5');
-  const [items, setItems]       = useState([{ category: 'shawl_nighty', quantity: '', rate_per_pc: '' }]);
+  const [date, setDate]         = useState(order ? order.order_date : today());
+  const [notes, setNotes]       = useState(order ? (order.notes || '') : '');
+  const [includeGst, setIncludeGst] = useState(order ? !!order.include_gst : false);
+  const [gstPct, setGstPct]     = useState(order ? String(Number(order.gst_percent)) : '5');
+  const [items, setItems]       = useState(order && order.items ? order.items : [{ category: 'shawl_nighty', quantity: '', rate_per_pc: '' }]);
   const [saving, setSaving]     = useState(false);
 
   useEffect(() => {
-    api.get('/sales/clients').then(r => setClients(r.data));
+    Promise.all([
+      api.get('/sales/clients').then(r => setClients(r.data)),
+      api.get('/production/configs').then(r => setProducts(r.data))
+    ]).catch(() => {});
   }, []);
 
-  const addItem  = () => setItems(prev => [...prev, { category: 'shawl_nighty', quantity: '', rate_per_pc: '' }]);
+  const addItem  = () => {
+    const firstProduct = products[0]?.category || 'shawl_nighty';
+    setItems(prev => [...prev, { category: firstProduct, quantity: '', rate_per_pc: '' }]);
+  };
   const removeItem = i => setItems(prev => prev.filter((_, idx) => idx !== i));
   const setItem  = (i, field, val) => setItems(prev => prev.map((it, idx) => idx === i ? { ...it, [field]: val } : it));
 
@@ -270,11 +287,16 @@ function NewOrderModal({ onClose, onSaved }) {
     if (!validItems.length) return;
     setSaving(true);
     try {
-      await api.post('/sales', {
+      const payload = {
         client_id: +clientId, order_date: date, notes,
         include_gst: includeGst, gst_percent: includeGst ? +gstPct : 0,
-        items: validItems.map(it => ({ ...it, quantity: +it.quantity, rate_per_pc: +it.rate_per_pc })),
-      });
+        items: validItems.map(it => ({ category: it.category, quantity: +it.quantity, rate_per_pc: +it.rate_per_pc })),
+      };
+      if (order) {
+        await api.put(`/sales/${order.id}`, payload);
+      } else {
+        await api.post('/sales', payload);
+      }
       onSaved();
     } finally { setSaving(false); }
   };
@@ -282,7 +304,7 @@ function NewOrderModal({ onClose, onSaved }) {
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" style={{ width: 620, maxHeight: '90vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
-        <h2>New Delivery</h2>
+        <h2>{order ? 'Edit Delivery' : 'New Delivery'}</h2>
 
         <div className="form-grid">
           {/* Client */}
@@ -365,7 +387,7 @@ function NewOrderModal({ onClose, onSaved }) {
                 }}>
                   <select value={it.category} onChange={e => setItem(i, 'category', e.target.value)}
                     style={{ padding: '7px 10px', borderRadius: 7, border: '1.5px solid var(--border)', fontSize: 13, width: '100%' }}>
-                    {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                    {products.map(p => <option key={p.category} value={p.category}>{getProductLabel(p.category)}</option>)}
                   </select>
 
                   <input type="number" min="0" placeholder="0" value={it.quantity}
@@ -648,7 +670,7 @@ function PaymentReceiptModal({ orderId, onClose }) {
                 {order.items?.map((it, i) => (
                   <tr key={i} style={{ borderBottom: '1px solid #f5f0e8', background: i % 2 === 1 ? '#fdfaf4' : '#fff' }}>
                     <td style={{ padding: '10px 10px', fontSize: 12, color: '#bbb' }}>{i + 1}</td>
-                    <td style={{ padding: '10px 10px', fontWeight: 600 }}>{CAT_LABEL[it.category] || it.category}</td>
+                    <td style={{ padding: '10px 10px', fontWeight: 600 }}>{getProductLabel(it.category)}</td>
                     <td style={{ padding: '10px 10px', textAlign: 'right' }}>{it.quantity} pcs</td>
                     <td style={{ padding: '10px 10px', textAlign: 'right' }}>{m(it.rate_per_pc)}</td>
                     <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 700 }}>{m(it.quantity * it.rate_per_pc)}</td>
@@ -940,7 +962,7 @@ function InvoiceModal({ order, onClose }) {
                 {order.items?.map((it, i) => (
                   <tr key={it.id} style={{ borderBottom: '1px solid #f5f0e8', background: i % 2 === 1 ? '#fdfaf4' : '#fff' }}>
                     <td style={{ padding: '11px 10px', fontSize: 12, color: '#bbb' }}>{i + 1}</td>
-                    <td style={{ padding: '11px 10px', fontWeight: 600, fontSize: 13 }}>{CAT_LABEL[it.category] || it.category}</td>
+                    <td style={{ padding: '11px 10px', fontWeight: 600, fontSize: 13 }}>{getProductLabel(it.category)}</td>
                     <td style={{ padding: '11px 10px', textAlign: 'right', fontSize: 13 }}>{it.quantity} pcs</td>
                     <td style={{ padding: '11px 10px', textAlign: 'right', fontSize: 13 }}>{fmt(it.rate_per_pc)}</td>
                     <td style={{ padding: '11px 10px', textAlign: 'right', fontWeight: 700, fontSize: 13 }}>{fmt(it.quantity * it.rate_per_pc)}</td>

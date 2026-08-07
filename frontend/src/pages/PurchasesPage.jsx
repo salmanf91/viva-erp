@@ -3,8 +3,8 @@ import api from '../api/client';
 
 const fmt      = n => '₹' + Number(n || 0).toLocaleString('en-IN');
 const fmtRound = n => '₹' + Math.round(Number(n || 0)).toLocaleString('en-IN');
-const CATEGORIES = ['shawl_nighty', 'ordinary_nighty', 'mixed'];
-const CAT_LABEL  = { shawl_nighty: 'Shawl Nighty', ordinary_nighty: 'Ordinary Nighty', mixed: 'Mixed' };
+const DEFAULT_CAT_LABEL = { shawl_nighty: 'Shawl Nighty', ordinary_nighty: 'Ordinary Nighty', mixed: 'Mixed' };
+const getProductLabel = cat => DEFAULT_CAT_LABEL[cat] || cat.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 const fmtDate = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
 
 const PAGE_SIZE = 20;
@@ -62,7 +62,8 @@ export default function PurchasesPage() {
 
   const loadVendors = () => api.get('/purchases/vendors').then(r => setVendors(r.data));
 
-  useEffect(() => { loadPurchases(1, ''); loadVendors(); }, []);
+  const [products, setProducts] = useState([]);
+  useEffect(() => { loadPurchases(1, ''); loadVendors(); api.get('/production/configs').then(r => setProducts(r.data)).catch(() => {}); }, []);
 
   const doSearch = () => { setSearch(searchInput); loadPurchases(1, searchInput); };
   const clearSearch = () => { setSearchInput(''); setSearch(''); loadPurchases(1, ''); };
@@ -345,7 +346,7 @@ export default function PurchasesPage() {
                 )}
                 {detail.items?.map((it, i) => (
                   <tr key={i}>
-                    <td style={{ fontWeight: 600 }}>{CAT_LABEL[it.category] || it.category}</td>
+                    <td style={{ fontWeight: 600 }}>{getProductLabel(it.category)}</td>
                     <td style={{ textAlign: 'right' }}>{it.quantity} pcs</td>
                     <td style={{ textAlign: 'right' }}>{fmt(it.rate_per_pc)}</td>
                     <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmt(it.amount)}</td>
@@ -479,7 +480,9 @@ export default function PurchasesPage() {
                 <div className="field" style={{ margin: 0 }}>
                   {i === 0 && <label>Category</label>}
                   <select value={it.category} onChange={e => setItem(i, 'category', e.target.value)}>
-                    {CATEGORIES.map(c => <option key={c} value={c}>{CAT_LABEL[c]}</option>)}
+                    {[{ category: 'mixed' }, ...products].map(p => (
+                      <option key={p.category} value={p.category}>{getProductLabel(p.category)}</option>
+                    ))}
                   </select>
                 </div>
                 <div className="field" style={{ margin: 0 }}>
