@@ -19,16 +19,6 @@ const CORE_FIELDS = [
   { key: 'stitch_rate',    label: 'Stitch Rate / pc' },
 ];
 
-const SIZE_RATE_FIELDS = [
-  { key: 'selling_rate_s',     label: 'S Rate / pc' },
-  { key: 'selling_rate_m',     label: 'M Rate / pc' },
-  { key: 'selling_rate_l',     label: 'L Rate / pc' },
-  { key: 'selling_rate_xl',    label: 'XL Rate / pc' },
-  { key: 'selling_rate_xxl',   label: '2XL Rate / pc' },
-  { key: 'selling_rate_xxxl',  label: '3XL Rate / pc' },
-  { key: 'selling_rate_xxxxl', label: '4XL Rate / pc' },
-];
-
 export default function SettingsPage() {
   const { user }                            = useAuth();
   const [current, setCurrent]              = useState('');
@@ -44,6 +34,36 @@ export default function SettingsPage() {
   const [cfgForm, setCfgForm]              = useState({});
   const [cfgMsg, setCfgMsg]               = useState(null);
 
+  const [newSizeLabel, setNewSizeLabel]    = useState('');
+  const [newSizeRate, setNewSizeRate]      = useState('');
+
+  const handleAddSizeRate = () => {
+    const label = newSizeLabel.trim();
+    const rate = parseFloat(newSizeRate);
+    if (!label) return;
+    if (isNaN(rate) || rate <= 0) return;
+    
+    const existingRates = cfgForm.size_rates || [];
+    if (existingRates.some(r => r.size_label.toLowerCase() === label.toLowerCase())) {
+      alert('This size label already exists.');
+      return;
+    }
+    
+    setCfgForm(prev => ({
+      ...prev,
+      size_rates: [...existingRates, { size_label: label, selling_rate: rate }]
+    }));
+    setNewSizeLabel('');
+    setNewSizeRate('');
+  };
+
+  const handleRemoveSizeRate = (sizeLabel) => {
+    setCfgForm(prev => ({
+      ...prev,
+      size_rates: (prev.size_rates || []).filter(r => r.size_label !== sizeLabel)
+    }));
+  };
+
   useEffect(() => {
     loadConfigs();
   }, []);
@@ -56,9 +76,11 @@ export default function SettingsPage() {
     const existing = configs.find(c => c.category === cat) || {};
     const defaults = {
       fabric_cost: 0, selling_rate: 0, lace_cost: 0, canvas_cost: 2, plastic_cost: 2.5, logistics_cost: 5.3, cut_rate: 5, stitch_rate: 15,
-      selling_rate_s: '', selling_rate_m: '', selling_rate_l: '', selling_rate_xl: '', selling_rate_xxl: '', selling_rate_xxxl: '', selling_rate_xxxxl: ''
+      size_rates: []
     };
-    setCfgForm({ ...defaults, ...existing });
+    setCfgForm({ ...defaults, ...existing, size_rates: existing.size_rates || [] });
+    setNewSizeLabel('');
+    setNewSizeRate('');
     setEditCat(cat);
     setIsNew(false);
   };
@@ -66,10 +88,12 @@ export default function SettingsPage() {
   const openNewCfg = () => {
     const defaults = {
       fabric_cost: 0, selling_rate: 0, lace_cost: 0, canvas_cost: 2, plastic_cost: 2.5, logistics_cost: 5.3, cut_rate: 5, stitch_rate: 15,
-      selling_rate_s: '', selling_rate_m: '', selling_rate_l: '', selling_rate_xl: '', selling_rate_xxl: '', selling_rate_xxxl: '', selling_rate_xxxxl: ''
+      size_rates: []
     };
     setCfgForm(defaults);
     setNewCatName('');
+    setNewSizeLabel('');
+    setNewSizeRate('');
     setEditCat('__new__');
     setIsNew(true);
   };
@@ -153,9 +177,9 @@ export default function SettingsPage() {
                 </div>
                 <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--accent)', marginBottom: 8 }}>
                   Selling: {fmt(cfg.selling_rate)} / pc
-                  {['s','m','l','xl','xxl','xxxl','xxxxl'].some(s => cfg[`selling_rate_${s}`] !== null && cfg[`selling_rate_${s}`] !== undefined && cfg[`selling_rate_${s}`] > 0) && (
+                  {cfg.size_rates && cfg.size_rates.length > 0 && (
                     <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)', marginLeft: 6, display: 'inline-block' }}>
-                      (size rates set)
+                      ({cfg.size_rates.length} size rates set)
                     </span>
                   )}
                 </div>
@@ -266,18 +290,68 @@ export default function SettingsPage() {
             <h3 style={{ fontSize: 13, fontWeight: 700, margin: '20px 0 10px', color: 'var(--text)', borderBottom: '1px solid var(--border)', paddingBottom: 6 }}>
               Size-Specific Selling Rates (Optional)
             </h3>
-            <div className="form-grid" style={{ marginBottom: 12 }}>
-              {SIZE_RATE_FIELDS.map(f => (
-                <div key={f.key} className="field">
-                  <label>{f.label}</label>
-                  <input
-                    type="number" step="0.01"
-                    placeholder="Use Default"
-                    value={cfgForm[f.key] ?? ''}
-                    onChange={e => setCfgForm(prev => ({ ...prev, [f.key]: e.target.value }))}
-                  />
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
+              {(cfgForm.size_rates || []).map((sr, idx) => (
+                <div key={idx} style={{ display: 'flex', gap: 10, alignItems: 'center', background: 'var(--surface)', padding: '6px 12px', borderRadius: 8, border: '1px solid var(--border)' }}>
+                  <span style={{ fontWeight: 800, fontSize: 13, minWidth: 80, textTransform: 'uppercase', color: 'var(--text)' }}>{sr.size_label}</span>
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>Rate:</span>
+                    <input 
+                      type="number" 
+                      step="0.01" 
+                      style={{ width: 100, padding: '4px 8px', borderRadius: 6, border: '1.5px solid var(--border)', fontSize: 12, textAlign: 'right' }}
+                      value={sr.selling_rate} 
+                      onChange={e => {
+                        const val = parseFloat(e.target.value) || 0;
+                        setCfgForm(prev => ({
+                          ...prev,
+                          size_rates: prev.size_rates.map((r, i) => i === idx ? { ...r, selling_rate: val } : r)
+                        }));
+                      }}
+                    />
+                  </div>
+                  <button 
+                    type="button" 
+                    className="btn btn-ghost btn-sm" 
+                    style={{ color: 'var(--red)', borderColor: '#fca5a5', padding: '3px 8px', fontSize: 11 }}
+                    onClick={() => handleRemoveSizeRate(sr.size_label)}
+                  >
+                    ❌ Remove
+                  </button>
                 </div>
               ))}
+              {(!cfgForm.size_rates || cfgForm.size_rates.length === 0) && (
+                <div style={{ fontSize: 12, color: 'var(--muted)', fontStyle: 'italic', padding: '6px 0', textAlign: 'center' }}>
+                  No size-specific selling rates configured.
+                </div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12, borderTop: '1px dashed var(--border)', paddingTop: 12, marginBottom: 12 }}>
+              <input 
+                type="text" 
+                placeholder="Size Label (e.g. S, 38, Free Size)" 
+                style={{ flex: 1, padding: '6px 10px', borderRadius: 6, border: '1.5px solid var(--border)', fontSize: 12 }}
+                value={newSizeLabel}
+                onChange={e => setNewSizeLabel(e.target.value)}
+              />
+              <input 
+                type="number" 
+                step="0.01" 
+                placeholder="Rate per pc (₹)" 
+                style={{ width: 130, padding: '6px 10px', borderRadius: 6, border: '1.5px solid var(--border)', fontSize: 12 }}
+                value={newSizeRate}
+                onChange={e => setNewSizeRate(e.target.value)}
+              />
+              <button 
+                type="button" 
+                className="btn btn-ghost btn-sm" 
+                style={{ height: 32, fontSize: 12, fontWeight: 700, borderColor: 'var(--accent)', color: 'var(--accent)', whiteSpace: 'nowrap' }}
+                onClick={handleAddSizeRate}
+              >
+                ➕ Add
+              </button>
             </div>
             <div className="modal-actions">
               <button className="btn btn-ghost" onClick={() => setEditCat(null)}>Cancel</button>

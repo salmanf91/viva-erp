@@ -97,8 +97,13 @@ export async function finishBatch(req: AuthRequest, res: Response): Promise<void
 export async function getProductConfigs(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
   try {
-    const rows = await query('SELECT * FROM product_config WHERE tenant_id=?', [tenantId]);
-    res.json(rows);
+    const configs = await query<any[]>('SELECT * FROM product_config WHERE tenant_id=?', [tenantId]);
+    const sizeRates = await query<any[]>('SELECT * FROM product_size_rates WHERE tenant_id=?', [tenantId]);
+    const result = configs.map(cfg => ({
+      ...cfg,
+      size_rates: sizeRates.filter(r => r.category === cfg.category)
+    }));
+    res.json(result);
   } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
@@ -144,24 +149,54 @@ export async function updateBatchStatus(req: AuthRequest, res: Response): Promis
 export async function updateProductConfig(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
   const { category } = req.params;
-  const fields = req.body;
+  const { size_rates, ...fields } = req.body;
   const allowed = [
-    'fabric_cost','selling_rate','lace_cost','zip_cost','thread_cost','canvas_cost','plastic_cost','logistics_cost','cut_rate','stitch_rate',
-    'selling_rate_s', 'selling_rate_m', 'selling_rate_l', 'selling_rate_xl', 'selling_rate_xxl', 'selling_rate_xxxl', 'selling_rate_xxxxl'
+    'fabric_cost','selling_rate','lace_cost','zip_cost','thread_cost','canvas_cost','plastic_cost','logistics_cost','cut_rate','stitch_rate'
   ];
   const validKeys = Object.keys(fields).filter(k => allowed.includes(k));
-  if (!validKeys.length) { res.status(400).json({ message: 'No valid fields' }); return; }
-  const vals = validKeys.map(k => fields[k]);
+
+  const conn = await pool.getConnection();
   try {
-    const setClauses = validKeys.map(k => `${k}=?`).join(',');
-    await query(
-      `INSERT INTO product_config (tenant_id,category,${validKeys.join(',')})
-       VALUES (?,?,${validKeys.map(() => '?').join(',')})
-       ON DUPLICATE KEY UPDATE ${setClauses}`,
-      [tenantId, category, ...vals, ...vals]
-    );
+    await conn.beginTransaction();
+
+    if (validKeys.length) {
+      const vals = validKeys.map(k => fields[k]);
+      const setClauses = validKeys.map(k => `${k}=?`).join(',');
+      await conn.execute(
+        `INSERT INTO product_config (tenant_id,category,${validKeys.join(',')})
+         VALUES (?,?,${validKeys.map(() => '?').join(',')})
+         ON DUPLICATE KEY UPDATE ${setClauses}`,
+        [tenantId, category, ...vals, ...vals]
+      );
+    }
+
+    if (Array.isArray(size_rates)) {
+      // Delete existing size rates for this category
+      await conn.execute(
+        'DELETE FROM product_size_rates WHERE tenant_id=? AND category=?',
+        [tenantId, category]
+      );
+
+      // Insert new size rates
+      for (const rate of size_rates) {
+        if (rate.size_label && rate.selling_rate !== undefined && rate.selling_rate !== null && rate.selling_rate !== '') {
+          await conn.execute(
+            'INSERT INTO product_size_rates (tenant_id, category, size_label, selling_rate) VALUES (?,?,?,?)',
+            [tenantId, category, String(rate.size_label).trim(), rate.selling_rate]
+          );
+        }
+      }
+    }
+
+    await conn.commit();
     res.json({ message: 'Saved' });
-  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
+  } catch (error) {
+    await conn.rollback();
+    console.error(error);
+    res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
+  } finally {
+    conn.release();
+  }
 }
 
 export async function deleteProductConfig(req: AuthRequest, res: Response): Promise<void> {

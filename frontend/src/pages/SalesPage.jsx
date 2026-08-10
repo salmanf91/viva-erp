@@ -274,8 +274,8 @@ function NewOrderModal({ order, onClose, onSaved }) {
     const size = items[i].size || '';
     let rate = '';
     if (prod) {
-      const sizeRateKey = size ? `selling_rate_${size}` : '';
-      rate = (sizeRateKey && prod[sizeRateKey] !== null && prod[sizeRateKey] !== undefined && prod[sizeRateKey] !== '') ? prod[sizeRateKey] : (prod.selling_rate || '');
+      const sizeRateObj = size ? (prod.size_rates || []).find(r => r.size_label.toLowerCase() === size.toLowerCase()) : null;
+      rate = sizeRateObj ? sizeRateObj.selling_rate : (prod.selling_rate || '');
     }
     setItems(prev => prev.map((it, idx) => idx === i ? { ...it, category, rate_per_pc: rate } : it));
   };
@@ -284,8 +284,8 @@ function NewOrderModal({ order, onClose, onSaved }) {
     const prod = products.find(p => p.category === items[i].category);
     let rate = '';
     if (prod) {
-      const sizeRateKey = size ? `selling_rate_${size}` : '';
-      rate = (sizeRateKey && prod[sizeRateKey] !== null && prod[sizeRateKey] !== undefined && prod[sizeRateKey] !== '') ? prod[sizeRateKey] : (prod.selling_rate || '');
+      const sizeRateObj = size ? (prod.size_rates || []).find(r => r.size_label.toLowerCase() === size.toLowerCase()) : null;
+      rate = sizeRateObj ? sizeRateObj.selling_rate : (prod.selling_rate || '');
     }
     setItems(prev => prev.map((it, idx) => idx === i ? { ...it, size, rate_per_pc: rate } : it));
   };
@@ -416,13 +416,9 @@ function NewOrderModal({ order, onClose, onSaved }) {
                   <select value={it.size} onChange={e => handleSizeChange(i, e.target.value)}
                     style={{ padding: '7px 10px', borderRadius: 7, border: '1.5px solid var(--border)', fontSize: 13, width: '100%' }}>
                     <option value="">—</option>
-                    <option value="s">S</option>
-                    <option value="m">M</option>
-                    <option value="l">L</option>
-                    <option value="xl">XL</option>
-                    <option value="xxl">2XL</option>
-                    <option value="xxxl">3XL</option>
-                    <option value="xxxxl">4XL</option>
+                    {(products.find(p => p.category === it.category)?.size_rates || []).map(sr => (
+                      <option key={sr.size_label} value={sr.size_label}>{sr.size_label.toUpperCase()}</option>
+                    ))}
                   </select>
 
                   <input type="number" min="0" placeholder="0" value={it.quantity}
