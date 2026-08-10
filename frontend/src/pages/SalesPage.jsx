@@ -7,6 +7,7 @@ const DEFAULT_CAT_LABEL = {
   shawl_nighty_lace: 'Shawl Nighty + Lace'
 };
 const getProductLabel = cat => DEFAULT_CAT_LABEL[cat] || cat.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+const formatSize = s => !s ? '' : s === 'xxl' ? '2XL' : s === 'xxxl' ? '3XL' : s === 'xxxxl' ? '4XL' : s.toUpperCase();
 
 const fmt   = n => '₹' + Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
 const fmtD  = s => new Date(s + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
@@ -251,7 +252,7 @@ function NewOrderModal({ order, onClose, onSaved }) {
   const [notes, setNotes]       = useState(order ? (order.notes || '') : '');
   const [includeGst, setIncludeGst] = useState(order ? !!order.include_gst : false);
   const [gstPct, setGstPct]     = useState(order ? String(Number(order.gst_percent)) : '5');
-  const [items, setItems]       = useState(order && order.items ? order.items : [{ category: 'shawl_nighty', quantity: '', rate_per_pc: '' }]);
+  const [items, setItems]       = useState(order && order.items ? order.items.map(it => ({ ...it, size: it.size || '' })) : [{ category: 'shawl_nighty', size: '', quantity: '', rate_per_pc: '' }]);
   const [saving, setSaving]     = useState(false);
 
   useEffect(() => {
@@ -263,10 +264,31 @@ function NewOrderModal({ order, onClose, onSaved }) {
 
   const addItem  = () => {
     const firstProduct = products[0]?.category || 'shawl_nighty';
-    setItems(prev => [...prev, { category: firstProduct, quantity: '', rate_per_pc: '' }]);
+    setItems(prev => [...prev, { category: firstProduct, size: '', quantity: '', rate_per_pc: '' }]);
   };
   const removeItem = i => setItems(prev => prev.filter((_, idx) => idx !== i));
   const setItem  = (i, field, val) => setItems(prev => prev.map((it, idx) => idx === i ? { ...it, [field]: val } : it));
+
+  const handleCategoryChange = (i, category) => {
+    const prod = products.find(p => p.category === category);
+    const size = items[i].size || '';
+    let rate = '';
+    if (prod) {
+      const sizeRateKey = size ? `selling_rate_${size}` : '';
+      rate = (sizeRateKey && prod[sizeRateKey] !== null && prod[sizeRateKey] !== undefined && prod[sizeRateKey] !== '') ? prod[sizeRateKey] : (prod.selling_rate || '');
+    }
+    setItems(prev => prev.map((it, idx) => idx === i ? { ...it, category, rate_per_pc: rate } : it));
+  };
+
+  const handleSizeChange = (i, size) => {
+    const prod = products.find(p => p.category === items[i].category);
+    let rate = '';
+    if (prod) {
+      const sizeRateKey = size ? `selling_rate_${size}` : '';
+      rate = (sizeRateKey && prod[sizeRateKey] !== null && prod[sizeRateKey] !== undefined && prod[sizeRateKey] !== '') ? prod[sizeRateKey] : (prod.selling_rate || '');
+    }
+    setItems(prev => prev.map((it, idx) => idx === i ? { ...it, size, rate_per_pc: rate } : it));
+  };
 
   const createClientInline = async () => {
     if (!newClientName.trim()) return;
@@ -365,11 +387,12 @@ function NewOrderModal({ order, onClose, onSaved }) {
           <div style={{ border: '1.5px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
             {/* Header row */}
             <div style={{
-              display: 'grid', gridTemplateColumns: '1fr 100px 120px 110px 32px',
+              display: 'grid', gridTemplateColumns: '1.5fr 1fr 100px 120px 110px 32px',
               background: 'var(--surface)', padding: '8px 12px', gap: 8,
               fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)',
             }}>
               <div>Category</div>
+              <div>Size</div>
               <div style={{ textAlign: 'right' }}>Qty (pcs)</div>
               <div style={{ textAlign: 'right' }}>Rate / pc (₹)</div>
               <div style={{ textAlign: 'right' }}>Amount</div>
@@ -380,14 +403,26 @@ function NewOrderModal({ order, onClose, onSaved }) {
               const amt = (+it.quantity || 0) * (+it.rate_per_pc || 0);
               return (
                 <div key={i} style={{
-                  display: 'grid', gridTemplateColumns: '1fr 100px 120px 110px 32px',
+                  display: 'grid', gridTemplateColumns: '1.5fr 1fr 100px 120px 110px 32px',
                   padding: '10px 12px', gap: 8, alignItems: 'center',
                   borderTop: i > 0 ? '1px solid var(--border)' : 'none',
                   background: '#fff',
                 }}>
-                  <select value={it.category} onChange={e => setItem(i, 'category', e.target.value)}
+                  <select value={it.category} onChange={e => handleCategoryChange(i, e.target.value)}
                     style={{ padding: '7px 10px', borderRadius: 7, border: '1.5px solid var(--border)', fontSize: 13, width: '100%' }}>
                     {products.map(p => <option key={p.category} value={p.category}>{getProductLabel(p.category)}</option>)}
+                  </select>
+
+                  <select value={it.size} onChange={e => handleSizeChange(i, e.target.value)}
+                    style={{ padding: '7px 10px', borderRadius: 7, border: '1.5px solid var(--border)', fontSize: 13, width: '100%' }}>
+                    <option value="">—</option>
+                    <option value="s">S</option>
+                    <option value="m">M</option>
+                    <option value="l">L</option>
+                    <option value="xl">XL</option>
+                    <option value="xxl">2XL</option>
+                    <option value="xxxl">3XL</option>
+                    <option value="xxxxl">4XL</option>
                   </select>
 
                   <input type="number" min="0" placeholder="0" value={it.quantity}
@@ -670,7 +705,7 @@ function PaymentReceiptModal({ orderId, onClose }) {
                 {order.items?.map((it, i) => (
                   <tr key={i} style={{ borderBottom: '1px solid #f5f0e8', background: i % 2 === 1 ? '#fdfaf4' : '#fff' }}>
                     <td style={{ padding: '10px 10px', fontSize: 12, color: '#bbb' }}>{i + 1}</td>
-                    <td style={{ padding: '10px 10px', fontWeight: 600 }}>{getProductLabel(it.category)}</td>
+                    <td style={{ padding: '10px 10px', fontWeight: 600 }}>{getProductLabel(it.category)}{it.size ? ` (${formatSize(it.size)})` : ''}</td>
                     <td style={{ padding: '10px 10px', textAlign: 'right' }}>{it.quantity} pcs</td>
                     <td style={{ padding: '10px 10px', textAlign: 'right' }}>{m(it.rate_per_pc)}</td>
                     <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 700 }}>{m(it.quantity * it.rate_per_pc)}</td>
@@ -962,7 +997,7 @@ function InvoiceModal({ order, onClose }) {
                 {order.items?.map((it, i) => (
                   <tr key={it.id} style={{ borderBottom: '1px solid #f5f0e8', background: i % 2 === 1 ? '#fdfaf4' : '#fff' }}>
                     <td style={{ padding: '11px 10px', fontSize: 12, color: '#bbb' }}>{i + 1}</td>
-                    <td style={{ padding: '11px 10px', fontWeight: 600, fontSize: 13 }}>{getProductLabel(it.category)}</td>
+                    <td style={{ padding: '11px 10px', fontWeight: 600, fontSize: 13 }}>{getProductLabel(it.category)}{it.size ? ` (${formatSize(it.size)})` : ''}</td>
                     <td style={{ padding: '11px 10px', textAlign: 'right', fontSize: 13 }}>{it.quantity} pcs</td>
                     <td style={{ padding: '11px 10px', textAlign: 'right', fontSize: 13 }}>{fmt(it.rate_per_pc)}</td>
                     <td style={{ padding: '11px 10px', textAlign: 'right', fontWeight: 700, fontSize: 13 }}>{fmt(it.quantity * it.rate_per_pc)}</td>
