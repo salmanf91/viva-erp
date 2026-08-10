@@ -8,15 +8,25 @@ const CAT_LABEL = { shawl_nighty: 'Shawl Nighty', shawl_nighty_lace: 'Shawl Nigh
 
 const getProductLabel = (cat) => CAT_LABEL[cat] || cat.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
-const CONFIG_FIELDS = [
+const CORE_FIELDS = [
   { key: 'fabric_cost',    label: 'Fabric Cost / pc' },
-  { key: 'selling_rate',   label: 'Selling Rate / pc' },
+  { key: 'selling_rate',   label: 'Default Selling Rate / pc' },
   { key: 'lace_cost',      label: 'Lace Cost / pc' },
   { key: 'canvas_cost',    label: 'Canvas / pc' },
   { key: 'plastic_cost',   label: 'Plastic Bag / pc' },
   { key: 'logistics_cost', label: 'Logistics / pc' },
   { key: 'cut_rate',       label: 'Cutting Rate / pc' },
   { key: 'stitch_rate',    label: 'Stitch Rate / pc' },
+];
+
+const SIZE_RATE_FIELDS = [
+  { key: 'selling_rate_s',     label: 'S Rate / pc' },
+  { key: 'selling_rate_m',     label: 'M Rate / pc' },
+  { key: 'selling_rate_l',     label: 'L Rate / pc' },
+  { key: 'selling_rate_xl',    label: 'XL Rate / pc' },
+  { key: 'selling_rate_xxl',   label: '2XL Rate / pc' },
+  { key: 'selling_rate_xxxl',  label: '3XL Rate / pc' },
+  { key: 'selling_rate_xxxxl', label: '4XL Rate / pc' },
 ];
 
 export default function SettingsPage() {
@@ -44,14 +54,20 @@ export default function SettingsPage() {
 
   const openCfg = cat => {
     const existing = configs.find(c => c.category === cat) || {};
-    const defaults = { fabric_cost: 0, selling_rate: 0, lace_cost: 0, canvas_cost: 2, plastic_cost: 2.5, logistics_cost: 5.3, cut_rate: 5, stitch_rate: 15 };
+    const defaults = {
+      fabric_cost: 0, selling_rate: 0, lace_cost: 0, canvas_cost: 2, plastic_cost: 2.5, logistics_cost: 5.3, cut_rate: 5, stitch_rate: 15,
+      selling_rate_s: '', selling_rate_m: '', selling_rate_l: '', selling_rate_xl: '', selling_rate_xxl: '', selling_rate_xxxl: '', selling_rate_xxxxl: ''
+    };
     setCfgForm({ ...defaults, ...existing });
     setEditCat(cat);
     setIsNew(false);
   };
 
   const openNewCfg = () => {
-    const defaults = { fabric_cost: 0, selling_rate: 0, lace_cost: 0, canvas_cost: 2, plastic_cost: 2.5, logistics_cost: 5.3, cut_rate: 5, stitch_rate: 15 };
+    const defaults = {
+      fabric_cost: 0, selling_rate: 0, lace_cost: 0, canvas_cost: 2, plastic_cost: 2.5, logistics_cost: 5.3, cut_rate: 5, stitch_rate: 15,
+      selling_rate_s: '', selling_rate_m: '', selling_rate_l: '', selling_rate_xl: '', selling_rate_xxl: '', selling_rate_xxxl: '', selling_rate_xxxxl: ''
+    };
     setCfgForm(defaults);
     setNewCatName('');
     setEditCat('__new__');
@@ -137,6 +153,11 @@ export default function SettingsPage() {
                 </div>
                 <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--accent)', marginBottom: 8 }}>
                   Selling: {fmt(cfg.selling_rate)} / pc
+                  {['s','m','l','xl','xxl','xxxl','xxxxl'].some(s => cfg[`selling_rate_${s}`] !== null && cfg[`selling_rate_${s}`] !== undefined && cfg[`selling_rate_${s}`] > 0) && (
+                    <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)', marginLeft: 6, display: 'inline-block' }}>
+                      (size rates set)
+                    </span>
+                  )}
                 </div>
                 <button className="btn btn-ghost btn-sm" onClick={() => openCfg(cat)}>✏️ Edit</button>
               </div>
@@ -229,12 +250,29 @@ export default function SettingsPage() {
               </div>
             )}
             <div className="form-grid">
-              {CONFIG_FIELDS.map(f => (
+              {CORE_FIELDS.map(f => (
                 f.key === 'lace_cost' && editCat !== 'shawl_nighty_lace' && !isNew ? null :
                 <div key={f.key} className="field">
                   <label>{f.label}</label>
                   <input
                     type="number" step="0.01"
+                    value={cfgForm[f.key] ?? ''}
+                    onChange={e => setCfgForm(prev => ({ ...prev, [f.key]: e.target.value }))}
+                  />
+                </div>
+              ))}
+            </div>
+
+            <h3 style={{ fontSize: 13, fontWeight: 700, margin: '20px 0 10px', color: 'var(--text)', borderBottom: '1px solid var(--border)', paddingBottom: 6 }}>
+              Size-Specific Selling Rates (Optional)
+            </h3>
+            <div className="form-grid" style={{ marginBottom: 12 }}>
+              {SIZE_RATE_FIELDS.map(f => (
+                <div key={f.key} className="field">
+                  <label>{f.label}</label>
+                  <input
+                    type="number" step="0.01"
+                    placeholder="Use Default"
                     value={cfgForm[f.key] ?? ''}
                     onChange={e => setCfgForm(prev => ({ ...prev, [f.key]: e.target.value }))}
                   />

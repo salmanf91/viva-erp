@@ -145,7 +145,10 @@ export async function updateProductConfig(req: AuthRequest, res: Response): Prom
   const { tenantId } = req.user!;
   const { category } = req.params;
   const fields = req.body;
-  const allowed = ['fabric_cost','selling_rate','lace_cost','zip_cost','thread_cost','canvas_cost','plastic_cost','logistics_cost','cut_rate','stitch_rate'];
+  const allowed = [
+    'fabric_cost','selling_rate','lace_cost','zip_cost','thread_cost','canvas_cost','plastic_cost','logistics_cost','cut_rate','stitch_rate',
+    'selling_rate_s', 'selling_rate_m', 'selling_rate_l', 'selling_rate_xl', 'selling_rate_xxl', 'selling_rate_xxxl', 'selling_rate_xxxxl'
+  ];
   const validKeys = Object.keys(fields).filter(k => allowed.includes(k));
   if (!validKeys.length) { res.status(400).json({ message: 'No valid fields' }); return; }
   const vals = validKeys.map(k => fields[k]);
