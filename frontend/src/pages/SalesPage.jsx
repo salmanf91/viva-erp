@@ -143,102 +143,91 @@ function OrdersTab({ onReload }) {
       {loading ? <div className="spinner">Loading…</div> : orders.length === 0 ? (
         <div className="card"><div className="empty-state">No deliveries found.</div></div>
       ) : (
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-          <table>
-            <thead>
-              <tr>
-                <th>Invoice</th>
-                <th>Date</th>
-                <th>Client</th>
-                <th style={{ textAlign: 'right' }}>Items</th>
-                <th style={{ textAlign: 'right' }}>Amount</th>
-                <th>Status</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {orders.map(o => {
-                const subtotal   = +o.subtotal || 0;
-                const gst        = o.include_gst ? subtotal * (+o.gst_percent / 100) : 0;
-                const total      = subtotal + gst;
-                const amtPaid    = +o.amount_paid || 0;
-                const balance    = total - amtPaid;
-                const isPartial  = o.status === 'partial';
-                const isPending  = o.status === 'pending';
-                return (
-                  <tr key={o.id}>
-                    <td style={{ fontWeight: 700, fontSize: 12, color: 'var(--accent)' }}>{o.invoice_number}</td>
-                    <td style={{ fontSize: 12, color: 'var(--muted)' }}>{fmtD(o.order_date)}</td>
-                    <td>
-                      <div style={{ fontWeight: 600 }}>{o.client_name}</div>
-                      {o.client_city && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{o.client_city}</div>}
-                      {Number(o.client_total_outstanding) > 0 && (
-                        <div style={{ fontSize: 10, color: '#c0390b', fontWeight: 700, marginTop: 4, display: 'inline-flex', alignItems: 'center', gap: 3, background: '#fff0f0', padding: '2px 6px', borderRadius: 4, border: '1px solid #f5e8e8' }}>
-                          <span>⚠ Total Due: {fmt(o.client_total_outstanding)}</span>
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ textAlign: 'right', fontSize: 12 }}>{o.item_count} item{o.item_count !== 1 ? 's' : ''}</td>
-                    <td style={{ textAlign: 'right' }}>
-                      <div style={{ fontWeight: 700 }}>{fmt(total)}</div>
-                      {isPartial && (
-                        <div style={{ fontSize: 11, color: 'var(--orange)' }}>
-                          Bal: {fmt(balance)}
-                        </div>
-                      )}
-                    </td>
-                    <td>
-                      {o.status === 'paid'
-                        ? <span className="badge b-green"  style={{ fontSize: 10 }}>✓ Paid</span>
-                        : isPartial
-                        ? <span className="badge b-accent" style={{ fontSize: 10 }}>◑ Partial</span>
-                        : <span className="badge b-yellow" style={{ fontSize: 10 }}>⏳ Pending</span>}
-                    </td>
-                    <td>
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={() => openInvoice(o)}>
-                          Invoice
-                        </button>
-                        {amtPaid > 0 && (
-                          <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--green)' }}
-                            onClick={() => setReceiptModal(o.id)}>
-                            Receipt
+        <>
+          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            <table>
+              <thead>
+                <tr>
+                  <th>Invoice</th>
+                  <th>Date</th>
+                  <th>Client</th>
+                  <th style={{ textAlign: 'right' }}>Items</th>
+                  <th style={{ textAlign: 'right' }}>Amount</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {orders.map(o => {
+                  const subtotal   = +o.subtotal || 0;
+                  const gst        = o.include_gst ? subtotal * (+o.gst_percent / 100) : 0;
+                  const total      = subtotal + gst;
+                  const amtPaid    = +o.amount_paid || 0;
+                  const balance    = total - amtPaid;
+                  const isPartial  = o.status === 'partial';
+                  const isPending  = o.status === 'pending';
+                  return (
+                    <tr key={o.id}>
+                      <td style={{ fontWeight: 700, fontSize: 12, color: 'var(--accent)' }}>{o.invoice_number}</td>
+                      <td style={{ color: 'var(--muted)', fontSize: 12 }}>{fmtD(o.order_date?.slice(0, 10))}</td>
+                      <td>
+                        <div style={{ fontWeight: 600 }}>{o.client_name}</div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)' }}>{o.client_city}</div>
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{o.item_count}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text)' }}>{fmt(total)}</td>
+                      <td>
+                        <span className={`badge ${o.status === 'paid' ? 'b-green' : isPartial ? 'b-yellow' : 'b-accent'}`}>
+                          {o.status}
+                        </span>
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                          <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--accent)' }} onClick={() => openInvoice(o)}>
+                            Invoice
                           </button>
-                        )}
-                        {(isPending || isPartial) && (
-                          <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--accent)' }}
-                            onClick={() => setPayModal({ id: o.id, invoiceNo: o.invoice_number, clientName: o.client_name, total, amtPaid, balance })}>
-                            + Payment
+                          {amtPaid > 0 && (
+                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--green)' }}
+                              onClick={() => setReceiptModal(o.id)}>
+                              Receipt
+                            </button>
+                          )}
+                          {(isPending || isPartial) && (
+                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--accent)' }}
+                              onClick={() => setPayModal({ id: o.id, invoiceNo: o.invoice_number, clientName: o.client_name, total, amtPaid, balance })}>
+                              + Payment
+                            </button>
+                          )}
+                          <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--accent)' }} onClick={() => openEdit(o)}>
+                            ✏️ Edit
                           </button>
-                        )}
-                        <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--accent)' }} onClick={() => openEdit(o)}>
-                          ✏️ Edit
-                        </button>
-                        <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--red)' }} onClick={() => del(o.id)}>
-                          ✕
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-        </div>
-
-        {/* Pagination */}
-        {pages > 1 && (
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: 14 }}>
-            <button className="btn btn-ghost btn-sm" disabled={page === 1} onClick={() => setPage(p => p - 1)}>‹ Prev</button>
-            {Array.from({ length: pages }, (_, i) => i + 1).map(p => (
-              <button key={p} onClick={() => setPage(p)} style={{
-                width: 30, height: 30, borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700,
-                background: page === p ? 'var(--accent)' : 'var(--light)',
-                color: page === p ? '#fff' : 'var(--muted)',
-              }}>{p}</button>
-            ))}
-            <button className="btn btn-ghost btn-sm" disabled={page === pages} onClick={() => setPage(p => p + 1)}>Next ›</button>
+                          <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--red)' }} onClick={() => del(o.id)}>
+                            ✕
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
-        )}
+
+          {/* Pagination */}
+          {pages > 1 && (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: 14 }}>
+              <button className="btn btn-ghost btn-sm" disabled={page === 1} onClick={() => setPage(p => p - 1)}>‹ Prev</button>
+              {Array.from({ length: pages }, (_, i) => i + 1).map(p => (
+                <button key={p} onClick={() => setPage(p)} style={{
+                  width: 30, height: 30, borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700,
+                  background: page === p ? 'var(--accent)' : 'var(--light)',
+                  color: page === p ? '#fff' : 'var(--muted)',
+                }}>{p}</button>
+              ))}
+              <button className="btn btn-ghost btn-sm" disabled={page === pages} onClick={() => setPage(p => p + 1)}>Next ›</button>
+            </div>
+          )}
+        </>
       )}
 
       {showNew      && <NewOrderModal onClose={() => setShowNew(false)} onSaved={() => { setShowNew(false); load(); onReload(); }} />}
