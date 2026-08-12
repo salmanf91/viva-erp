@@ -272,6 +272,34 @@ export async function getClientLedger(req: AuthRequest, res: Response): Promise<
   const { from, to } = req.query;
 
   try {
+    let openingBalance = 0;
+    
+    // Calculate opening balance if 'from' date is provided
+    if (from) {
+      const [billedRows] = await query<any[]>(
+        `SELECT COALESCE(SUM(item_total), 0) AS total_billed FROM (
+          SELECT COALESCE(SUM(i.quantity * i.rate_per_pc), 0) * (1 + o.gst_percent / 100) AS item_total
+          FROM sales_orders o
+          LEFT JOIN sales_order_items i ON i.order_id = o.id
+          WHERE o.tenant_id = ? AND o.client_id = ? AND o.order_date < ?
+          GROUP BY o.id
+        ) t`,
+        [tenantId, id, from]
+      );
+      const totalBilled = billedRows?.total_billed || 0;
+
+      const [paidRows] = await query<any[]>(
+        `SELECT COALESCE(SUM(p.amount), 0) AS total_paid
+         FROM sales_payments p
+         JOIN sales_orders o ON o.id = p.order_id
+         WHERE p.tenant_id = ? AND o.client_id = ? AND p.payment_date < ?`,
+        [tenantId, id, from]
+      );
+      const totalPaid = paidRows?.total_paid || 0;
+      
+      openingBalance = Number(totalBilled) - Number(totalPaid);
+    }
+
     let orderCond = 'o.tenant_id = ? AND o.client_id = ?';
     const orderParams: any[] = [tenantId, id];
     if (from) { orderCond += ' AND o.order_date >= ?'; orderParams.push(from); }
@@ -312,13 +340,16 @@ export async function getClientLedger(req: AuthRequest, res: Response): Promise<
       return a.type === 'invoice' ? -1 : 1;
     });
 
-    let balance = 0;
+    let balance = openingBalance;
     const ledger = all.map(r => {
       balance += r.debit - r.credit;
       return { ...r, balance };
     });
 
-    res.json(ledger);
+    res.json({
+      openingBalance,
+      transactions: ledger
+    });
   } catch (error: any) {
     console.error(error);
     res.status(500).json({ message: 'Server error', error: error.message });
@@ -331,6 +362,29 @@ export async function getVendorLedger(req: AuthRequest, res: Response): Promise<
   const { from, to } = req.query;
 
   try {
+    let openingBalance = 0;
+
+    // Calculate opening balance if 'from' date is provided
+    if (from) {
+      const [billedRows] = await query<any[]>(
+        `SELECT COALESCE(SUM(total), 0) AS total_billed
+         FROM purchases
+         WHERE tenant_id = ? AND vendor_id = ? AND invoice_date < ?`,
+        [tenantId, id, from]
+      );
+      const totalBilled = billedRows?.total_billed || 0;
+
+      const [paidRows] = await query<any[]>(
+        `SELECT COALESCE(SUM(advance_paid), 0) AS total_paid
+         FROM purchases
+         WHERE tenant_id = ? AND vendor_id = ? AND invoice_date < ?`,
+        [tenantId, id, from]
+      );
+      const totalPaid = paidRows?.total_paid || 0;
+
+      openingBalance = Number(totalBilled) - Number(totalPaid);
+    }
+
     let pCond = 'p.tenant_id = ? AND p.vendor_id = ?';
     const pParams: any[] = [tenantId, id];
     if (from) { pCond += ' AND p.invoice_date >= ?'; pParams.push(from); }
@@ -367,13 +421,16 @@ export async function getVendorLedger(req: AuthRequest, res: Response): Promise<
       return a.type === 'bill' ? -1 : 1;
     });
 
-    let balance = 0;
+    let balance = openingBalance;
     const ledger = all.map(r => {
       balance += r.debit - r.credit;
       return { ...r, balance };
     });
 
-    res.json(ledger);
+    res.json({
+      openingBalance,
+      transactions: ledger
+    });
   } catch (error: any) {
     console.error(error);
     res.status(500).json({ message: 'Server error', error: error.message });

@@ -5,14 +5,75 @@ import pool from '../config/db';
 
 export async function getBatches(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
+  const page = parseInt(req.query.page as string) || 1;
+  const limit = parseInt(req.query.limit as string) || 20;
+  const offset = (page - 1) * limit;
+
   try {
-    const rows = await query(
+    // 1. Count query
+    const [countRows] = await query<any[]>('SELECT COUNT(*) AS total FROM production_batches WHERE tenant_id=?', [tenantId]);
+    const total = countRows?.total || 0;
+
+    // 2. Paginated data query
+    const rows = await query<any[]>(
       `SELECT pb.* FROM production_batches pb
        WHERE pb.tenant_id = ?
+       ORDER BY pb.batch_date DESC, pb.id DESC
+       LIMIT ? OFFSET ?`,
+      [tenantId, limit, offset]
+    );
+
+    // Fetch all active batches
+    const activeRows = await query<any[]>(
+      `SELECT pb.* FROM production_batches pb
+       WHERE pb.tenant_id = ? AND pb.status != 'finished'
        ORDER BY pb.batch_date DESC, pb.id DESC`,
       [tenantId]
     );
-    res.json(rows);
+
+    // 3. Stats query
+    const statsRows = await query<any[]>(
+      `SELECT 
+         COALESCE(SUM(quantity), 0) AS total_pcs,
+         COALESCE(SUM(CASE WHEN status = 'finished' THEN quantity ELSE 0 END), 0) AS finished_pcs,
+         COALESCE(SUM(CASE WHEN status != 'finished' THEN quantity ELSE 0 END), 0) AS active_pcs,
+         COUNT(CASE WHEN status != 'finished' THEN 1 END) AS active_count,
+         COUNT(CASE WHEN status = 'finished' THEN 1 END) AS finished_count
+       FROM production_batches
+       WHERE tenant_id = ?`,
+      [tenantId]
+    );
+    const stats = statsRows[0] || { total_pcs: 0, finished_pcs: 0, active_pcs: 0, active_count: 0, finished_count: 0 };
+
+    // Category totals
+    const catRows = await query<any[]>(
+      `SELECT category, COALESCE(SUM(quantity), 0) AS category_qty
+       FROM production_batches
+       WHERE tenant_id = ?
+       GROUP BY category`,
+      [tenantId]
+    );
+    const categoryTotals: Record<string, number> = {};
+    for (const catRow of catRows) {
+      categoryTotals[catRow.category] = Number(catRow.category_qty);
+    }
+
+    res.json({
+      data: rows,
+      active: activeRows,
+      total,
+      page,
+      pages: Math.max(1, Math.ceil(total / limit)),
+      limit,
+      stats: {
+        totalPcs: Number(stats.total_pcs),
+        finishedPcs: Number(stats.finished_pcs),
+        activePcs: Number(stats.active_pcs),
+        activeCount: Number(stats.active_count),
+        finishedCount: Number(stats.finished_count),
+        categoryTotals
+      }
+    });
   } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 

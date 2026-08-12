@@ -28,6 +28,7 @@ export default function PartyLedgerPage() {
   const [from, setFrom] = useState(startOfMonth());
   const [to, setTo] = useState(today());
   const [ledger, setLedger] = useState([]);
+  const [openingBalance, setOpeningBalance] = useState(0);
   const [loading, setLoading] = useState(false);
 
   // Fetch list of clients and vendors
@@ -35,7 +36,6 @@ export default function PartyLedgerPage() {
     api.get('/finance/party-ledger/parties')
       .then(r => {
         setParties(r.data);
-        // Auto-select the first available party in the current tab
         if (tab === 'client' && r.data.clients?.length) {
           setSelectedId(String(r.data.clients[0].id));
         } else if (tab === 'vendor' && r.data.vendors?.length) {
@@ -55,6 +55,7 @@ export default function PartyLedgerPage() {
       setSelectedId('');
     }
     setLedger([]);
+    setOpeningBalance(0);
   }, [tab, parties]);
 
   // Load ledger details
@@ -63,7 +64,10 @@ export default function PartyLedgerPage() {
     setLoading(true);
     const endpoint = `/finance/party-ledger/${tab}/${selectedId}?from=${from}&to=${to}`;
     api.get(endpoint)
-      .then(r => setLedger(r.data))
+      .then(r => {
+        setLedger(r.data.transactions || []);
+        setOpeningBalance(r.data.openingBalance || 0);
+      })
       .catch(err => console.error('Error loading ledger:', err))
       .finally(() => setLoading(false));
   };
@@ -84,7 +88,7 @@ export default function PartyLedgerPage() {
   // Summaries
   const totalBilled = ledger.reduce((s, r) => s + r.debit, 0);
   const totalPaid = ledger.reduce((s, r) => s + r.credit, 0);
-  const netBalance = ledger.length ? ledger[ledger.length - 1].balance : 0;
+  const netBalance = openingBalance + totalBilled - totalPaid;
 
   return (
     <div style={{ paddingBottom: 40 }}>
@@ -186,19 +190,26 @@ export default function PartyLedgerPage() {
           </div>
 
           {/* Dynamic Summary Cards */}
-          <div className="card" style={{ flex: 1, minWidth: 160, padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+          <div className="card" style={{ flex: 1, minWidth: 150, padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', borderLeft: '3.5px solid var(--muted)' }}>
+            <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', marginBottom: 6 }}>
+              Opening Balance
+            </div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text)' }}>{fmt(openingBalance)}</div>
+          </div>
+
+          <div className="card" style={{ flex: 1, minWidth: 150, padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', borderLeft: '3.5px solid var(--accent)' }}>
             <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', marginBottom: 6 }}>
               {tab === 'client' ? 'Total Invoiced' : 'Total Purchased'}
             </div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)' }}>{fmt(totalBilled)}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text)' }}>{fmt(totalBilled)}</div>
           </div>
 
-          <div className="card" style={{ flex: 1, minWidth: 160, padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+          <div className="card" style={{ flex: 1, minWidth: 150, padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', borderLeft: '3.5px solid var(--green)' }}>
             <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', marginBottom: 6 }}>Total Paid</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--green)' }}>{fmt(totalPaid)}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--green)' }}>{fmt(totalPaid)}</div>
           </div>
 
-          <div className="card" style={{ flex: 1, minWidth: 160, padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', background: 'var(--accent-l)' }}>
+          <div className="card" style={{ flex: 1.2, minWidth: 160, padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', background: 'linear-gradient(135deg, var(--accent-l) 0%, rgba(196,181,253,0.15) 100%)', border: '1.5px solid var(--accent)', boxShadow: '0 4px 12px rgba(139, 92, 246, 0.08)' }}>
             <div style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 800, textTransform: 'uppercase', marginBottom: 6 }}>
               {tab === 'client' ? 'Net Outstanding' : 'Net Owed'}
             </div>
@@ -207,38 +218,58 @@ export default function PartyLedgerPage() {
         </div>
 
         {/* Ledger Transactions Table */}
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div className="card" style={{ padding: 0, overflow: 'hidden', border: '1px solid var(--border)', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
           {loading ? (
             <div style={{ padding: 40, textAlign: 'center' }} className="spinner">Loading ledger transactions…</div>
-          ) : ledger.length === 0 ? (
+          ) : ledger.length === 0 && openingBalance === 0 ? (
             <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)', fontStyle: 'italic' }}>
               No transactions recorded in this period.
             </div>
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
               <thead>
-                <tr style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)' }}>
-                  <th style={{ padding: '12px 16px', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)' }}>Date</th>
-                  <th style={{ padding: '12px 16px', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)' }}>Type</th>
-                  <th style={{ padding: '12px 16px', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)' }}>Reference</th>
-                  <th style={{ padding: '12px 16px', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)' }}>Description</th>
-                  <th style={{ padding: '12px 16px', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)', textAlign: 'right' }}>
+                <tr style={{ background: 'var(--surface)', borderBottom: '1.5px solid var(--border)' }}>
+                  <th style={{ padding: '14px 16px', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)' }}>Date</th>
+                  <th style={{ padding: '14px 16px', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)' }}>Type</th>
+                  <th style={{ padding: '14px 16px', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)' }}>Reference</th>
+                  <th style={{ padding: '14px 16px', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)' }}>Description</th>
+                  <th style={{ padding: '14px 16px', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)', textAlign: 'right' }}>
                     {tab === 'client' ? 'Billed (+)' : 'Purchased (+)'}
                   </th>
-                  <th style={{ padding: '12px 16px', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)', textAlign: 'right' }}>Paid (-)</th>
-                  <th style={{ padding: '12px 16px', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)', textAlign: 'right' }}>Balance</th>
+                  <th style={{ padding: '14px 16px', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)', textAlign: 'right' }}>Paid (-)</th>
+                  <th style={{ padding: '14px 16px', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)', textAlign: 'right' }}>Balance</th>
                 </tr>
               </thead>
               <tbody>
+                {/* Opening Balance Row */}
+                {from && (
+                  <tr style={{ borderBottom: '1px solid var(--border)', background: 'rgba(243,244,246,0.5)' }}>
+                    <td style={{ padding: '12px 16px', fontSize: 12, color: 'var(--muted)' }}>{fmtD(from)}</td>
+                    <td style={{ padding: '12px 16px', fontSize: 12 }}>
+                      <span className="badge b-yellow" style={{ fontSize: 10, textTransform: 'uppercase', fontWeight: 700 }}>Opening</span>
+                    </td>
+                    <td style={{ padding: '12px 16px', fontSize: 12, color: 'var(--muted)' }}>—</td>
+                    <td style={{ padding: '12px 16px', fontSize: 12, color: 'var(--muted)', fontStyle: 'italic' }}>
+                      Opening Balance Brought Forward
+                    </td>
+                    <td style={{ padding: '12px 16px', fontSize: 12, textAlign: 'right', color: 'var(--muted)' }}>—</td>
+                    <td style={{ padding: '12px 16px', fontSize: 12, textAlign: 'right', color: 'var(--muted)' }}>—</td>
+                    <td style={{ padding: '12px 16px', fontSize: 13, textAlign: 'right', fontWeight: 700, color: 'var(--text)' }}>
+                      {fmt(openingBalance)}
+                    </td>
+                  </tr>
+                )}
+
+                {/* Ledger Transactions */}
                 {ledger.map((r, i) => (
-                  <tr key={i} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 1 ? 'var(--surface)' : '#fff' }}>
+                  <tr key={i} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 1 ? 'rgba(249,250,251,0.6)' : '#fff' }}>
                     <td style={{ padding: '12px 16px', fontSize: 13, fontWeight: 500 }}>{fmtD(r.date)}</td>
                     <td style={{ padding: '12px 16px', fontSize: 13 }}>
-                      <span className={`badge ${r.type === 'invoice' || r.type === 'bill' ? 'b-accent' : 'b-green'}`} style={{ textTransform: 'capitalize', fontSize: 11 }}>
+                      <span className={`badge ${r.type === 'invoice' || r.type === 'bill' ? 'b-accent' : 'b-green'}`} style={{ textTransform: 'capitalize', fontSize: 11, fontWeight: 600 }}>
                         {r.type}
                       </span>
                     </td>
-                    <td style={{ padding: '12px 16px', fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{r.ref || '—'}</td>
+                    <td style={{ padding: '12px 16px', fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{r.ref || '—'}</td>
                     <td style={{ padding: '12px 16px', fontSize: 13, color: 'var(--muted)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.description}>
                       {r.description || '—'}
                     </td>

@@ -67,24 +67,66 @@ export async function getAccessoryPrices(req: AuthRequest, res: Response): Promi
 export async function getExpenses(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
   const { month, year, from, to } = req.query;
+  const page = parseInt(req.query.page as string) || 1;
+  const limit = parseInt(req.query.limit as string) || 20;
+  const offset = (page - 1) * limit;
+
   try {
-    let sql = `
-      SELECT e.*, er.name AS reason_name, er.category, er.icon, er.accessory_type
-      FROM expenses e
-      JOIN expense_reasons er ON er.id = e.reason_id
-      WHERE e.tenant_id = ?`;
+    let sqlCond = 'e.tenant_id = ?';
     const params: unknown[] = [tenantId];
     if (from && to) {
-      sql += ' AND e.expense_date BETWEEN ? AND ?';
+      sqlCond += ' AND e.expense_date BETWEEN ? AND ?';
       params.push(from, to);
     } else if (month && year) {
-      sql += ' AND MONTH(e.expense_date) = ? AND YEAR(e.expense_date) = ?';
+      sqlCond += ' AND MONTH(e.expense_date) = ? AND YEAR(e.expense_date) = ?';
       params.push(month, year);
     }
-    sql += ' ORDER BY e.expense_date DESC, e.id DESC';
-    const expenses = await query<any[]>(sql, params);
 
-    // determine if this month is archived (any row archived = month is locked)
+    // 1. Count query
+    const [countRows] = await query<any[]>(
+      `SELECT COUNT(*) AS total 
+       FROM expenses e
+       JOIN expense_reasons er ON er.id = e.reason_id
+       WHERE ${sqlCond}`,
+      params
+    );
+    const total = countRows?.total || 0;
+
+    // 2. Data query
+    const expenses = await query<any[]>(
+      `SELECT e.*, er.name AS reason_name, er.category, er.icon, er.accessory_type
+       FROM expenses e
+       JOIN expense_reasons er ON er.id = e.reason_id
+       WHERE ${sqlCond}
+       ORDER BY e.expense_date DESC, e.id DESC
+       LIMIT ? OFFSET ?`,
+      [...params, limit, offset]
+    );
+
+    // 3. Stats query
+    const statsRows = await query<any[]>(
+      `SELECT 
+         COALESCE(SUM(e.amount), 0) AS total_spent,
+         COALESCE(SUM(CASE WHEN e.paid_by IS NOT NULL AND e.reimbursed_at IS NULL THEN e.amount ELSE 0 END), 0) AS total_pending,
+         COALESCE(SUM(CASE WHEN e.paid_by IS NOT NULL AND e.reimbursed_at IS NOT NULL THEN e.amount ELSE 0 END), 0) AS total_repaid
+       FROM expenses e
+       JOIN expense_reasons er ON er.id = e.reason_id
+       WHERE ${sqlCond}`,
+      params
+    );
+    const stats = statsRows[0] || { total_spent: 0, total_pending: 0, total_repaid: 0 };
+
+    // Outstanding by person
+    const personRows = await query<any[]>(
+      `SELECT e.paid_by, COALESCE(SUM(e.amount), 0) AS amt
+       FROM expenses e
+       JOIN expense_reasons er ON er.id = e.reason_id
+       WHERE ${sqlCond} AND e.paid_by IS NOT NULL AND e.reimbursed_at IS NULL
+       GROUP BY e.paid_by`,
+      params
+    );
+
+    // determine if this month is archived
     let is_archived = false;
     if (month && year && !from && !to) {
       const check = await query<any[]>(
@@ -93,7 +135,21 @@ export async function getExpenses(req: AuthRequest, res: Response): Promise<void
       );
       is_archived = check.length > 0;
     }
-    res.json({ expenses, is_archived });
+
+    res.json({
+      data: expenses,
+      total,
+      page,
+      pages: Math.max(1, Math.ceil(total / limit)),
+      limit,
+      is_archived,
+      stats: {
+        totalSpent: Number(stats.total_spent),
+        totalPending: Number(stats.total_pending),
+        totalRepaid: Number(stats.total_repaid),
+        outstanding: personRows.map(r => ({ name: r.paid_by, amt: Number(r.amt) }))
+      }
+    });
   } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 

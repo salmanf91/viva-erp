@@ -42,6 +42,9 @@ export default function SalesPage() {
 
 function OrdersTab({ onReload }) {
   const [orders, setOrders]   = useState([]);
+  const [page, setPage]       = useState(1);
+  const [pages, setPages]     = useState(1);
+  const [total, setTotal]     = useState(0);
   const [summary, setSummary] = useState(null);
   const [nightiesData, setNightiesData] = useState({ shawl_nighty: 0, shawl_nighty_lace: 0, ordinary_nighty: 0, total: 0 });
   const [loading, setLoading] = useState(true);
@@ -52,21 +55,26 @@ function OrdersTab({ onReload }) {
 
   const load = () => {
     setLoading(true);
-    const params = filter !== 'all' ? { status: filter } : {};
+    const params = {
+      ...(filter !== 'all' ? { status: filter } : {}),
+      page
+    };
     Promise.all([
       api.get('/sales', { params }),
       api.get('/sales/summary'),
       api.get('/sales/nighties-summary'),
     ]).then(([o, s, n]) => {
-      setOrders(o.data);
+      setOrders(o.data.data || []);
+      setPages(o.data.pages || 1);
+      setTotal(o.data.total || 0);
       setSummary(s.data);
       setNightiesData(n.data);
     })
       .finally(() => setLoading(false));
   };
 
-
-  useEffect(() => { load(); }, [filter]);
+  useEffect(() => { setPage(1); }, [filter]);
+  useEffect(() => { load(); }, [filter, page]);
 
   const openInvoice = async order => {
     const r = await api.get(`/sales/${order.id}`);
@@ -215,8 +223,22 @@ function OrdersTab({ onReload }) {
                 );
               })}
             </tbody>
-          </table>
         </div>
+
+        {/* Pagination */}
+        {pages > 1 && (
+          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: 14 }}>
+            <button className="btn btn-ghost btn-sm" disabled={page === 1} onClick={() => setPage(p => p - 1)}>‹ Prev</button>
+            {Array.from({ length: pages }, (_, i) => i + 1).map(p => (
+              <button key={p} onClick={() => setPage(p)} style={{
+                width: 30, height: 30, borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700,
+                background: page === p ? 'var(--accent)' : 'var(--light)',
+                color: page === p ? '#fff' : 'var(--muted)',
+              }}>{p}</button>
+            ))}
+            <button className="btn btn-ghost btn-sm" disabled={page === pages} onClick={() => setPage(p => p + 1)}>Next ›</button>
+          </div>
+        )}
       )}
 
       {showNew      && <NewOrderModal onClose={() => setShowNew(false)} onSaved={() => { setShowNew(false); load(); onReload(); }} />}

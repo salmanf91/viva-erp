@@ -257,6 +257,7 @@ function CostCard({ cfg, cardQty, totalPcs, rent, electricity, onQtyChange, accL
 
 export default function ProductionPage() {
   const [batches, setBatches]         = useState([]);
+  const [activeBatches, setActiveBatches] = useState([]);
   const [configs, setConfigs]         = useState([]);
   const [accLatest, setAccLatest]     = useState([]);   // latest accessory prices
   const [staff, setStaff]             = useState([]);
@@ -275,6 +276,12 @@ export default function ProductionPage() {
   const [sellingRates, setSellingRates] = useState({});
   const [savingSelling, setSavingSelling] = useState({});
   const HIST_PAGE_SIZE = 8;
+  const [histTotal, setHistTotal]     = useState(0);
+  const [histPages, setHistPages]     = useState(1);
+  const [statsPcs, setStatsPcs]       = useState(0);
+  const [statsFinishedPcs, setStatsFinishedPcs] = useState(0);
+  const [statsActiveCount, setStatsActiveCount] = useState(0);
+  const [statsActivePcs, setStatsActivePcs] = useState(0);
 
   const emptyForm = () => ({
     category: configs[0]?.category || 'shawl_nighty', quantity: '',
@@ -285,13 +292,17 @@ export default function ProductionPage() {
   const [form, setForm] = useState(emptyForm());
 
   const load = () => Promise.all([
-    api.get('/production').then(r => {
-      setBatches(r.data);
-      const qty = {};
-      r.data.forEach(b => {
-        qty[b.category] = (qty[b.category] || 0) + Number(b.quantity || 0);
-      });
-      setCardQty(qty);
+    api.get(`/production?page=${histPage}&limit=${HIST_PAGE_SIZE}`).then(r => {
+      setBatches(r.data.data || []);
+      setActiveBatches(r.data.active || []);
+      setHistTotal(r.data.total || 0);
+      setHistPages(r.data.pages || 1);
+      const stats = r.data.stats || {};
+      setCardQty(stats.categoryTotals || {});
+      setStatsPcs(stats.totalPcs || 0);
+      setStatsFinishedPcs(stats.finishedPcs || 0);
+      setStatsActiveCount(stats.activeCount || 0);
+      setStatsActivePcs(stats.activePcs || 0);
     }),
     api.get('/production/configs').then(r => {
       setConfigs(r.data);
@@ -335,7 +346,7 @@ export default function ProductionPage() {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [histPage]);
 
   const createBatch = async () => {
     if (!form.quantity) return;
@@ -379,16 +390,10 @@ export default function ProductionPage() {
   const cutters = staff.filter(s => s.role === 'cutting_master');
   const tailors  = staff.filter(s => s.role === 'tailor');
 
-  const activeBatches   = batches.filter(b => b.status !== 'finished');
-  const finishedBatches = batches.filter(b => b.status === 'finished');
-  const totalPcs        = batches.reduce((s, b) => s + Number(b.quantity || 0), 0);
-  const finishedPcs     = finishedBatches.reduce((s, b) => s + Number(b.quantity || 0), 0);
-  const cardTotalPcs    = Object.values(cardQty).reduce((s, v) => s + v, 0);
-
-  // pagination for history table
-  const histTotal = batches.length;
-  const histPages = Math.max(1, Math.ceil(histTotal / HIST_PAGE_SIZE));
-  const histSlice = batches.slice((histPage - 1) * HIST_PAGE_SIZE, histPage * HIST_PAGE_SIZE);
+  const totalPcs        = statsPcs;
+  const finishedPcs     = statsFinishedPcs;
+  const cardTotalPcs    = Object.values(cardQty).reduce((s, v) => s + Number(v), 0);
+  const histSlice       = batches;
 
   if (loading) return <div className="spinner">Loading…</div>;
 
@@ -441,17 +446,17 @@ export default function ProductionPage() {
       <div className="g4 mb16">
         <div className="stat s-accent">
           <div className="s-label">Total Batches</div>
-          <div className="s-val">{batches.length}</div>
+          <div className="s-val">{histTotal}</div>
           <div className="s-sub">{totalPcs} pcs across all</div>
         </div>
         <div className="stat s-yellow">
           <div className="s-label">Active</div>
-          <div className="s-val">{activeBatches.length}</div>
-          <div className="s-sub">{activeBatches.reduce((s,b)=>s+Number(b.quantity||0),0)} pcs in progress</div>
+          <div className="s-val">{statsActiveCount}</div>
+          <div className="s-sub">{statsActivePcs} pcs in progress</div>
         </div>
         <div className="stat s-green">
           <div className="s-label">Finished</div>
-          <div className="s-val">{finishedBatches.length}</div>
+          <div className="s-val">{histTotal - statsActiveCount}</div>
           <div className="s-sub">{finishedPcs} pcs done</div>
         </div>
         <div className="stat s-cyan">
