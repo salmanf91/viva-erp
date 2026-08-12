@@ -28,16 +28,22 @@ function AccountsTab({ reasons, reimbModal, setReimbModal, reimbBy, setReimbBy, 
   const [catFilter, setCatFilter]       = useState('');
   const [paidByFilter, setPaidByFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState(''); // '' | 'pending' | 'repaid' | 'company'
+  const [page, setPage]                 = useState(1);
+  const [pages, setPages]               = useState(1);
+  const [stats, setStats]               = useState({ totalSpent: 0, totalPending: 0, totalRepaid: 0, outstanding: [] });
 
   const load = () => {
     setLoading(true);
-    api.get(`/expenses?from=${fromDate}&to=${toDate}`).then(r => {
+    api.get(`/expenses?from=${fromDate}&to=${toDate}&page=${page}`).then(r => {
       const data = r.data;
-      setAllExp(Array.isArray(data) ? data : (data.expenses || []));
+      setAllExp(data.data || []);
+      setPages(data.pages || 1);
+      setStats(data.stats || { totalSpent: 0, totalPending: 0, totalRepaid: 0, outstanding: [] });
     }).finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); }, [fromDate, toDate]);
+  useEffect(() => { setPage(1); }, [fromDate, toDate]);
+  useEffect(() => { load(); }, [fromDate, toDate, page]);
 
   const paidByOptions = useMemo(() => [...new Set(allExp.map(e => e.paid_by).filter(Boolean))], [allExp]);
 
@@ -50,19 +56,11 @@ function AccountsTab({ reasons, reimbModal, setReimbModal, reimbBy, setReimbBy, 
     return true;
   }), [allExp, catFilter, paidByFilter, statusFilter]);
 
-  const totalSpent   = filtered.reduce((s,e) => s + Number(e.amount||0), 0);
-  const totalPending = filtered.filter(e => e.paid_by && !e.reimbursed_at).reduce((s,e) => s + Number(e.amount||0), 0);
-  const totalRepaid  = filtered.filter(e => e.paid_by && e.reimbursed_at).reduce((s,e) => s + Number(e.amount||0), 0);
+  const totalSpent   = stats.totalSpent;
+  const totalPending = stats.totalPending;
+  const totalRepaid  = stats.totalRepaid;
   const netCompany   = totalSpent - totalPending;
-
-  // Outstanding by person
-  const outstanding = useMemo(() => {
-    const map = {};
-    allExp.filter(e => e.paid_by && !e.reimbursed_at).forEach(e => {
-      map[e.paid_by] = (map[e.paid_by] || 0) + Number(e.amount||0);
-    });
-    return Object.entries(map).map(([name, amt]) => ({ name, amt }));
-  }, [allExp]);
+  const outstanding  = stats.outstanding;
 
   const TH = ({ children, right }) => (
     <th style={{ padding:'10px 12px', fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'.06em',
@@ -240,6 +238,21 @@ function AccountsTab({ reasons, reimbModal, setReimbModal, reimbBy, setReimbBy, 
               </tfoot>
             )}
           </table>
+
+          {/* Pagination */}
+          {pages > 1 && (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 6, padding: 14, borderTop: '1px solid var(--border)', background: '#fff' }}>
+              <button className="btn btn-ghost btn-sm" disabled={page === 1} onClick={() => setPage(p => p - 1)}>‹ Prev</button>
+              {Array.from({ length: pages }, (_, i) => i + 1).map(p => (
+                <button key={p} onClick={() => setPage(p)} style={{
+                  width: 30, height: 30, borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700,
+                  background: page === p ? 'var(--accent)' : 'var(--light)',
+                  color: page === p ? '#fff' : 'var(--muted)',
+                }}>{p}</button>
+              ))}
+              <button className="btn btn-ghost btn-sm" disabled={page === pages} onClick={() => setPage(p => p + 1)}>Next ›</button>
+            </div>
+          )}
         )}
       </div>
 

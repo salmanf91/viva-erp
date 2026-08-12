@@ -92,15 +92,29 @@ export async function upsertCategoryRate(req: AuthRequest, res: Response): Promi
 export async function getOrders(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
   const { client_id, status, from, to } = req.query;
+  const page = parseInt(req.query.page as string) || 1;
+  const limit = parseInt(req.query.limit as string) || 20;
+  const offset = (page - 1) * limit;
+
   try {
     const conds: string[] = ['o.tenant_id=?'];
     const vals: any[]     = [tenantId];
     if (client_id) { conds.push('o.client_id=?');                               vals.push(client_id); }
-    if (status === 'pending') { conds.push("o.status IN ('pending','partial')"); } // outstanding = pending + partial
+    if (status === 'pending') { conds.push("o.status IN ('pending','partial')"); }
     else if (status) { conds.push('o.status=?');                                vals.push(status); }
     if (from)      { conds.push('o.order_date>=?');      vals.push(from); }
     if (to)        { conds.push('o.order_date<=?');      vals.push(to); }
 
+    // Count query
+    const [countRows] = await query<any[]>(
+      `SELECT COUNT(DISTINCT o.id) AS total 
+       FROM sales_orders o 
+       WHERE ${conds.join(' AND ')}`,
+      vals
+    );
+    const total = countRows?.total || 0;
+
+    // Data query with LIMIT & OFFSET
     const orders = await query<any[]>(
       `SELECT o.*, c.name AS client_name, c.city AS client_city,
               COALESCE(SUM(i.quantity * i.rate_per_pc), 0) AS subtotal,
@@ -118,10 +132,18 @@ export async function getOrders(req: AuthRequest, res: Response): Promise<void> 
        LEFT JOIN sales_order_items i ON i.order_id = o.id
        WHERE ${conds.join(' AND ')}
        GROUP BY o.id
-       ORDER BY o.order_date DESC, o.created_at DESC`,
-      [tenantId, ...vals]
+       ORDER BY o.order_date DESC, o.created_at DESC
+       LIMIT ? OFFSET ?`,
+      [tenantId, ...vals, limit, offset]
     );
-    res.json(orders);
+
+    res.json({
+      data: orders,
+      total,
+      page,
+      pages: Math.max(1, Math.ceil(total / limit)),
+      limit
+    });
   } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
