@@ -138,121 +138,120 @@ function AccountsTab({ reasons, reimbModal, setReimbModal, reimbBy, setReimbBy, 
         {loading ? (
           <div className="spinner" style={{ padding:32 }}>Loading…</div>
         ) : (
-          <table style={{ width:'100%', borderCollapse:'collapse' }}>
-            <thead>
-              <tr>
-                <TH>#</TH>
-                <TH>Date</TH>
-                <TH>Description</TH>
-                <TH>Category</TH>
-                <TH>Paid By</TH>
-                <TH right>Amount</TH>
-                <TH>Reimbursement</TH>
-                <TH>Note</TH>
-                <TH></TH>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.length === 0 && (
-                <tr><td colSpan={9} style={{ padding:32, textAlign:'center', color:'var(--muted)', fontSize:13 }}>No expenses found.</td></tr>
-              )}
-              {filtered.map((e, i) => {
-                const isPending = e.paid_by && !e.reimbursed_at;
-                const isRepaid  = e.paid_by && !!e.reimbursed_at;
-                const meta      = e.accessory_type ? ACC_META[e.accessory_type] : null;
-                const perNighty = meta && e.qty_purchased ? (e.amount / e.qty_purchased / meta.yieldPcs).toFixed(2) : null;
+          <>
+            <table style={{ width:'100%', borderCollapse:'collapse' }}>
+              <thead>
+                <tr>
+                  <TH>#</TH>
+                  <TH>Date</TH>
+                  <TH>Description</TH>
+                  <TH>Category</TH>
+                  <TH>Paid By</TH>
+                  <TH right>Amount</TH>
+                  <TH>Reimbursement</TH>
+                  <TH>Note</TH>
+                  <TH></TH>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.length === 0 && (
+                  <tr><td colSpan={9} style={{ padding:32, textAlign:'center', color:'var(--muted)', fontSize:13 }}>No expenses found.</td></tr>
+                )}
+                {filtered.map((e, i) => {
+                  const isPending = e.paid_by && !e.reimbursed_at;
+                  const isRepaid  = e.paid_by && !!e.reimbursed_at;
+                  const meta      = e.accessory_type ? ACC_META[e.accessory_type] : null;
+                  const perNighty = meta && e.qty_purchased ? (e.amount / e.qty_purchased / meta.yieldPcs).toFixed(2) : null;
 
-                return (
-                  <tr key={e.id} style={{
-                    borderBottom:'1px solid var(--border)',
-                    background: isPending ? '#fffbf0' : isRepaid ? '#f0fdf4' : '#fff',
-                  }}>
-                    <td style={{ padding:'11px 12px', fontSize:12, color:'var(--muted)', width:36 }}>{i+1}</td>
-                    <td style={{ padding:'11px 12px', fontSize:12, whiteSpace:'nowrap', color:'var(--muted)' }}>{fmtDSh(e.expense_date?.slice(0,10))}</td>
-                    <td style={{ padding:'11px 12px' }}>
-                      <div style={{ fontSize:13, fontWeight:600 }}>{e.reason_name}</div>
-                      {perNighty && (
-                        <div style={{ fontSize:11, color:'var(--muted)', marginTop:1 }}>
-                          {e.qty_purchased} {meta.unit} · ₹{perNighty}/nighty
-                        </div>
-                      )}
+                  return (
+                    <tr key={e.id} style={{
+                      borderBottom:'1px solid var(--border)',
+                      background: isPending ? '#fffbf0' : isRepaid ? '#f0fdf4' : '#fff',
+                    }}>
+                      <td style={{ padding:'11px 12px', fontSize:12, color:'var(--muted)', width:36 }}>{i+1}</td>
+                      <td style={{ padding:'11px 12px', fontSize:12, whiteSpace:'nowrap', color:'var(--muted)' }}>{fmtDSh(e.expense_date?.slice(0,10))}</td>
+                      <td style={{ padding:'11px 12px' }}>
+                        <div style={{ fontSize:13, fontWeight:600 }}>{e.reason_name}</div>
+                        {perNighty && (
+                          <div style={{ fontSize:11, color:'var(--muted)', marginTop:1 }}>
+                            {e.qty_purchased} {meta.unit} · ₹{perNighty}/nighty
+                          </div>
+                        )}
+                      </td>
+                      <td style={{ padding:'11px 12px' }}>
+                        <span style={{ fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:12,
+                          background: CAT_BG[e.category]||'var(--light)', color: CAT_COLOR[e.category]||'var(--muted)' }}>
+                          {CAT_ICON[e.category]} {e.category?.charAt(0).toUpperCase()+e.category?.slice(1)}
+                        </span>
+                      </td>
+                      <td style={{ padding:'11px 12px', fontSize:13, color: e.paid_by ? 'var(--text)' : 'var(--muted)' }}>
+                        {e.paid_by || <span style={{ color:'var(--muted)', fontSize:12 }}>Company</span>}
+                      </td>
+                      <td style={{ padding:'11px 12px', textAlign:'right', fontSize:14, fontWeight:700, color:'var(--red)', whiteSpace:'nowrap' }}>
+                        {fmt(e.amount)}
+                      </td>
+                      <td style={{ padding:'11px 12px', whiteSpace:'nowrap' }}>
+                        {!e.paid_by ? (
+                          <span style={{ fontSize:12, color:'var(--muted)' }}>—</span>
+                        ) : isRepaid ? (
+                          <div style={{ display:'flex', flexDirection:'column' }}>
+                            <span style={{ fontSize:11, color:'var(--green)', fontWeight:700 }}>Repaid</span>
+                            <span style={{ fontSize:10, color:'var(--muted)' }}>by {e.reimbursed_by} · {fmtDSh(e.reimbursed_at?.slice(0,10))}</span>
+                          </div>
+                        ) : (
+                          <button className="btn btn-ghost btn-sm" style={{ color:'var(--accent)', borderColor:'var(--accent)', padding:'2px 8px', fontSize:11 }}
+                            onClick={() => setReimbModal({ id: e.id, name: e.paid_by, amount: e.amount })}>
+                            Repay
+                          </button>
+                        )}
+                      </td>
+                      <td style={{ padding:'11px 12px', fontSize:12, color:'var(--muted)', maxWidth:160, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                        {e.note || '—'}
+                      </td>
+                      <td style={{ padding:'11px 12px' }}>
+                        {!archived && (
+                          <div style={{ display:'flex', gap:4 }}>
+                            <button className="btn btn-ghost btn-sm" style={{ padding:'2px 7px', fontSize:11 }} onClick={() => openEdit(e)}>✏️</button>
+                            <button className="btn btn-red btn-sm"   style={{ padding:'2px 7px', fontSize:11 }} onClick={() => deleteExpense(e.id)}>✕</button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              {filtered.length > 0 && (
+                <tfoot>
+                  <tr style={{ background:'var(--light)', borderTop:'2px solid var(--border)' }}>
+                    <td colSpan={5} style={{ padding:'10px 12px', fontSize:12, fontWeight:700, color:'var(--muted)' }}>
+                      {filtered.length} entries
                     </td>
-                    <td style={{ padding:'11px 12px' }}>
-                      <span style={{ fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:12,
-                        background: CAT_BG[e.category]||'var(--light)', color: CAT_COLOR[e.category]||'var(--muted)' }}>
-                        {CAT_ICON[e.category]} {e.category?.charAt(0).toUpperCase()+e.category?.slice(1)}
-                      </span>
+                    <td style={{ padding:'10px 12px', textAlign:'right', fontSize:15, fontWeight:800, color:'var(--red)' }}>
+                      {fmt(totalSpent)}
                     </td>
-                    <td style={{ padding:'11px 12px', fontSize:13, color: e.paid_by ? 'var(--text)' : 'var(--muted)' }}>
-                      {e.paid_by || <span style={{ color:'var(--muted)', fontSize:12 }}>Company</span>}
-                    </td>
-                    <td style={{ padding:'11px 12px', textAlign:'right', fontSize:14, fontWeight:700, color:'var(--red)', whiteSpace:'nowrap' }}>
-                      {fmt(e.amount)}
-                    </td>
-                    <td style={{ padding:'11px 12px', whiteSpace:'nowrap' }}>
-                      {!e.paid_by ? (
-                        <span style={{ fontSize:12, color:'var(--muted)' }}>—</span>
-                      ) : isRepaid ? (
-                        <div>
-                          <span style={{ fontSize:11, fontWeight:700, color:'var(--green)', background:'var(--green-l)', padding:'2px 8px', borderRadius:12 }}>✓ Repaid</span>
-                          {e.reimbursed_by && <div style={{ fontSize:10, color:'var(--muted)', marginTop:2 }}>by {e.reimbursed_by} · {fmtDSh(e.reimbursed_at?.slice(0,10))}</div>}
-                        </div>
-                      ) : (
-                        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-                          <span style={{ fontSize:11, fontWeight:700, color:'#e67e00', background:'#fff3e0', padding:'2px 8px', borderRadius:12, border:'1px solid #f6c97e' }}>⏳ Pending</span>
-                          {!archived && (
-                            <button className="btn btn-ghost btn-sm" style={{ padding:'2px 7px', fontSize:11, color:'var(--green)' }}
-                              onClick={() => { setReimbModal(e); setReimbBy(''); }}>💸</button>
-                          )}
-                        </div>
-                      )}
-                    </td>
-                    <td style={{ padding:'11px 12px', fontSize:12, color:'var(--muted)', maxWidth:160, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
-                      {e.note || '—'}
-                    </td>
-                    <td style={{ padding:'11px 12px' }}>
-                      {!archived && (
-                        <div style={{ display:'flex', gap:4 }}>
-                          <button className="btn btn-ghost btn-sm" style={{ padding:'2px 7px', fontSize:11 }} onClick={() => openEdit(e)}>✏️</button>
-                          <button className="btn btn-red btn-sm"   style={{ padding:'2px 7px', fontSize:11 }} onClick={() => deleteExpense(e.id)}>✕</button>
-                        </div>
-                      )}
+                    <td colSpan={3} style={{ padding:'10px 12px', fontSize:12, color:'var(--muted)' }}>
+                      {totalPending > 0 && <span style={{ color:'#e67e00', fontWeight:700 }}>⏳ {fmt(totalPending)} pending</span>}
                     </td>
                   </tr>
-                );
-              })}
-            </tbody>
-            {filtered.length > 0 && (
-              <tfoot>
-                <tr style={{ background:'var(--light)', borderTop:'2px solid var(--border)' }}>
-                  <td colSpan={5} style={{ padding:'10px 12px', fontSize:12, fontWeight:700, color:'var(--muted)' }}>
-                    {filtered.length} entries
-                  </td>
-                  <td style={{ padding:'10px 12px', textAlign:'right', fontSize:15, fontWeight:800, color:'var(--red)' }}>
-                    {fmt(totalSpent)}
-                  </td>
-                  <td colSpan={3} style={{ padding:'10px 12px', fontSize:12, color:'var(--muted)' }}>
-                    {totalPending > 0 && <span style={{ color:'#e67e00', fontWeight:700 }}>⏳ {fmt(totalPending)} pending</span>}
-                  </td>
-                </tr>
-              </tfoot>
-            )}
-          </table>
+                </tfoot>
+              )}
+            </table>
 
-          {/* Pagination */}
-          {pages > 1 && (
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 6, padding: 14, borderTop: '1px solid var(--border)', background: '#fff' }}>
-              <button className="btn btn-ghost btn-sm" disabled={page === 1} onClick={() => setPage(p => p - 1)}>‹ Prev</button>
-              {Array.from({ length: pages }, (_, i) => i + 1).map(p => (
-                <button key={p} onClick={() => setPage(p)} style={{
-                  width: 30, height: 30, borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700,
-                  background: page === p ? 'var(--accent)' : 'var(--light)',
-                  color: page === p ? '#fff' : 'var(--muted)',
-                }}>{p}</button>
-              ))}
-              <button className="btn btn-ghost btn-sm" disabled={page === pages} onClick={() => setPage(p => p + 1)}>Next ›</button>
-            </div>
-          )}
+            {/* Pagination */}
+            {pages > 1 && (
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 6, padding: 14, borderTop: '1px solid var(--border)', background: '#fff' }}>
+                <button className="btn btn-ghost btn-sm" disabled={page === 1} onClick={() => setPage(p => p - 1)}>‹ Prev</button>
+                {Array.from({ length: pages }, (_, i) => i + 1).map(p => (
+                  <button key={p} onClick={() => setPage(p)} style={{
+                    width: 30, height: 30, borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700,
+                    background: page === p ? 'var(--accent)' : 'var(--light)',
+                    color: page === p ? '#fff' : 'var(--muted)',
+                  }}>{p}</button>
+                ))}
+                <button className="btn btn-ghost btn-sm" disabled={page === pages} onClick={() => setPage(p => p + 1)}>Next ›</button>
+              </div>
+            )}
+          </>
         )}
       </div>
 
