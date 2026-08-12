@@ -253,3 +253,129 @@ export async function getCashLedger(req: AuthRequest, res: Response): Promise<vo
     res.status(500).json({ message: 'Server error', error: err.message, stack: err.stack });
   }
 }
+
+export async function getPartyLedgerParties(req: AuthRequest, res: Response): Promise<void> {
+  const { tenantId } = req.user!;
+  try {
+    const clients = await query<any[]>('SELECT id, name FROM clients WHERE tenant_id=? ORDER BY name ASC', [tenantId]);
+    const vendors = await query<any[]>('SELECT id, name FROM vendors WHERE tenant_id=? ORDER BY name ASC', [tenantId]);
+    res.json({ clients, vendors });
+  } catch (error: any) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+}
+
+export async function getClientLedger(req: AuthRequest, res: Response): Promise<void> {
+  const { tenantId } = req.user!;
+  const { id } = req.params;
+  const { from, to } = req.query;
+
+  try {
+    let orderCond = 'o.tenant_id = ? AND o.client_id = ?';
+    const orderParams: any[] = [tenantId, id];
+    if (from) { orderCond += ' AND o.order_date >= ?'; orderParams.push(from); }
+    if (to)   { orderCond += ' AND o.order_date <= ?'; orderParams.push(to); }
+
+    const invoices = await query<any[]>(
+      `SELECT o.id, o.invoice_number AS ref, o.order_date AS date, 'invoice' AS type, 
+              COALESCE(SUM(i.quantity * i.rate_per_pc), 0) * (1 + o.gst_percent / 100) AS amount,
+              o.notes AS description
+       FROM sales_orders o
+       LEFT JOIN sales_order_items i ON i.order_id = o.id
+       WHERE ${orderCond}
+       GROUP BY o.id`,
+      orderParams
+    );
+
+    let payCond = 'p.tenant_id = ? AND o.client_id = ?';
+    const payParams: any[] = [tenantId, id];
+    if (from) { payCond += ' AND p.payment_date >= ?'; payParams.push(from); }
+    if (to)   { payCond += ' AND p.payment_date <= ?'; payParams.push(to); }
+
+    const payments = await query<any[]>(
+      `SELECT p.id, o.invoice_number AS ref, p.payment_date AS date, 'payment' AS type, 
+              p.amount, 'Payment received' AS description
+       FROM sales_payments p
+       JOIN sales_orders o ON o.id = p.order_id
+       WHERE ${payCond}`,
+      payParams
+    );
+
+    const all = [
+      ...invoices.map(inv => ({ ...inv, debit: Number(inv.amount), credit: 0 })),
+      ...payments.map(p => ({ ...p, debit: 0, credit: Number(p.amount) }))
+    ].sort((a, b) => {
+      const da = new Date(a.date).getTime();
+      const db = new Date(b.date).getTime();
+      if (da !== db) return da - db;
+      return a.type === 'invoice' ? -1 : 1;
+    });
+
+    let balance = 0;
+    const ledger = all.map(r => {
+      balance += r.debit - r.credit;
+      return { ...r, balance };
+    });
+
+    res.json(ledger);
+  } catch (error: any) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+}
+
+export async function getVendorLedger(req: AuthRequest, res: Response): Promise<void> {
+  const { tenantId } = req.user!;
+  const { id } = req.params;
+  const { from, to } = req.query;
+
+  try {
+    let pCond = 'p.tenant_id = ? AND p.vendor_id = ?';
+    const pParams: any[] = [tenantId, id];
+    if (from) { pCond += ' AND p.invoice_date >= ?'; pParams.push(from); }
+    if (to)   { pCond += ' AND p.invoice_date <= ?'; pParams.push(to); }
+
+    const purchases = await query<any[]>(
+      `SELECT p.id, CONCAT('PUR-', p.id) AS ref, p.invoice_date AS date, 'bill' AS type, 
+              p.total AS amount, p.note AS description
+       FROM purchases p
+       WHERE ${pCond}`,
+      pParams
+    );
+
+    let payCond = 'p.tenant_id = ? AND p.vendor_id = ? AND p.advance_paid > 0';
+    const payParams: any[] = [tenantId, id];
+    if (from) { payCond += ' AND p.invoice_date >= ?'; payParams.push(from); }
+    if (to)   { payCond += ' AND p.invoice_date <= ?'; payParams.push(to); }
+
+    const payments = await query<any[]>(
+      `SELECT p.id, CONCAT('PUR-', p.id) AS ref, p.invoice_date AS date, 'payment' AS type, 
+              p.advance_paid AS amount, 'Advance payment' AS description
+       FROM purchases p
+       WHERE ${payCond}`,
+      payParams
+    );
+
+    const all = [
+      ...purchases.map(b => ({ ...b, debit: Number(b.amount), credit: 0 })),
+      ...payments.map(p => ({ ...p, debit: 0, credit: Number(p.amount) }))
+    ].sort((a, b) => {
+      const da = new Date(a.date).getTime();
+      const db = new Date(b.date).getTime();
+      if (da !== db) return da - db;
+      return a.type === 'bill' ? -1 : 1;
+    });
+
+    let balance = 0;
+    const ledger = all.map(r => {
+      balance += r.debit - r.credit;
+      return { ...r, balance };
+    });
+
+    res.json(ledger);
+  } catch (error: any) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+}
