@@ -10,6 +10,7 @@ const NAV_FULL = [
   { to: '/partners',   label: 'Capital & Partners', icon: '🤝' },
   { to: '/finance',    label: 'Finance',            icon: '📈' },
   { to: '/expenses',   label: 'Expenses',           icon: '🧾' },
+  { to: '/party-ledger', label: 'Party Ledger',       icon: '📒' },
   { section: 'Inventory' },
   { to: '/purchases',  label: 'Purchases',          icon: '📦' },
   { to: '/stock',      label: 'Stock',              icon: '🏭' },

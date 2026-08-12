@@ -13,6 +13,7 @@ import StaffLogPage   from './pages/StaffLogPage';
 import SettingsPage   from './pages/SettingsPage';
 import SalesPage      from './pages/SalesPage';
 import FinancePage    from './pages/FinancePage';
+import PartyLedgerPage from './pages/PartyLedgerPage';
 
 const TITLES = {
   '/':           'Dashboard',
@@ -26,6 +27,7 @@ const TITLES = {
   '/staff-log':  'Staff',
   '/finance':    'Finance',
   '/settings':   'Settings',
+  '/party-ledger': 'Party Ledger',
 };
 
 function Guard({ children, path, staffAdminOnly }) {
@@ -62,6 +64,7 @@ export default function App() {
           <Route path="/staff"      element={<Guard path="/staff"><StaffPage /></Guard>} />
           <Route path="/finance"    element={<Guard path="/finance"><FinancePage /></Guard>} />
           <Route path="/settings"   element={<Guard path="/settings"><SettingsPage /></Guard>} />
+          <Route path="/party-ledger" element={<Guard path="/party-ledger"><PartyLedgerPage /></Guard>} />
 
           {/* Staff admin routes */}
           <Route path="/staff-log"  element={<Guard path="/staff-log" staffAdminOnly><StaffLogPage /></Guard>} />
