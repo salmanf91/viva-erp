@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 
 const CATEGORIES = ['shawl_nighty', 'ordinary_nighty', 'shawl_nighty_lace'];
 const CAT_LABEL  = { shawl_nighty: 'Shawl Nighty', ordinary_nighty: 'Ordinary Nighty', shawl_nighty_lace: 'Shawl + Lace' };
+const getProductLabel = cat => CAT_LABEL[cat] || cat.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
 
 const toDateStr = d => {
   const yyyy = d.getFullYear();
@@ -51,6 +52,8 @@ function DailyLogTab() {
   const [showAddEntry, setShowAddEntry] = useState({}); // staffId -> category (string)
   const [editEntry, setEditEntry]       = useState({}); // key -> {allocated, completed}
 
+  const [products, setProducts] = useState([]);
+
   const load = useCallback(() => {
     setLoading(true);
     api.get('/staff/work-entries', { params: { date } })
@@ -59,6 +62,12 @@ function DailyLogTab() {
   }, [date]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    api.get('/production/configs')
+      .then(r => setProducts(r.data))
+      .catch(() => {});
+  }, []);
 
   const changeDate = delta => {
     const d = new Date(date + 'T00:00:00');
@@ -104,7 +113,7 @@ function DailyLogTab() {
   };
 
   const deleteEntry = async (entry) => {
-    if (!confirm(`Delete this entry for ${CAT_LABEL[entry.category] || entry.category}?`)) return;
+    if (!confirm(`Delete this entry for ${getProductLabel(entry.category)}?`)) return;
     const key = `${entry.staff_id}-${entry.category}-${entry.work_type}`;
     setSaving(key);
     try {
@@ -159,6 +168,7 @@ function DailyLogTab() {
             <StaffCard key={s.id} staff={s} workType="stitching"
               saving={saving} editEntry={editEntry}
               newEntry={newEntry[s.id]} showAdd={showAddEntry[s.id]}
+              products={products}
               onSetNew={v => setNewEntry(p => ({ ...p, [s.id]: v }))}
               onOpenAdd={cat => openAddEntry(s.id, cat)}
               onCloseAdd={() => closeAddEntry(s.id)}
@@ -175,6 +185,7 @@ function DailyLogTab() {
             <StaffCard key={s.id} staff={s} workType="cutting"
               saving={saving} editEntry={editEntry}
               newEntry={newEntry[s.id]} showAdd={showAddEntry[s.id]}
+              products={products}
               onSetNew={v => setNewEntry(p => ({ ...p, [s.id]: v }))}
               onOpenAdd={cat => openAddEntry(s.id, cat)}
               onCloseAdd={() => closeAddEntry(s.id)}
@@ -514,7 +525,7 @@ function StaffTab() {
 
 function StaffCard({ staff, workType, saving, editEntry, newEntry, showAdd,
   onSetNew, onOpenAdd, onCloseAdd, onSave, onStartEdit, onCancelEdit, onSetEdit,
-  onDelete, style: cardStyle }) {
+  onDelete, products = [], style: cardStyle }) {
 
   const isCutter = staff.role === 'cutting_master';
   const entries = staff.entries || [];
@@ -525,8 +536,11 @@ function StaffCard({ staff, workType, saving, editEntry, newEntry, showAdd,
     return acc;
   }, {});
 
-  // Categorize which categories do not have entries yet
-  const unusedCategories = CATEGORIES.filter(cat => !entriesByCat[cat]);
+  // Determine active categories to show in the list (existing entries + category currently being added)
+  const activeCategories = Array.from(new Set([
+    ...entries.map(e => e.category),
+    ...(showAdd ? [showAdd] : [])
+  ]));
 
   return (
     <div className="card" style={{ marginBottom: 12, padding: '16px 20px', borderRadius: 12, border: '1px solid var(--border)', boxShadow: '0 2px 8px rgba(0,0,0,0.02)', ...cardStyle }}>
@@ -550,8 +564,8 @@ function StaffCard({ staff, workType, saving, editEntry, newEntry, showAdd,
 
       {/* Entries List */}
       {(entries.length > 0 || showAdd) && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: unusedCategories.length && !showAdd ? 14 : 0 }}>
-          {CATEGORIES.map(cat => {
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: !showAdd ? 14 : 0 }}>
+          {activeCategories.map(cat => {
             const entry = entriesByCat[cat];
             const isAddingThisCat = showAdd === cat;
             const eKey = entry ? `${entry.staff_id}-${entry.category}-${entry.work_type}` : '';
@@ -564,7 +578,7 @@ function StaffCard({ staff, workType, saving, editEntry, newEntry, showAdd,
               return (
                 <div key={cat} style={{ background: '#f8fafc', borderRadius: 10, padding: 14, border: '1px solid #e2e8f0' }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '.05em' }}>
-                    New Log: {CAT_LABEL[cat]}
+                    New Log: {getProductLabel(cat)}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     {isCutter && (
@@ -659,7 +673,7 @@ function StaffCard({ staff, workType, saving, editEntry, newEntry, showAdd,
                 return (
                   <div key={entry.id} style={{ background: '#f8fafc', borderRadius: 10, padding: 14, border: '1px solid #e2e8f0' }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '.05em' }}>
-                      Edit Log: {CAT_LABEL[cat]} {isCutter && `(${entry.work_type})`}
+                      Edit Log: {getProductLabel(cat)} {isCutter && `(${entry.work_type})`}
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -719,7 +733,7 @@ function StaffCard({ staff, workType, saving, editEntry, newEntry, showAdd,
                   {/* Category Label */}
                   <div style={{ minWidth: 120, display: 'flex', flexDirection: 'column', gap: 2 }}>
                     <span style={{ fontWeight: 700, fontSize: 13, color: '#334155' }}>
-                      {cat === 'shawl_nighty' ? '🧵' : cat === 'ordinary_nighty' ? '👗' : '✨'} {CAT_LABEL[cat]}
+                      {cat === 'shawl_nighty' ? '🧵' : cat === 'ordinary_nighty' ? '👗' : '✨'} {getProductLabel(cat)}
                     </span>
                     {isCutter && (
                       <span style={{ fontSize: 10, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
@@ -793,27 +807,41 @@ function StaffCard({ staff, workType, saving, editEntry, newEntry, showAdd,
         </div>
       )}
 
-      {/* Unused Quick Add Pills */}
-      {unusedCategories.length > 0 && !showAdd && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em', marginRight: 4 }}>
+      {/* Quick Log Dropdown */}
+      {!showAdd && products.length > 0 && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>
             Quick Log:
           </span>
-          {unusedCategories.map(cat => (
-            <button
-              key={cat}
-              onClick={() => onOpenAdd(cat)}
-              style={{
-                padding: '5px 12px', fontSize: 12, fontWeight: 600, borderRadius: 20, border: '1px solid var(--border)',
-                background: 'var(--white)', color: 'var(--muted)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4,
-                transition: 'all 0.15s'
-              }}
-              onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = 'var(--accent)'; }}
-              onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--muted)'; }}
-            >
-              <span>+</span> {CAT_LABEL[cat]}
-            </button>
-          ))}
+          <select
+            value=""
+            onChange={e => {
+              if (e.target.value) {
+                onOpenAdd(e.target.value);
+              }
+            }}
+            style={{
+              padding: '6px 12px',
+              fontSize: 12,
+              fontWeight: 600,
+              borderRadius: 20,
+              border: '1px solid var(--border)',
+              background: 'var(--white)',
+              color: 'var(--muted)',
+              cursor: 'pointer',
+              outline: 'none',
+              transition: 'all 0.15s'
+            }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = 'var(--accent)'; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--muted)'; }}
+          >
+            <option value="" disabled>+ Select Product...</option>
+            {products.map(p => (
+              <option key={p.category} value={p.category}>
+                {getProductLabel(p.category)}
+              </option>
+            ))}
+          </select>
         </div>
       )}
 
