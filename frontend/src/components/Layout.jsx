@@ -6,6 +6,7 @@ import api from '../api/client';
 const NAV_FULL = [
   { section: 'Overview' },
   { to: '/',           label: 'Dashboard',          icon: '📊' },
+  { to: '/reports',     label: 'Reports & Analytics', icon: '📑' },
   { section: 'Finance' },
   { to: '/partners',   label: 'Capital & Partners', icon: '🤝' },
   { to: '/finance',    label: 'Finance',            icon: '📈' },

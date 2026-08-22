@@ -3,7 +3,7 @@ import { authenticate } from '../middleware/auth';
 import {
   getStaff, addStaff, updateStaff, deactivateStaff, reactivateStaff,
   getStaffAdmins, createStaffAdmin, removeStaffAdmin,
-  getWorkEntries, getStaffHistory, upsertWorkEntry, deleteWorkEntry,
+  getWorkEntries, getStaffHistory, upsertWorkEntry, updateWorkEntry, deleteWorkEntry,
   getPayrollSummary, settleStaff, getLaborLiability,
 } from '../controllers/staff.controller';
 
@@ -26,6 +26,7 @@ router.delete('/admins/:id',  removeStaffAdmin);
 router.get('/work-entries',         getWorkEntries);
 router.get('/work-entries/history', getStaffHistory);
 router.post('/work-entries',        upsertWorkEntry);
+router.put('/work-entries/:id',     updateWorkEntry);
 router.delete('/work-entries/:id',  deleteWorkEntry);
 
 // Payroll
