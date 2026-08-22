@@ -262,6 +262,17 @@ export default function ReportsPage() {
       {/* ── Loading Spinner ── */}
       {loading && <div className="spinner" style={{ margin: '30px 0' }}>Loading report data…</div>}
 
+      {/* ── Error Banner ── */}
+      {!loading && errorMsg && (
+        <div className="alert alert-yellow mb16" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <div className="a-icon">⚠️</div>
+            <div className="a-body">{errorMsg}</div>
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={loadReport}>Retry</button>
+        </div>
+      )}
+
       {/* ── Tab 1: Overview ── */}
       {!loading && activeTab === 'overview' && overviewData && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
