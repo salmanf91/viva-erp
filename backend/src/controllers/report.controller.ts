@@ -49,27 +49,27 @@ export async function getOverviewReport(req: AuthRequest, res: Response): Promis
 
   try {
     const [
-      salesSummary,
+      salesOrders,
       purchaseSummary,
       expenseSummary,
-      payrollSummary,
+      payrollRows,
       productionSummary,
       stockSummary,
-      receivablesSummary,
+      allSalesOrders,
       payablesSummary,
     ] = await Promise.all([
-      // Sales in range
+      // Sales orders in date range with computed totals
       query<any[]>(
-        `SELECT 
-           COUNT(*) AS total_orders,
-           COALESCE(SUM(total), 0) AS total_sales,
-           COALESCE(SUM(amount_paid), 0) AS total_collected,
-           COALESCE(SUM(balance_due), 0) AS total_sales_balance
-         FROM sales_orders
-         WHERE tenant_id=? AND order_date BETWEEN ? AND ?`,
+        `SELECT o.id, o.gst_percent, o.amount_paid, o.status,
+                COALESCE(SUM(i.quantity * i.rate_per_pc), 0) AS subtotal,
+                (COALESCE(SUM(i.quantity * i.rate_per_pc), 0) * (1 + o.gst_percent / 100)) AS total
+         FROM sales_orders o
+         LEFT JOIN sales_order_items i ON i.order_id = o.id
+         WHERE o.tenant_id=? AND o.order_date BETWEEN ? AND ?
+         GROUP BY o.id`,
         [tenantId, from, to]
       ),
-      // Purchases in range
+      // Purchases in date range
       query<any[]>(
         `SELECT 
            COUNT(*) AS total_purchases,
@@ -80,7 +80,7 @@ export async function getOverviewReport(req: AuthRequest, res: Response): Promis
          WHERE tenant_id=? AND invoice_date BETWEEN ? AND ?`,
         [tenantId, from, to]
       ),
-      // Expenses in range
+      // Expenses in date range
       query<any[]>(
         `SELECT 
            COUNT(*) AS total_expenses_count,
@@ -91,7 +91,7 @@ export async function getOverviewReport(req: AuthRequest, res: Response): Promis
          WHERE tenant_id=? AND expense_date BETWEEN ? AND ?`,
         [tenantId, from, to]
       ),
-      // Payroll / Staff labor in range
+      // Payroll / Staff labor in range (safe query)
       query<any[]>(
         `SELECT 
            COALESCE(SUM(e.completed_pcs), 0) AS completed_pieces,
@@ -100,8 +100,7 @@ export async function getOverviewReport(req: AuthRequest, res: Response): Promis
            COALESCE(SUM(CASE WHEN e.is_settled=0 THEN ${earningExpr} ELSE 0 END), 0) AS pending_labor
          FROM staff_work_entries e
          JOIN staff s ON s.id = e.staff_id
-         WHERE e.tenant_id=? 
-           AND COALESCE(e.completion_date, e.entry_date) BETWEEN ? AND ?`,
+         WHERE e.tenant_id=? AND e.entry_date BETWEEN ? AND ?`,
         [tenantId, from, to]
       ),
       // Production batches in range
@@ -122,13 +121,17 @@ export async function getOverviewReport(req: AuthRequest, res: Response): Promis
          WHERE o.tenant_id=? AND o.order_date BETWEEN ? AND ?`,
         [tenantId, from, to]
       ),
-      // Total Outstanding Receivables (all time unpaid)
+      // All sales orders to compute all-time outstanding receivables
       query<any[]>(
-        `SELECT COALESCE(SUM(balance_due), 0) AS outstanding_receivables
-         FROM sales_orders WHERE tenant_id=? AND balance_due > 0`,
+        `SELECT o.id, o.gst_percent, o.amount_paid,
+                (COALESCE(SUM(i.quantity * i.rate_per_pc), 0) * (1 + o.gst_percent / 100)) AS total
+         FROM sales_orders o
+         LEFT JOIN sales_order_items i ON i.order_id = o.id
+         WHERE o.tenant_id=?
+         GROUP BY o.id`,
         [tenantId]
       ),
-      // Total Outstanding Payables (all time unpaid)
+      // All-time unpaid purchases (payables)
       query<any[]>(
         `SELECT COALESCE(SUM(total - advance_paid), 0) AS outstanding_payables
          FROM purchases WHERE tenant_id=? AND status != 'paid'`,
@@ -136,30 +139,51 @@ export async function getOverviewReport(req: AuthRequest, res: Response): Promis
       ),
     ]);
 
-    const sales = salesSummary[0] || {};
+    // Aggregate sales
+    const totalOrders = salesOrders.length;
+    let totalSales = 0;
+    let totalCollected = 0;
+    let totalSalesBalance = 0;
+
+    for (const o of salesOrders) {
+      const tot = num(o.total);
+      const paid = num(o.amount_paid);
+      totalSales += tot;
+      totalCollected += paid;
+      totalSalesBalance += Math.max(0, tot - paid);
+    }
+
+    // All-time receivables
+    let totalReceivables = 0;
+    for (const o of allSalesOrders) {
+      const tot = num(o.total);
+      const paid = num(o.amount_paid);
+      if (tot > paid) {
+        totalReceivables += (tot - paid);
+      }
+    }
+
     const purchases = purchaseSummary[0] || {};
     const expenses = expenseSummary[0] || {};
-    const payroll = payrollSummary[0] || {};
+    const payroll = payrollRows[0] || {};
     const production = productionSummary[0] || {};
     const stock = stockSummary[0] || {};
 
-    const totalRevenue = num(sales.total_sales);
-    const collectedRevenue = num(sales.total_collected);
     const fabricCost = num(purchases.total_purchased);
     const laborCost = num(payroll.total_labor_cost);
     const operatingExpenses = num(expenses.total_expenses);
     
-    const grossProfit = totalRevenue - (fabricCost + laborCost);
+    const grossProfit = totalSales - (fabricCost + laborCost);
     const netProfit = grossProfit - operatingExpenses;
-    const netMarginPct = totalRevenue > 0 ? ((netProfit / totalRevenue) * 100).toFixed(1) : '0.0';
+    const netMarginPct = totalSales > 0 ? ((netProfit / totalSales) * 100).toFixed(1) : '0.0';
 
     res.json({
       date_range: { from, to },
       sales: {
-        total_orders: num(sales.total_orders),
-        total_sales: totalRevenue,
-        total_collected: collectedRevenue,
-        total_balance: num(sales.total_sales_balance),
+        total_orders: totalOrders,
+        total_sales: totalSales,
+        total_collected: totalCollected,
+        total_balance: totalSalesBalance,
         units_sold: num(stock.units_sold),
       },
       purchases: {
@@ -191,12 +215,12 @@ export async function getOverviewReport(req: AuthRequest, res: Response): Promis
         margin_pct: Number(netMarginPct),
       },
       outstanding: {
-        receivables: num(receivablesSummary[0]?.outstanding_receivables),
+        receivables: totalReceivables,
         payables: num(payablesSummary[0]?.outstanding_payables),
       }
     });
   } catch (error) {
-    console.error(error);
+    console.error('getOverviewReport Error:', error);
     res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
   }
 }
@@ -212,28 +236,33 @@ export async function getSalesReport(req: AuthRequest, res: Response): Promise<v
     const vals: any[] = [tenantId, from, to];
 
     if (client_id) { conditions.push('o.client_id=?'); vals.push(client_id); }
-    if (status)    { conditions.push('o.payment_status=?'); vals.push(status); }
+    if (status)    { conditions.push('o.status=?');    vals.push(status); }
 
-    const [orders, clientSummary, productSummary, dailyTrend] = await Promise.all([
+    const [ordersRaw, clientSummary, productSummary, dailyTrend] = await Promise.all([
       // 1. Detailed orders list
       query<any[]>(
-        `SELECT o.*, c.name AS client_name, c.phone AS client_phone, c.city AS client_city,
-                (SELECT COUNT(*) FROM sales_order_items i WHERE i.order_id = o.id) AS item_lines,
-                (SELECT COALESCE(SUM(quantity), 0) FROM sales_order_items i WHERE i.order_id = o.id) AS total_pieces
+        `SELECT o.id, o.tenant_id, o.client_id, o.invoice_number, o.order_date, o.status,
+                o.include_gst, o.gst_percent, o.amount_paid, o.created_at,
+                c.name AS client_name, c.phone AS client_phone, c.city AS client_city,
+                COUNT(i.id) AS item_lines,
+                COALESCE(SUM(i.quantity), 0) AS total_pieces,
+                COALESCE(SUM(i.quantity * i.rate_per_pc), 0) AS subtotal,
+                (COALESCE(SUM(i.quantity * i.rate_per_pc), 0) * (1 + o.gst_percent / 100)) AS total
          FROM sales_orders o
          JOIN clients c ON c.id = o.client_id
+         LEFT JOIN sales_order_items i ON i.order_id = o.id
          WHERE ${conditions.join(' AND ')}
+         GROUP BY o.id
          ORDER BY o.order_date DESC, o.id DESC`,
         vals
       ),
       // 2. Client-wise breakdown
       query<any[]>(
         `SELECT c.id AS client_id, c.name AS client_name, c.city AS client_city, c.phone AS client_phone,
-                COUNT(o.id) AS order_count,
-                COALESCE(SUM(o.total), 0) AS total_billed,
-                COALESCE(SUM(o.amount_paid), 0) AS total_paid,
-                COALESCE(SUM(o.balance_due), 0) AS total_balance,
-                COALESCE(SUM(i.quantity), 0) AS total_quantity
+                COUNT(DISTINCT o.id) AS order_count,
+                COALESCE(SUM(i.quantity), 0) AS total_quantity,
+                COALESCE(SUM(i.quantity * i.rate_per_pc * (1 + o.gst_percent / 100)), 0) AS total_billed,
+                COALESCE(SUM(o.amount_paid), 0) AS total_paid
          FROM clients c
          JOIN sales_orders o ON o.client_id = c.id
          LEFT JOIN sales_order_items i ON i.order_id = o.id
@@ -244,24 +273,25 @@ export async function getSalesReport(req: AuthRequest, res: Response): Promise<v
       ),
       // 3. Product / Category breakdown
       query<any[]>(
-        `SELECT i.category, i.size,
+        `SELECT i.category,
                 COALESCE(SUM(i.quantity), 0) AS total_quantity,
-                COALESCE(SUM(i.amount), 0) AS total_amount,
-                COALESCE(AVG(i.rate), 0) AS avg_rate
+                COALESCE(SUM(i.quantity * i.rate_per_pc), 0) AS total_amount,
+                COALESCE(AVG(i.rate_per_pc), 0) AS avg_rate
          FROM sales_order_items i
          JOIN sales_orders o ON o.id = i.order_id
          WHERE o.tenant_id=? AND o.order_date BETWEEN ? AND ?
-         GROUP BY i.category, i.size
+         GROUP BY i.category
          ORDER BY total_amount DESC`,
         [tenantId, from, to]
       ),
       // 4. Daily sales trend
       query<any[]>(
         `SELECT o.order_date,
-                COUNT(*) AS order_count,
-                COALESCE(SUM(o.total), 0) AS daily_total,
+                COUNT(DISTINCT o.id) AS order_count,
+                COALESCE(SUM(i.quantity * i.rate_per_pc * (1 + o.gst_percent / 100)), 0) AS daily_total,
                 COALESCE(SUM(o.amount_paid), 0) AS daily_paid
          FROM sales_orders o
+         LEFT JOIN sales_order_items i ON i.order_id = o.id
          WHERE o.tenant_id=? AND o.order_date BETWEEN ? AND ?
          GROUP BY o.order_date
          ORDER BY o.order_date ASC`,
@@ -269,22 +299,44 @@ export async function getSalesReport(req: AuthRequest, res: Response): Promise<v
       ),
     ]);
 
+    const orders = ordersRaw.map(o => {
+      const tot = num(o.total);
+      const paid = num(o.amount_paid);
+      return {
+        ...o,
+        total: tot,
+        amount_paid: paid,
+        balance_due: Math.max(0, tot - paid),
+      };
+    });
+
+    const clientRows = clientSummary.map(c => {
+      const billed = num(c.total_billed);
+      const paid = num(c.total_paid);
+      return {
+        ...c,
+        total_billed: billed,
+        total_paid: paid,
+        total_balance: Math.max(0, billed - paid),
+      };
+    });
+
     const totalOrders = orders.length;
-    const totalBilled = orders.reduce((s, o) => s + num(o.total), 0);
-    const totalPaid = orders.reduce((s, o) => s + num(o.amount_paid), 0);
-    const totalBalance = orders.reduce((s, o) => s + num(o.balance_due), 0);
+    const totalBilled = orders.reduce((s, o) => s + o.total, 0);
+    const totalPaid = orders.reduce((s, o) => s + o.amount_paid, 0);
+    const totalBalance = orders.reduce((s, o) => s + o.balance_due, 0);
     const totalPieces = orders.reduce((s, o) => s + num(o.total_pieces), 0);
 
     res.json({
       date_range: { from, to },
       summary: { totalOrders, totalBilled, totalPaid, totalBalance, totalPieces },
       orders,
-      client_summary: clientSummary,
+      client_summary: clientRows,
       product_summary: productSummary,
       daily_trend: dailyTrend,
     });
   } catch (error) {
-    console.error(error);
+    console.error('getSalesReport Error:', error);
     res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
   }
 }
@@ -360,7 +412,7 @@ export async function getPurchaseReport(req: AuthRequest, res: Response): Promis
       item_summary: itemSummary,
     });
   } catch (error) {
-    console.error(error);
+    console.error('getPurchaseReport Error:', error);
     res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
   }
 }
@@ -430,7 +482,7 @@ export async function getProductionReport(req: AuthRequest, res: Response): Prom
       status_summary: statusSummary,
     });
   } catch (error) {
-    console.error(error);
+    console.error('getProductionReport Error:', error);
     res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
   }
 }
@@ -442,7 +494,7 @@ export async function getStaffReport(req: AuthRequest, res: Response): Promise<v
   const { staff_id, role } = req.query as { staff_id?: string; role?: string };
 
   try {
-    const conditions: string[] = ['e.tenant_id=?', 'COALESCE(e.completion_date, e.entry_date) BETWEEN ? AND ?'];
+    const conditions: string[] = ['e.tenant_id=?', 'e.entry_date BETWEEN ? AND ?'];
     const vals: any[] = [tenantId, from, to];
 
     if (staff_id) { conditions.push('e.staff_id=?'); vals.push(staff_id); }
@@ -462,7 +514,7 @@ export async function getStaffReport(req: AuthRequest, res: Response): Promise<v
          FROM staff s
          LEFT JOIN staff_work_entries e ON e.staff_id = s.id 
            AND e.tenant_id=? 
-           AND COALESCE(e.completion_date, e.entry_date) BETWEEN ? AND ?
+           AND e.entry_date BETWEEN ? AND ?
          WHERE s.tenant_id=? ${role ? 'AND s.role=?' : ''} ${staff_id ? 'AND s.id=?' : ''}
          GROUP BY s.id
          ORDER BY s.role, s.name`,
@@ -476,14 +528,14 @@ export async function getStaffReport(req: AuthRequest, res: Response): Promise<v
       ),
       // 2. Detailed work entries in date range
       query<any[]>(
-        `SELECT e.id, e.entry_date, e.completion_date, e.staff_id, s.name AS staff_name, s.role AS staff_role,
+        `SELECT e.id, e.entry_date, e.staff_id, s.name AS staff_name, s.role AS staff_role,
                 e.category, e.work_type, e.allocated_pcs, e.completed_pcs,
                 (e.allocated_pcs - e.completed_pcs) AS remaining_pcs, e.is_settled,
                 ${earningExpr} AS earned_amount
          FROM staff_work_entries e
          JOIN staff s ON s.id = e.staff_id
          WHERE ${conditions.join(' AND ')}
-         ORDER BY COALESCE(e.completion_date, e.entry_date) DESC, e.id DESC`,
+         ORDER BY e.entry_date DESC, e.id DESC`,
         vals
       ),
     ]);
@@ -500,7 +552,7 @@ export async function getStaffReport(req: AuthRequest, res: Response): Promise<v
       entries,
     });
   } catch (error) {
-    console.error(error);
+    console.error('getStaffReport Error:', error);
     res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
   }
 }
@@ -571,7 +623,7 @@ export async function getExpenseReport(req: AuthRequest, res: Response): Promise
       partner_summary: partnerSummary,
     });
   } catch (error) {
-    console.error(error);
+    console.error('getExpenseReport Error:', error);
     res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
   }
 }
@@ -582,14 +634,15 @@ export async function getPnLReport(req: AuthRequest, res: Response): Promise<voi
   const { from, to } = getDateRange(req);
 
   try {
-    const [salesRow, fabricRow, laborRow, expenses, accessoryRow, capitalRow] = await Promise.all([
-      // Total Sales in range
+    const [salesOrders, fabricRow, laborRow, expenses, accessoryRow] = await Promise.all([
+      // Sales orders in date range with computed totals
       query<any[]>(
-        `SELECT 
-           COALESCE(SUM(total), 0) AS total_sales,
-           COALESCE(SUM(amount_paid), 0) AS total_collected
-         FROM sales_orders
-         WHERE tenant_id=? AND order_date BETWEEN ? AND ?`,
+        `SELECT o.id, o.amount_paid,
+                (COALESCE(SUM(i.quantity * i.rate_per_pc), 0) * (1 + o.gst_percent / 100)) AS total
+         FROM sales_orders o
+         LEFT JOIN sales_order_items i ON i.order_id = o.id
+         WHERE o.tenant_id=? AND o.order_date BETWEEN ? AND ?
+         GROUP BY o.id`,
         [tenantId, from, to]
       ),
       // Fabric purchases in range
@@ -607,7 +660,7 @@ export async function getPnLReport(req: AuthRequest, res: Response): Promise<voi
            COALESCE(SUM(CASE WHEN e.work_type='stitching' THEN ${earningExpr} ELSE 0 END), 0) AS stitching_labor
          FROM staff_work_entries e
          JOIN staff s ON s.id = e.staff_id
-         WHERE e.tenant_id=? AND COALESCE(e.completion_date, e.entry_date) BETWEEN ? AND ?`,
+         WHERE e.tenant_id=? AND e.entry_date BETWEEN ? AND ?`,
         [tenantId, from, to]
       ),
       // Operating expenses in range categorized
@@ -626,18 +679,15 @@ export async function getPnLReport(req: AuthRequest, res: Response): Promise<voi
          WHERE e.tenant_id=? AND er.category='materials' AND e.expense_date BETWEEN ? AND ?`,
         [tenantId, from, to]
       ),
-      // Capital invested / drawn in range
-      query<any[]>(
-        `SELECT 
-           COALESCE(SUM(CASE WHEN mode != 'cheque' THEN amount ELSE 0 END), 0) AS total_inflow
-         FROM capital_payments
-         WHERE tenant_id=? AND payment_date BETWEEN ? AND ?`,
-        [tenantId, from, to]
-      ),
     ]);
 
-    const salesTotal = num(salesRow[0]?.total_sales);
-    const salesCollected = num(salesRow[0]?.total_collected);
+    let salesTotal = 0;
+    let salesCollected = 0;
+    for (const o of salesOrders) {
+      salesTotal += num(o.total);
+      salesCollected += num(o.amount_paid);
+    }
+
     const fabricCost = num(fabricRow[0]?.total_fabric);
     const laborCost = num(laborRow[0]?.total_labor);
     const cuttingLabor = num(laborRow[0]?.cutting_labor);
@@ -683,7 +733,7 @@ export async function getPnLReport(req: AuthRequest, res: Response): Promise<voi
       revenue: {
         total_sales: salesTotal,
         sales_collected: salesCollected,
-        uncollected_sales: salesTotal - salesCollected,
+        uncollected_sales: Math.max(0, salesTotal - salesCollected),
       },
       cogs: {
         fabric: fabricCost,
@@ -709,7 +759,7 @@ export async function getPnLReport(req: AuthRequest, res: Response): Promise<voi
       net_margin_pct: Number(netMarginPct),
     });
   } catch (error) {
-    console.error(error);
+    console.error('getPnLReport Error:', error);
     res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
   }
 }
@@ -717,7 +767,6 @@ export async function getPnLReport(req: AuthRequest, res: Response): Promise<voi
 // ── 8. INVENTORY & STOCK REPORTS ────────────────────────────────────────────
 export async function getInventoryReport(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
-  const { from, to } = getDateRange(req);
 
   try {
     const [fabricIn, batchesProduced, itemsSold, configs] = await Promise.all([
@@ -804,7 +853,7 @@ export async function getInventoryReport(req: AuthRequest, res: Response): Promi
       stock_by_category: stockReport,
     });
   } catch (error) {
-    console.error(error);
+    console.error('getInventoryReport Error:', error);
     res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
   }
 }

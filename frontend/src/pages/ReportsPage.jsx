@@ -4,6 +4,7 @@ import api from '../api/client';
 const fmt = n => '₹' + Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtInt = n => Number(n || 0).toLocaleString('en-IN');
 const fmtD = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+const fmtShort = fmtD;
 const CAT_LABEL = { shawl_nighty: 'Shawl Nighty', ordinary_nighty: 'Ordinary Nighty', shawl_nighty_lace: 'Shawl + Lace' };
 const getProductLabel = cat => CAT_LABEL[cat] || (cat ? cat.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') : '—');
 
@@ -21,6 +22,7 @@ export default function ReportsPage() {
   const [toDate, setToDate] = useState(toDateStr(now));
   const [activeTab, setActiveTab] = useState('overview');
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState(null);
 
   // Tab Data States
   const [overviewData, setOverviewData] = useState(null);
@@ -71,39 +73,34 @@ export default function ReportsPage() {
   const loadReport = useCallback(() => {
     if (!fromDate || !toDate) return;
     setLoading(true);
+    setErrorMsg(null);
     const params = { from: fromDate, to: toDate };
 
+    let reqPromise;
     if (activeTab === 'overview') {
-      api.get('/reports/overview', { params })
-        .then(r => setOverviewData(r.data))
-        .finally(() => setLoading(false));
+      reqPromise = api.get('/reports/overview', { params }).then(r => setOverviewData(r.data));
     } else if (activeTab === 'sales') {
-      api.get('/reports/sales', { params })
-        .then(r => setSalesData(r.data))
-        .finally(() => setLoading(false));
+      reqPromise = api.get('/reports/sales', { params }).then(r => setSalesData(r.data));
     } else if (activeTab === 'purchases') {
-      api.get('/reports/purchases', { params })
-        .then(r => setPurchaseData(r.data))
-        .finally(() => setLoading(false));
+      reqPromise = api.get('/reports/purchases', { params }).then(r => setPurchaseData(r.data));
     } else if (activeTab === 'production') {
-      api.get('/reports/production', { params })
-        .then(r => setProductionData(r.data))
-        .finally(() => setLoading(false));
+      reqPromise = api.get('/reports/production', { params }).then(r => setProductionData(r.data));
     } else if (activeTab === 'staff') {
-      api.get('/reports/staff', { params })
-        .then(r => setStaffData(r.data))
-        .finally(() => setLoading(false));
+      reqPromise = api.get('/reports/staff', { params }).then(r => setStaffData(r.data));
     } else if (activeTab === 'expenses') {
-      api.get('/reports/expenses', { params })
-        .then(r => setExpenseData(r.data))
-        .finally(() => setLoading(false));
+      reqPromise = api.get('/reports/expenses', { params }).then(r => setExpenseData(r.data));
     } else if (activeTab === 'pnl') {
-      api.get('/reports/pnl', { params })
-        .then(r => setPnlData(r.data))
-        .finally(() => setLoading(false));
+      reqPromise = api.get('/reports/pnl', { params }).then(r => setPnlData(r.data));
     } else if (activeTab === 'inventory') {
-      api.get('/reports/inventory', { params })
-        .then(r => setInventoryData(r.data))
+      reqPromise = api.get('/reports/inventory', { params }).then(r => setInventoryData(r.data));
+    }
+
+    if (reqPromise) {
+      reqPromise
+        .catch(err => {
+          console.error('Report fetch error:', err);
+          setErrorMsg(err.response?.data?.message || err.message || 'Failed to load report data');
+        })
         .finally(() => setLoading(false));
     }
   }, [activeTab, fromDate, toDate]);
@@ -119,10 +116,10 @@ export default function ReportsPage() {
     let rows = [];
 
     if (activeTab === 'sales' && salesData?.orders) {
-      headers = ['Order Date', 'Order No', 'Client Name', 'City', 'Pieces', 'Total (₹)', 'Paid (₹)', 'Balance (₹)', 'Status'];
+      headers = ['Order Date', 'Invoice No', 'Client Name', 'City', 'Pieces', 'Total (₹)', 'Paid (₹)', 'Balance (₹)', 'Status'];
       rows = salesData.orders.map(o => [
-        o.order_date, o.order_number, `"${o.client_name}"`, `"${o.client_city || ''}"`,
-        o.total_pieces, o.total, o.amount_paid, o.balance_due, o.payment_status
+        o.order_date, o.invoice_number, `"${o.client_name}"`, `"${o.client_city || ''}"`,
+        o.total_pieces, o.total, o.amount_paid, o.balance_due, o.status
       ]);
     } else if (activeTab === 'purchases' && purchaseData?.purchases) {
       headers = ['Invoice Date', 'Vendor Name', 'Quantity', 'Freight', 'Coolie', 'Tax', 'Advance Paid', 'Total (₹)', 'Status'];
