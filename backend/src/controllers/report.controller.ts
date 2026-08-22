@@ -424,25 +424,19 @@ export async function getProductionReport(req: AuthRequest, res: Response): Prom
   const { category, status } = req.query as { category?: string; status?: string };
 
   try {
-    const conditions: string[] = ['pb.tenant_id=?', 'pb.batch_date BETWEEN ? AND ?'];
+    const conditions: string[] = ['pb.tenant_id=?', 'COALESCE(pb.batch_date, DATE(pb.created_at)) BETWEEN ? AND ?'];
     const vals: any[] = [tenantId, from, to];
 
     if (category) { conditions.push('pb.category=?'); vals.push(category); }
-    if (status)   { conditions.push('pb.status=?'); vals.push(status); }
+    if (status)   { conditions.push('pb.status=?');   vals.push(status); }
 
     const [batches, categorySummary, statusSummary] = await Promise.all([
       // 1. Detailed batch list
       query<any[]>(
-        `SELECT pb.*,
-                (SELECT COALESCE(SUM(e.completed_pcs), 0) 
-                 FROM staff_work_entries e 
-                 WHERE e.tenant_id = pb.tenant_id AND e.category = pb.category AND e.work_type = 'cutting') AS cut_completed,
-                (SELECT COALESCE(SUM(e.completed_pcs), 0) 
-                 FROM staff_work_entries e 
-                 WHERE e.tenant_id = pb.tenant_id AND e.category = pb.category AND e.work_type = 'stitching') AS stitch_completed
+        `SELECT pb.*
          FROM production_batches pb
          WHERE ${conditions.join(' AND ')}
-         ORDER BY pb.batch_date DESC, pb.id DESC`,
+         ORDER BY COALESCE(pb.batch_date, pb.created_at) DESC, pb.id DESC`,
         vals
       ),
       // 2. Category totals
@@ -453,7 +447,7 @@ export async function getProductionReport(req: AuthRequest, res: Response): Prom
                 COALESCE(SUM(CASE WHEN status='finished' THEN quantity ELSE 0 END), 0) AS finished_quantity,
                 COALESCE(SUM(CASE WHEN status!='finished' THEN quantity ELSE 0 END), 0) AS in_progress_quantity
          FROM production_batches
-         WHERE tenant_id=? AND batch_date BETWEEN ? AND ?
+         WHERE tenant_id=? AND COALESCE(batch_date, DATE(created_at)) BETWEEN ? AND ?
          GROUP BY category`,
         [tenantId, from, to]
       ),
@@ -463,7 +457,7 @@ export async function getProductionReport(req: AuthRequest, res: Response): Prom
                 COUNT(*) AS count,
                 COALESCE(SUM(quantity), 0) AS quantity
          FROM production_batches
-         WHERE tenant_id=? AND batch_date BETWEEN ? AND ?
+         WHERE tenant_id=? AND COALESCE(batch_date, DATE(created_at)) BETWEEN ? AND ?
          GROUP BY status`,
         [tenantId, from, to]
       ),
@@ -483,7 +477,7 @@ export async function getProductionReport(req: AuthRequest, res: Response): Prom
     });
   } catch (error) {
     console.error('getProductionReport Error:', error);
-    res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
+    res.status(500).json({ message: error instanceof Error ? error.message : 'Server error' });
   }
 }
 
