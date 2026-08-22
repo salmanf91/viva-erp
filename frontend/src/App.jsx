@@ -14,9 +14,11 @@ import SettingsPage   from './pages/SettingsPage';
 import SalesPage      from './pages/SalesPage';
 import FinancePage    from './pages/FinancePage';
 import PartyLedgerPage from './pages/PartyLedgerPage';
+import ReportsPage    from './pages/ReportsPage';
 
 const TITLES = {
   '/':           'Dashboard',
+  '/reports':    'Reports & Analytics',
   '/partners':   'Capital & Partners',
   '/purchases':  'Purchases',
   '/expenses':   'Expenses',
@@ -55,6 +57,7 @@ export default function App() {
 
           {/* Owner / partner / manager routes */}
           <Route path="/"           element={<Guard path="/"><DashboardPage /></Guard>} />
+          <Route path="/reports"    element={<Guard path="/reports"><ReportsPage /></Guard>} />
           <Route path="/partners"   element={<Guard path="/partners"><PartnersPage /></Guard>} />
           <Route path="/purchases"  element={<Guard path="/purchases"><PurchasesPage /></Guard>} />
           <Route path="/expenses"   element={<Guard path="/expenses"><ExpensesPage /></Guard>} />

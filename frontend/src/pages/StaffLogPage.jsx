@@ -12,8 +12,8 @@ const toDateStr = d => {
   const dd = String(d.getDate()).padStart(2, '0');
   return `${yyyy}-${mm}-${dd}`;
 };
-const fmtDate   = s => new Date(s + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
-const fmtShort  = s => new Date(s + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+const fmtDate   = s => s ? new Date(s + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+const fmtShort  = s => s ? new Date(s + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 export default function StaffLogPage() {
@@ -22,7 +22,7 @@ export default function StaffLogPage() {
   return (
     <>
       <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1.5px solid var(--border)' }}>
-        {[['log','📋 Daily Log'],['history','📆 History'],['staff','👷 Staff']].map(([t, label]) => (
+        {[['log','📋 Daily Log'],['history','📆 History'],['staff','👷 Staff Directory']].map(([t, label]) => (
           <button key={t} onClick={() => setTab(t)}
             style={{
               padding: '8px 18px', fontWeight: 600, fontSize: 13, border: 'none', cursor: 'pointer',
@@ -48,9 +48,10 @@ function DailyLogTab() {
   const [loading, setLoading]   = useState(true);
   const [saving, setSaving]     = useState(null);
 
-  const [newEntry, setNewEntry]         = useState({});
+  const [newEntry, setNewEntry]         = useState({}); // staffId -> { category, work_type, allocDate, compDate, allocated, completed }
   const [showAddEntry, setShowAddEntry] = useState({}); // staffId -> category (string)
-  const [editEntry, setEditEntry]       = useState({}); // key -> {allocated, completed}
+  const [editEntry, setEditEntry]       = useState({}); // key -> { allocated, completed, allocDate, compDate }
+  const [carryoverForm, setCarryoverForm] = useState({}); // itemId -> { compDate, completedPcs }
 
   const [products, setProducts] = useState([]);
 
@@ -75,35 +76,65 @@ function DailyLogTab() {
     setDate(toDateStr(d));
   };
 
-  const saveEntry = async (staffId, category, work_type, allocated, completed) => {
+  const saveEntry = async (staffId, category, work_type, allocated, completed, allocDate, compDate) => {
     const allocNum = +allocated || 0;
-    const doneNum  = Math.min(+completed || 0, allocNum);
-    if (allocNum === 0) return;
+    const doneNum  = +completed || 0;
+    if (allocNum === 0 && doneNum === 0) return;
     const key = `${staffId}-${category}-${work_type}`;
     setSaving(key);
     try {
-      const res = await api.post('/staff/work-entries', {
-        staff_id: staffId, entry_date: date, category, work_type,
-        allocated_pcs: allocNum, completed_pcs: doneNum,
+      await api.post('/staff/work-entries', {
+        staff_id: staffId,
+        entry_date: allocDate || date,
+        completion_date: doneNum > 0 ? (compDate || date) : null,
+        category,
+        work_type,
+        allocated_pcs: allocNum,
+        completed_pcs: doneNum,
       });
-      setStaff(prev => prev.map(s => {
-        if (s.id !== staffId) return s;
-        const exists = s.entries.find(e => e.category === category && e.work_type === work_type);
-        const entries = exists
-          ? s.entries.map(e => e.category === category && e.work_type === work_type ? res.data : e)
-          : [...s.entries, res.data];
-        return { ...s, entries };
-      }));
+      load();
       setShowAddEntry(p => ({ ...p, [staffId]: null }));
       setNewEntry(p => ({ ...p, [staffId]: null }));
       setEditEntry(p => { const n = { ...p }; delete n[key]; return n; });
+    } catch (e) {
+      alert(e.response?.data?.message || 'Failed to save entry');
     } finally { setSaving(null); }
+  };
+
+  const completeCarryoverItem = async (carryItem, completedPcs, completionDate) => {
+    const donePcs = +completedPcs || 0;
+    if (donePcs <= 0) return;
+    const newCompleted = Math.min(carryItem.allocated_pcs, (carryItem.completed_pcs || 0) + donePcs);
+    const key = `carry-${carryItem.id}`;
+    setSaving(key);
+    try {
+      await api.put(`/staff/work-entries/${carryItem.id}`, {
+        completed_pcs: newCompleted,
+        completion_date: completionDate || date,
+      });
+      load();
+      setCarryoverForm(p => { const n = { ...p }; delete n[carryItem.id]; return n; });
+    } catch (e) {
+      alert(e.response?.data?.message || 'Failed to record carryover completion');
+    } finally {
+      setSaving(null);
+    }
   };
 
   const openAddEntry = (staffId, category) => {
     const s = staff.find(x => x.id === staffId);
     const wt = s?.role === 'cutting_master' ? 'cutting' : 'stitching';
-    setNewEntry(p => ({ ...p, [staffId]: { category, work_type: wt, allocated: '', completed: '' } }));
+    setNewEntry(p => ({
+      ...p,
+      [staffId]: {
+        category,
+        work_type: wt,
+        allocDate: date,
+        compDate: date,
+        allocated: '',
+        completed: '',
+      }
+    }));
     setShowAddEntry(p => ({ ...p, [staffId]: category }));
   };
 
@@ -118,10 +149,7 @@ function DailyLogTab() {
     setSaving(key);
     try {
       await api.delete(`/staff/work-entries/${entry.id}`);
-      setStaff(prev => prev.map(s => {
-        if (s.id !== entry.staff_id) return s;
-        return { ...s, entries: s.entries.filter(e => e.id !== entry.id) };
-      }));
+      load();
     } catch {
       alert('Failed to delete entry');
     } finally {
@@ -131,7 +159,15 @@ function DailyLogTab() {
 
   const startEdit = (entry) => {
     const key = `${entry.staff_id}-${entry.category}-${entry.work_type}`;
-    setEditEntry(p => ({ ...p, [key]: { allocated: String(entry.allocated_pcs), completed: String(entry.completed_pcs) } }));
+    setEditEntry(p => ({
+      ...p,
+      [key]: {
+        allocated: String(entry.allocated_pcs),
+        completed: String(entry.completed_pcs),
+        allocDate: entry.entry_date || date,
+        compDate: entry.completion_date || date,
+      }
+    }));
   };
 
   const cancelEdit = (entry) => {
@@ -151,12 +187,18 @@ function DailyLogTab() {
         <div style={{
           flex: 1, textAlign: 'center', fontWeight: 700, fontSize: 15,
           background: 'var(--white)', border: '1.5px solid var(--border)',
-          borderRadius: 10, padding: '8px 16px',
+          borderRadius: 10, padding: '8px 16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8
         }}>
-          {fmtDate(date)}
-          {isToday && <span className="badge b-green" style={{ marginLeft: 8, fontSize: 10 }}>Today</span>}
+          <span>{fmtDate(date)}</span>
+          <input
+            type="date"
+            value={date}
+            onChange={e => e.target.value && setDate(e.target.value)}
+            style={{ fontSize: 12, padding: '2px 6px', border: '1px solid var(--border)', borderRadius: 6, outline: 'none' }}
+          />
+          {isToday && <span className="badge b-green" style={{ fontSize: 10 }}>Today</span>}
         </div>
-        <button className="btn btn-ghost btn-sm" onClick={() => changeDate(1)} disabled={isToday}>Next →</button>
+        <button className="btn btn-ghost btn-sm" onClick={() => changeDate(1)}>Next →</button>
         {!isToday && <button className="btn btn-ghost btn-sm" onClick={() => setDate(toDateStr(new Date()))}>Today</button>}
       </div>
 
@@ -165,14 +207,17 @@ function DailyLogTab() {
           <SectionLabel>🧵 Tailors ({tailors.length})</SectionLabel>
           {tailors.length === 0 && <EmptyCard>No active tailors.</EmptyCard>}
           {tailors.map(s => (
-            <StaffCard key={s.id} staff={s} workType="stitching"
+            <StaffCard key={s.id} staff={s} workType="stitching" activeDate={date}
               saving={saving} editEntry={editEntry}
               newEntry={newEntry[s.id]} showAdd={showAddEntry[s.id]}
+              carryoverForm={carryoverForm}
+              onSetCarryoverForm={(id, data) => setCarryoverForm(p => ({ ...p, [id]: { ...(p[id] || {}), ...data } }))}
+              onCompleteCarryover={completeCarryoverItem}
               products={products}
               onSetNew={v => setNewEntry(p => ({ ...p, [s.id]: v }))}
               onOpenAdd={cat => openAddEntry(s.id, cat)}
               onCloseAdd={() => closeAddEntry(s.id)}
-              onSave={(cat, wt, alloc, done) => saveEntry(s.id, cat, wt, alloc, done)}
+              onSave={(cat, wt, alloc, done, allocD, compD) => saveEntry(s.id, cat, wt, alloc, done, allocD, compD)}
               onStartEdit={startEdit} onCancelEdit={cancelEdit}
               onSetEdit={(key, v) => setEditEntry(p => ({ ...p, [key]: v }))}
               onDelete={deleteEntry}
@@ -182,14 +227,17 @@ function DailyLogTab() {
           <SectionLabel style={{ marginTop: 20 }}>✂️ Cutting Masters ({cutters.length})</SectionLabel>
           {cutters.length === 0 && <EmptyCard>No active cutting masters.</EmptyCard>}
           {cutters.map(s => (
-            <StaffCard key={s.id} staff={s} workType="cutting"
+            <StaffCard key={s.id} staff={s} workType="cutting" activeDate={date}
               saving={saving} editEntry={editEntry}
               newEntry={newEntry[s.id]} showAdd={showAddEntry[s.id]}
+              carryoverForm={carryoverForm}
+              onSetCarryoverForm={(id, data) => setCarryoverForm(p => ({ ...p, [id]: { ...(p[id] || {}), ...data } }))}
+              onCompleteCarryover={completeCarryoverItem}
               products={products}
               onSetNew={v => setNewEntry(p => ({ ...p, [s.id]: v }))}
               onOpenAdd={cat => openAddEntry(s.id, cat)}
               onCloseAdd={() => closeAddEntry(s.id)}
-              onSave={(cat, wt, alloc, done) => saveEntry(s.id, cat, wt, alloc, done)}
+              onSave={(cat, wt, alloc, done, allocD, compD) => saveEntry(s.id, cat, wt, alloc, done, allocD, compD)}
               onStartEdit={startEdit} onCancelEdit={cancelEdit}
               onSetEdit={(key, v) => setEditEntry(p => ({ ...p, [key]: v }))}
               onDelete={deleteEntry}
@@ -197,8 +245,6 @@ function DailyLogTab() {
           ))}
         </>
       )}
-
-
     </>
   );
 }
@@ -207,18 +253,28 @@ function DailyLogTab() {
 
 function HistoryTab() {
   const now = new Date();
-  const [month, setMonth]     = useState(now.getMonth() + 1);
-  const [year, setYear]       = useState(now.getFullYear());
+  const [month, setMonth]             = useState(now.getMonth() + 1);
+  const [year, setYear]               = useState(now.getFullYear());
   const [staffFilter, setStaffFilter] = useState('');
   const [staffList, setStaffList]     = useState([]);
   const [rows, setRows]               = useState([]);
   const [loading, setLoading]         = useState(true);
 
+  const [editingRow, setEditingRow]   = useState(null);
+  const [editForm, setEditForm]       = useState({
+    entry_date: '',
+    completion_date: '',
+    category: '',
+    work_type: '',
+    allocated_pcs: '',
+    completed_pcs: '',
+  });
+
   useEffect(() => {
     api.get('/staff').then(r => setStaffList(r.data)).catch(() => {});
   }, []);
 
-  useEffect(() => {
+  const loadHistory = useCallback(() => {
     setLoading(true);
     const params = { month, year };
     if (staffFilter) params.staff_id = staffFilter;
@@ -227,12 +283,54 @@ function HistoryTab() {
       .finally(() => setLoading(false));
   }, [month, year, staffFilter]);
 
+  useEffect(() => { loadHistory(); }, [loadHistory]);
+
   const changeMonth = delta => {
     let m = month + delta;
     let y = year;
     if (m < 1)  { m = 12; y--; }
     if (m > 12) { m = 1;  y++; }
     setMonth(m); setYear(y);
+  };
+
+  const openEditRow = r => {
+    setEditingRow(r);
+    setEditForm({
+      entry_date: r.entry_date || '',
+      completion_date: r.completion_date || r.entry_date || '',
+      category: r.category || 'shawl_nighty',
+      work_type: r.work_type || 'stitching',
+      allocated_pcs: String(r.allocated_pcs || 0),
+      completed_pcs: String(r.completed_pcs || 0),
+    });
+  };
+
+  const saveEditRow = async () => {
+    if (!editingRow) return;
+    try {
+      await api.put(`/staff/work-entries/${editingRow.id}`, {
+        entry_date: editForm.entry_date,
+        completion_date: editForm.completed_pcs > 0 ? (editForm.completion_date || editForm.entry_date) : null,
+        category: editForm.category,
+        work_type: editForm.work_type,
+        allocated_pcs: +editForm.allocated_pcs || 0,
+        completed_pcs: +editForm.completed_pcs || 0,
+      });
+      setEditingRow(null);
+      loadHistory();
+    } catch (e) {
+      alert(e.response?.data?.message || 'Failed to update work entry');
+    }
+  };
+
+  const deleteRow = async r => {
+    if (!confirm(`Delete work entry for ${r.staff_name} on ${fmtShort(r.entry_date)}?`)) return;
+    try {
+      await api.delete(`/staff/work-entries/${r.id}`);
+      loadHistory();
+    } catch (e) {
+      alert('Failed to delete work entry');
+    }
   };
 
   // Group rows by staff
@@ -303,19 +401,22 @@ function HistoryTab() {
               <table>
                 <thead>
                   <tr>
-                    <th>Date</th>
+                    <th>Alloc Date</th>
+                    <th>Comp Date</th>
                     <th>Category</th>
                     <th>Type</th>
                     <th style={{ textAlign: 'right' }}>Allocated</th>
                     <th style={{ textAlign: 'right' }}>Completed</th>
                     <th style={{ textAlign: 'right' }}>Remaining</th>
                     <th>Status</th>
+                    <th></th>
                   </tr>
                 </thead>
                 <tbody>
                   {s.entries.map((r, i) => (
                     <tr key={i}>
-                      <td style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{fmtShort(r.entry_date)}</td>
+                      <td style={{ fontSize: 12, color: 'var(--text)', whiteSpace: 'nowrap' }}>{fmtShort(r.entry_date)}</td>
+                      <td style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{r.completion_date ? fmtShort(r.completion_date) : '—'}</td>
                       <td style={{ fontWeight: 600 }}>{CAT_LABEL[r.category] || r.category}</td>
                       <td>
                         <span className={`badge ${r.work_type === 'stitching' ? 'b-cyan' : 'b-accent'}`} style={{ fontSize: 10 }}>
@@ -336,6 +437,16 @@ function HistoryTab() {
                             ? <span className="badge b-yellow" style={{ fontSize: 10 }}>Pending</span>
                             : <span className="badge b-accent" style={{ fontSize: 10 }}>Done</span>}
                       </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                          <button className="btn btn-ghost btn-sm" style={{ padding: '2px 6px', fontSize: 11 }} title="Edit Entry" onClick={() => openEditRow(r)}>
+                            ✏️
+                          </button>
+                          <button className="btn btn-ghost btn-sm" style={{ padding: '2px 6px', fontSize: 11, color: 'var(--red)', borderColor: '#fca5a5' }} title="Delete Entry" onClick={() => deleteRow(r)}>
+                            ✕
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -343,6 +454,71 @@ function HistoryTab() {
             </div>
           );
         })
+      )}
+
+      {/* Edit Entry Modal */}
+      {editingRow && (
+        <div className="modal-overlay" onClick={() => setEditingRow(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h2>Edit Work Entry</h2>
+            <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14 }}>
+              Staff: <b>{editingRow.staff_name}</b>
+            </div>
+            <div className="form-grid">
+              <div className="field">
+                <label>Allocation Date</label>
+                <input
+                  type="date"
+                  value={editForm.entry_date}
+                  onChange={e => setEditForm(f => ({ ...f, entry_date: e.target.value }))}
+                />
+              </div>
+              <div className="field">
+                <label>Completion Date</label>
+                <input
+                  type="date"
+                  value={editForm.completion_date}
+                  onChange={e => setEditForm(f => ({ ...f, completion_date: e.target.value }))}
+                />
+              </div>
+              <div className="field">
+                <label>Product Category</label>
+                <select value={editForm.category} onChange={e => setEditForm(f => ({ ...f, category: e.target.value }))}>
+                  {CATEGORIES.map(c => <option key={c} value={c}>{getProductLabel(c)}</option>)}
+                </select>
+              </div>
+              <div className="field">
+                <label>Work Type</label>
+                <select value={editForm.work_type} onChange={e => setEditForm(f => ({ ...f, work_type: e.target.value }))}>
+                  <option value="cutting">✂️ Cutting</option>
+                  <option value="stitching">🧵 Stitching</option>
+                </select>
+              </div>
+              <div className="field">
+                <label>Allocated (pcs)</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={editForm.allocated_pcs}
+                  onChange={e => setEditForm(f => ({ ...f, allocated_pcs: e.target.value }))}
+                />
+              </div>
+              <div className="field">
+                <label>Completed (pcs)</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={editForm.completed_pcs}
+                  onChange={e => setEditForm(f => ({ ...f, completed_pcs: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={() => setEditingRow(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={saveEditRow}>Save Changes</button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );
@@ -355,7 +531,9 @@ function StaffTab() {
   const [loading, setLoading]       = useState(true);
   const [deactivating, setDeactivating] = useState(null);
   const [showAdd, setShowAdd]       = useState(false);
-  const [form, setForm]             = useState({ name: '', role: 'tailor', phone: '', can_stitch: false });
+  const [form, setForm]             = useState({ name: '', role: 'tailor', phone: '', rate_per_pc: '', can_stitch: false });
+  const [editingStaff, setEditingStaff] = useState(null);
+  const [editForm, setEditForm]     = useState({ name: '', role: 'tailor', phone: '', rate_per_pc: '', can_stitch: false });
   const [saving, setSaving]         = useState(false);
 
   const load = () => {
@@ -370,8 +548,31 @@ function StaffTab() {
     try {
       await api.post('/staff', form);
       setShowAdd(false);
-      setForm({ name: '', role: 'tailor', phone: '', can_stitch: false });
+      setForm({ name: '', role: 'tailor', phone: '', rate_per_pc: '', can_stitch: false });
       load();
+    } finally { setSaving(false); }
+  };
+
+  const openEdit = s => {
+    setEditingStaff(s);
+    setEditForm({
+      name: s.name || '',
+      role: s.role || 'tailor',
+      phone: s.phone || '',
+      rate_per_pc: s.rate_per_pc !== undefined ? String(s.rate_per_pc) : '',
+      can_stitch: !!s.can_stitch,
+    });
+  };
+
+  const saveEdit = async () => {
+    if (!editForm.name.trim()) return;
+    setSaving(true);
+    try {
+      await api.put(`/staff/${editingStaff.id}`, editForm);
+      setEditingStaff(null);
+      load();
+    } catch (e) {
+      alert(e.response?.data?.message || 'Failed to update staff');
     } finally { setSaving(false); }
   };
 
@@ -410,6 +611,9 @@ function StaffTab() {
                 </div>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                   <span className="badge b-cyan" style={{ fontSize: 10 }}>🧵 Tailor</span>
+                  <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={() => openEdit(s)}>
+                    ✏️ Edit
+                  </button>
                   <button className="btn btn-ghost btn-sm"
                     style={{ fontSize: 11, color: 'var(--red)', borderColor: '#fca5a5' }}
                     disabled={deactivating === s.id} onClick={() => deactivate(s.id)}>
@@ -435,6 +639,9 @@ function StaffTab() {
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                   <span className="badge b-accent" style={{ fontSize: 10 }}>✂️ Cutter</span>
                   {!!s.can_stitch && <span className="badge b-green" style={{ fontSize: 10 }}>Also Stitches</span>}
+                  <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={() => openEdit(s)}>
+                    ✏️ Edit
+                  </button>
                   <button className="btn btn-ghost btn-sm"
                     style={{ fontSize: 11, color: 'var(--red)', borderColor: '#fca5a5' }}
                     disabled={deactivating === s.id} onClick={() => deactivate(s.id)}>
@@ -459,12 +666,14 @@ function StaffTab() {
                       <div style={{ fontWeight: 600, fontSize: 14 }}>{s.name}</div>
                       <div style={{ fontSize: 12, color: 'var(--muted)' }}>{s.role === 'tailor' ? 'Tailor' : 'Cutting Master'}</div>
                     </div>
-                    <span className="badge" style={{ fontSize: 10 }}>Inactive</span>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <span className="badge" style={{ fontSize: 10 }}>Inactive</span>
+                      <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={() => openEdit(s)}>
+                        ✏️ Edit
+                      </button>
+                    </div>
                   </div>
                 ))}
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6, textAlign: 'center' }}>
-                Reactivation can only be done by the owner/manager from the main Staff &amp; Payroll page.
               </div>
             </>
           )}
@@ -495,6 +704,11 @@ function StaffTab() {
                 <input value={form.phone} type="tel" placeholder="Mobile number"
                   onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
               </div>
+              <div className="field">
+                <label>Custom Rate/pc (optional ₹)</label>
+                <input value={form.rate_per_pc} type="number" placeholder="Default category rate"
+                  onChange={e => setForm(f => ({ ...f, rate_per_pc: e.target.value }))} />
+              </div>
               {form.role === 'cutting_master' && (
                 <div className="field form-full" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <input type="checkbox" id="cs-stitch" checked={form.can_stitch}
@@ -515,20 +729,70 @@ function StaffTab() {
           </div>
         </div>
       )}
+
+      {/* Edit Staff modal */}
+      {editingStaff && (
+        <div className="modal-overlay" onClick={() => setEditingStaff(null)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h2>Edit Staff Member</h2>
+            <div className="form-grid">
+              <div className="field form-full">
+                <label>Full Name</label>
+                <input value={editForm.name} autoFocus placeholder="e.g. Ramesh Kumar"
+                  onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
+                  onKeyDown={e => e.key === 'Enter' && saveEdit()} />
+              </div>
+              <div className="field">
+                <label>Role</label>
+                <select value={editForm.role} onChange={e => setEditForm(f => ({ ...f, role: e.target.value }))}>
+                  <option value="tailor">🧵 Tailor</option>
+                  <option value="cutting_master">✂️ Cutting Master</option>
+                </select>
+              </div>
+              <div className="field">
+                <label>Phone</label>
+                <input value={editForm.phone} type="tel" placeholder="Mobile number"
+                  onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))} />
+              </div>
+              <div className="field">
+                <label>Base Rate/pc (₹)</label>
+                <input value={editForm.rate_per_pc} type="number" placeholder="e.g. 15"
+                  onChange={e => setEditForm(f => ({ ...f, rate_per_pc: e.target.value }))} />
+              </div>
+              {editForm.role === 'cutting_master' && (
+                <div className="field form-full" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <input type="checkbox" id="cs-stitch-edit" checked={editForm.can_stitch}
+                    onChange={e => setEditForm(f => ({ ...f, can_stitch: e.target.checked }))}
+                    style={{ width: 'auto', accentColor: 'var(--accent)' }} />
+                  <label htmlFor="cs-stitch-edit" style={{ margin: 0, textTransform: 'none', letterSpacing: 0, fontSize: 13, fontWeight: 600, color: 'var(--text)', cursor: 'pointer' }}>
+                    Also does stitching work
+                  </label>
+                </div>
+              )}
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={() => setEditingStaff(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={saveEdit} disabled={!editForm.name.trim() || saving}>
+                {saving ? 'Saving…' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }
 
 // ── StaffCard ─────────────────────────────────────────────────────────────────
 
-// ── StaffCard ─────────────────────────────────────────────────────────────────
-
-function StaffCard({ staff, workType, saving, editEntry, newEntry, showAdd,
+function StaffCard({ staff, workType, activeDate, saving, editEntry, newEntry, showAdd,
+  carryoverForm, onSetCarryoverForm, onCompleteCarryover,
   onSetNew, onOpenAdd, onCloseAdd, onSave, onStartEdit, onCancelEdit, onSetEdit,
   onDelete, products = [], style: cardStyle }) {
 
   const isCutter = staff.role === 'cutting_master';
   const entries = staff.entries || [];
+  const carryoverItems = staff.carryover_items || [];
 
   // Group entries by category
   const entriesByCat = entries.reduce((acc, e) => {
@@ -543,7 +807,7 @@ function StaffCard({ staff, workType, saving, editEntry, newEntry, showAdd,
   ]));
 
   return (
-    <div className="card" style={{ marginBottom: 12, padding: '16px 20px', borderRadius: 12, border: '1px solid var(--border)', boxShadow: '0 2px 8px rgba(0,0,0,0.02)', ...cardStyle }}>
+    <div className="card" style={{ marginBottom: 14, padding: '16px 20px', borderRadius: 12, border: '1px solid var(--border)', boxShadow: '0 2px 8px rgba(0,0,0,0.02)', ...cardStyle }}>
       {/* Card Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -556,11 +820,72 @@ function StaffCard({ staff, workType, saving, editEntry, newEntry, showAdd,
           )}
           {staff.carryover_pcs > 0 && (
             <span className="badge b-yellow" style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20 }}>
-              ⏳ {staff.carryover_pcs} pcs pending
+              ⏳ {staff.carryover_pcs} pcs carryover pending
             </span>
           )}
         </div>
       </div>
+
+      {/* ── Carryover Pending Section (if any pending pieces from earlier days) ── */}
+      {carryoverItems.length > 0 && (
+        <div style={{ background: '#fffbeb', border: '1px solid #fef3c7', borderRadius: 10, padding: 12, marginBottom: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#92400e', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span>⏳ Carryover Pending from Earlier Days ({staff.carryover_pcs} pcs total):</span>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {carryoverItems.map(c => {
+              const pending = (c.allocated_pcs || 0) - (c.completed_pcs || 0);
+              const cForm = carryoverForm[c.id] || { compDate: activeDate, completedPcs: '' };
+              const isSaving = saving === `carry-${c.id}`;
+
+              return (
+                <div key={c.id} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 10, background: '#ffffff', border: '1px solid #fde68a', borderRadius: 8, padding: '8px 12px' }}>
+                  <div>
+                    <span style={{ fontWeight: 700, fontSize: 13, color: '#78350f' }}>
+                      {getProductLabel(c.category)} ({c.work_type})
+                    </span>
+                    <span style={{ fontSize: 11, color: '#b45309', marginLeft: 8 }}>
+                      Allocated: {fmtShort(c.entry_date)} · <b>{pending} pcs left</b>
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>Completed on:</span>
+                      <input
+                        type="date"
+                        value={cForm.compDate || activeDate}
+                        onChange={e => onSetCarryoverForm(c.id, { compDate: e.target.value })}
+                        style={{ fontSize: 11, padding: '4px 6px', borderRadius: 6, border: '1px solid #cbd5e1', outline: 'none' }}
+                      />
+                    </div>
+                    <input
+                      type="number"
+                      placeholder={`Pcs (max ${pending})`}
+                      min="1"
+                      max={pending}
+                      value={cForm.completedPcs || ''}
+                      onChange={e => {
+                        const val = Math.min(pending, Math.max(0, +e.target.value || 0));
+                        onSetCarryoverForm(c.id, { completedPcs: val ? String(val) : '' });
+                      }}
+                      style={{ width: 100, fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid #cbd5e1', outline: 'none' }}
+                    />
+                    <button
+                      className="btn btn-primary btn-sm"
+                      disabled={!cForm.completedPcs || isSaving}
+                      onClick={() => onCompleteCarryover(c, cForm.completedPcs, cForm.compDate || activeDate)}
+                      style={{ fontSize: 11, padding: '4px 10px', height: 28 }}
+                    >
+                      {isSaving ? '…' : '✓ Complete'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Entries List */}
       {(entries.length > 0 || showAdd) && (
@@ -581,6 +906,28 @@ function StaffCard({ staff, workType, saving, editEntry, newEntry, showAdd,
                     New Log: {getProductLabel(cat)}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {/* Date Pickers for Allocation Date & Completion Date */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Allocation Date</span>
+                        <input
+                          type="date"
+                          value={newEntry?.allocDate || activeDate}
+                          onChange={e => onSetNew({ ...newEntry, allocDate: e.target.value })}
+                          style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', fontSize: 12 }}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Completion Date (if done)</span>
+                        <input
+                          type="date"
+                          value={newEntry?.compDate || activeDate}
+                          onChange={e => onSetNew({ ...newEntry, compDate: e.target.value })}
+                          style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', fontSize: 12 }}
+                        />
+                      </div>
+                    </div>
+
                     {isCutter && (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                         <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Work Type</span>
@@ -612,6 +959,7 @@ function StaffCard({ staff, workType, saving, editEntry, newEntry, showAdd,
                         </div>
                       </div>
                     )}
+
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                         <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Allocated (pcs)</span>
@@ -630,14 +978,9 @@ function StaffCard({ staff, workType, saving, editEntry, newEntry, showAdd,
                           type="number"
                           placeholder="e.g. 45"
                           min="0"
-                          max={allocated || undefined}
                           style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', fontSize: 13 }}
                           value={newEntry?.completed || ''}
-                          onChange={e => {
-                            const val = +e.target.value;
-                            const capped = allocated > 0 ? Math.min(val, allocated) : val;
-                            onSetNew({ ...newEntry, completed: String(capped) });
-                          }}
+                          onChange={e => onSetNew({ ...newEntry, completed: e.target.value })}
                         />
                       </div>
                     </div>
@@ -645,8 +988,15 @@ function StaffCard({ staff, workType, saving, editEntry, newEntry, showAdd,
                       <button
                         className="btn btn-primary btn-sm"
                         style={{ height: 32, padding: '0 16px', borderRadius: 6, fontSize: 12 }}
-                        disabled={!newEntry?.allocated || saving === savingKey}
-                        onClick={() => onSave(cat, newEntry?.work_type || workType, newEntry?.allocated, newEntry?.completed)}
+                        disabled={(!newEntry?.allocated && !newEntry?.completed) || saving === savingKey}
+                        onClick={() => onSave(
+                          cat,
+                          newEntry?.work_type || workType,
+                          newEntry?.allocated,
+                          newEntry?.completed,
+                          newEntry?.allocDate || activeDate,
+                          newEntry?.compDate || activeDate
+                        )}
                       >
                         {saving === savingKey ? 'Saving…' : 'Save Entry'}
                       </button>
@@ -665,7 +1015,6 @@ function StaffCard({ staff, workType, saving, editEntry, newEntry, showAdd,
 
             if (entry) {
               const ed = editEntry[eKey] || {};
-              const edAlloc = ed.allocated !== undefined ? +ed.allocated : entry.allocated_pcs;
               const remaining = (entry.allocated_pcs || 0) - (entry.completed_pcs || 0);
 
               if (isEditingThisCat) {
@@ -676,6 +1025,27 @@ function StaffCard({ staff, workType, saving, editEntry, newEntry, showAdd,
                       Edit Log: {getProductLabel(cat)} {isCutter && `(${entry.work_type})`}
                     </div>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Allocation Date</span>
+                          <input
+                            type="date"
+                            value={ed.allocDate || entry.entry_date || activeDate}
+                            onChange={ev => onSetEdit(eKey, { ...ed, allocDate: ev.target.value })}
+                            style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', fontSize: 12 }}
+                          />
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Completion Date</span>
+                          <input
+                            type="date"
+                            value={ed.compDate || entry.completion_date || activeDate}
+                            onChange={ev => onSetEdit(eKey, { ...ed, compDate: ev.target.value })}
+                            style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', fontSize: 12 }}
+                          />
+                        </div>
+                      </div>
+
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                           <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Allocated (pcs)</span>
@@ -692,13 +1062,9 @@ function StaffCard({ staff, workType, saving, editEntry, newEntry, showAdd,
                           <input
                             type="number"
                             min="0"
-                            max={edAlloc || undefined}
                             style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', fontSize: 13 }}
                             value={ed.completed}
-                            onChange={ev => {
-                              const capped = edAlloc > 0 ? Math.min(+ev.target.value, edAlloc) : +ev.target.value;
-                              onSetEdit(eKey, { ...ed, completed: String(capped) });
-                            }}
+                            onChange={ev => onSetEdit(eKey, { ...ed, completed: ev.target.value })}
                           />
                         </div>
                       </div>
@@ -707,7 +1073,7 @@ function StaffCard({ staff, workType, saving, editEntry, newEntry, showAdd,
                           className="btn btn-primary btn-sm"
                           style={{ height: 32, padding: '0 16px', borderRadius: 6, fontSize: 12 }}
                           disabled={saving === eKey}
-                          onClick={() => onSave(entry.category, entry.work_type, ed.allocated, ed.completed)}
+                          onClick={() => onSave(entry.category, entry.work_type, ed.allocated, ed.completed, ed.allocDate, ed.compDate)}
                         >
                           {saving === eKey ? 'Saving…' : 'Save Changes'}
                         </button>
@@ -738,6 +1104,11 @@ function StaffCard({ staff, workType, saving, editEntry, newEntry, showAdd,
                     {isCutter && (
                       <span style={{ fontSize: 10, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                         {entry.work_type === 'stitching' ? 'Stitching' : 'Cutting'}
+                      </span>
+                    )}
+                    {entry.completion_date && entry.completion_date !== entry.entry_date && (
+                      <span style={{ fontSize: 10, color: 'var(--green)', fontWeight: 600 }}>
+                        Done on {fmtShort(entry.completion_date)}
                       </span>
                     )}
                   </div>
@@ -845,9 +1216,9 @@ function StaffCard({ staff, workType, saving, editEntry, newEntry, showAdd,
         </div>
       )}
 
-      {entries.length === 0 && !showAdd && (
+      {entries.length === 0 && !showAdd && carryoverItems.length === 0 && (
         <div style={{ color: 'var(--muted)', fontSize: 12, textAlign: 'center', padding: '8px 0', border: '1px dashed var(--border)', borderRadius: 10, background: '#f8fafc' }}>
-          No work entries logged for today. Use the buttons above to log work.
+          No work entries logged for today. Use the dropdown above to log work.
         </div>
       )}
     </div>
