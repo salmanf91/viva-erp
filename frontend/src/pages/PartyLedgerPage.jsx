@@ -285,6 +285,22 @@ export default function PartyLedgerPage() {
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr style={{ background: 'var(--surface)', borderTop: '2px solid var(--border)', fontWeight: 800 }}>
+                  <td colSpan={4} style={{ padding: '12px 16px', fontWeight: 800 }}>
+                    Summary Totals (Period Net: {fmt(netBalance)})
+                  </td>
+                  <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 800, color: 'var(--text)' }}>
+                    {fmt(totalBilled)}
+                  </td>
+                  <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 800, color: 'var(--green)' }}>
+                    {fmt(totalPaid)}
+                  </td>
+                  <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 900, color: 'var(--accent)' }}>
+                    {fmt(netBalance)}
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           )}
         </div>

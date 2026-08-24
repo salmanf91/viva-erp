@@ -68,7 +68,7 @@ export async function getExpenses(req: AuthRequest, res: Response): Promise<void
   const { tenantId } = req.user!;
   const { month, year, from, to } = req.query;
   const page = parseInt(req.query.page as string) || 1;
-  const limit = parseInt(req.query.limit as string) || 20;
+  const limit = parseInt(req.query.limit as string) || (month && year && !from && !to ? 1000 : 20);
   const offset = (page - 1) * limit;
 
   try {

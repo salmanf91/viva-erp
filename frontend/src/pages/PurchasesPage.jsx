@@ -35,7 +35,7 @@ export default function PurchasesPage() {
   });
   const [form, setForm] = useState(emptyForm());
 
-  const emptyEdit = p => ({
+  const emptyEdit = (p, items = []) => ({
     vendor_id:    String(p.vendor_id),
     purchase_date: (p.invoice_date || '').slice(0, 10),
     tax_percent:  p.tax_rate || 0,
@@ -45,8 +45,11 @@ export default function PurchasesPage() {
     freight:      p.freight ? String(p.freight) : '',
     coolie:       p.coolie ? String(p.coolie) : '',
     advance_paid: p.advance_paid ? String(p.advance_paid) : '',
+    items: items && items.length > 0
+      ? items.map(it => ({ category: it.category, quantity: it.quantity, price_per_piece: it.rate_per_pc }))
+      : [{ category: 'shawl_nighty', quantity: '', price_per_piece: '' }],
   });
-  const [editForm, setEditForm] = useState({});
+  const [editForm, setEditForm] = useState(emptyEdit({}));
 
   const loadPurchases = useCallback((pg = 1, q = search) => {
     setLoading(true);
@@ -73,9 +76,24 @@ export default function PurchasesPage() {
     setDetail(r.data);
   };
 
-  const openEdit = p => { setEditForm(emptyEdit(p)); setEditTarget(p); };
+  const openEdit = async p => {
+    let items = [];
+    try {
+      const r = await api.get(`/purchases/${p.id}`);
+      items = r.data.items || [];
+    } catch (err) {
+      console.error('Failed to load purchase items', err);
+    }
+    setEditForm(emptyEdit(p, items));
+    setEditTarget(p);
+  };
+
+  const addEditItem    = () => setEditForm(f => ({ ...f, items: [...(f.items || []), { category: 'shawl_nighty', quantity: '', price_per_piece: '' }] }));
+  const removeEditItem = i  => setEditForm(f => ({ ...f, items: f.items.filter((_, idx) => idx !== i) }));
+  const setEditItem    = (i, k, v) => setEditForm(f => ({ ...f, items: f.items.map((it, idx) => idx === i ? { ...it, [k]: v } : it) }));
 
   const saveEdit = async () => {
+    const validItems = (editForm.items || []).filter(it => it.quantity && it.price_per_piece);
     await api.put(`/purchases/${editTarget.id}`, {
       vendor_id:    +editForm.vendor_id,
       invoice_date: editForm.purchase_date,
@@ -86,6 +104,7 @@ export default function PurchasesPage() {
       freight:      editForm.freight !== '' ? +editForm.freight : 0,
       coolie:       editForm.coolie  !== '' ? +editForm.coolie  : 0,
       advance_paid: editForm.advance_paid !== '' ? +editForm.advance_paid : 0,
+      items: validItems.length > 0 ? validItems.map(it => ({ category: it.category, quantity: +it.quantity, rate_per_pc: +it.price_per_piece })) : undefined,
     });
     setEditTarget(null);
     loadPurchases(page);
@@ -276,7 +295,9 @@ export default function PurchasesPage() {
           <div className="modal" style={{ width: 640, maxHeight: '85vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
               <h2 style={{ margin: 0 }}>🏪 {detail.purchase?.vendor_name}</h2>
-              <span className="badge b-green">✓ Paid</span>
+              <span className={`badge ${detail.purchase?.status === 'paid' ? 'b-green' : detail.purchase?.status === 'partial' ? 'b-yellow' : 'b-accent'}`}>
+                {detail.purchase?.status === 'paid' ? '✓ Paid' : detail.purchase?.status === 'partial' ? '⏳ Partial Paid' : '⏳ Pending'}
+              </span>
             </div>
             <div style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 16 }}>
               {fmtDate(detail.purchase?.invoice_date)}
@@ -387,11 +408,8 @@ export default function PurchasesPage() {
       {/* ── Edit modal ── */}
       {editTarget && (
         <div className="modal-overlay" onClick={() => setEditTarget(null)}>
-          <div className="modal" style={{ width: 500 }} onClick={e => e.stopPropagation()}>
+          <div className="modal" style={{ width: 660, maxHeight: '90vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
             <h2>Edit Purchase</h2>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
-              Line items cannot be changed after saving (they affect stock). Edit header fields below.
-            </div>
             <div className="form-grid">
               <div className="field">
                 <label>Vendor</label>
@@ -403,34 +421,74 @@ export default function PurchasesPage() {
                 <label>Date</label>
                 <input type="date" value={editForm.purchase_date} onChange={e => setEditForm(f => ({ ...f, purchase_date: e.target.value }))} />
               </div>
+              <div className="field form-full">
+                <label>Note (optional)</label>
+                <input value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} placeholder="Optional" />
+              </div>
+            </div>
+
+            <div style={{ fontWeight: 700, fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', margin: '14px 0 8px' }}>
+              Line Items
+            </div>
+            {(editForm.items || []).map((it, i) => (
+              <div key={i} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: 8, marginBottom: 8, alignItems: 'end' }}>
+                <div className="field" style={{ margin: 0 }}>
+                  {i === 0 && <label>Category</label>}
+                  <select value={it.category} onChange={e => setEditItem(i, 'category', e.target.value)}>
+                    {[{ category: 'mixed' }, ...products].map(p => (
+                      <option key={p.category} value={p.category}>{getProductLabel(p.category)}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  {i === 0 && <label>Qty (pcs)</label>}
+                  <input type="number" placeholder="0" value={it.quantity} onChange={e => setEditItem(i, 'quantity', e.target.value)} />
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  {i === 0 && <label>Rate / pc (₹)</label>}
+                  <input type="number" placeholder="0" value={it.price_per_piece} onChange={e => setEditItem(i, 'price_per_piece', e.target.value)} />
+                </div>
+                <button className="btn btn-red btn-sm" onClick={() => removeEditItem(i)} disabled={editForm.items.length === 1}>✕</button>
+              </div>
+            ))}
+
+            <button className="btn btn-ghost btn-sm" style={{ marginBottom: 14 }} onClick={addEditItem}>+ Add Item</button>
+
+            <div className="form-grid">
               <div className="field">
                 <label>Discount (%)</label>
                 <input type="number" step="0.01" placeholder="0" min="0" max="100" value={editForm.discount} onChange={e => setEditForm(f => ({ ...f, discount: e.target.value }))} />
               </div>
               <div className="field">
                 <label>Tax %</label>
-                <input type="number" step="0.01" value={editForm.tax_percent} onChange={e => setEditForm(f => ({ ...f, tax_percent: e.target.value }))} />
-              </div>
-              <div className="field form-full">
-                <label>Note</label>
-                <input value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} placeholder="Optional" />
+                <input type="number" step="0.01" placeholder="0" value={editForm.tax_percent} onChange={e => setEditForm(f => ({ ...f, tax_percent: e.target.value }))} />
               </div>
               <div className="field">
                 <label>Freight (₹)</label>
-                <input type="number" placeholder="Leave blank to keep existing" value={editForm.freight} onChange={e => setEditForm(f => ({ ...f, freight: e.target.value }))} />
+                <input type="number" placeholder="0" value={editForm.freight} onChange={e => setEditForm(f => ({ ...f, freight: e.target.value }))} />
               </div>
               <div className="field">
-                <label>Coolie (₹)</label>
-                <input type="number" placeholder="Leave blank to keep existing" value={editForm.coolie} onChange={e => setEditForm(f => ({ ...f, coolie: e.target.value }))} />
+                <label>Coolie / Labour (₹)</label>
+                <input type="number" placeholder="0" value={editForm.coolie} onChange={e => setEditForm(f => ({ ...f, coolie: e.target.value }))} />
               </div>
               <div className="field">
                 <label>Advance Paid (₹)</label>
                 <input type="number" placeholder="0" value={editForm.advance_paid} onChange={e => setEditForm(f => ({ ...f, advance_paid: e.target.value }))} />
               </div>
             </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '10px 0 0 0' }}>
+              <input type="checkbox" id="chk-edit-tax-inclusive" checked={editForm.tax_inclusive}
+                onChange={e => setEditForm(f => ({ ...f, tax_inclusive: e.target.checked }))}
+                style={{ width: 'auto', accentColor: 'var(--accent)' }} />
+              <label htmlFor="chk-edit-tax-inclusive" style={{ margin: 0, fontSize: 13, fontWeight: 600, cursor: 'pointer', textTransform: 'none', letterSpacing: 0, color: 'var(--text)' }}>
+                Item rates are tax-inclusive (GST is already included in rates)
+              </label>
+            </div>
+
             <div className="modal-actions">
               <button className="btn btn-ghost" onClick={() => setEditTarget(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={saveEdit}>Save Changes</button>
+              <button className="btn btn-primary" onClick={saveEdit} disabled={!editForm.vendor_id || !(editForm.items || [])[0]?.quantity}>Save Changes</button>
             </div>
           </div>
         </div>

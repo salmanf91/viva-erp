@@ -341,9 +341,10 @@ export default function ExpensesPage() {
   const loadAll = async () => {
     setLoading(true);
     await Promise.all([
-      api.get(`/expenses?month=${month}&year=${year}`).then(r => {
+      api.get(`/expenses?month=${month}&year=${year}&limit=1000`).then(r => {
         const data = r.data;
-        setExpenses(Array.isArray(data) ? data : (data.expenses || []));
+        const list = Array.isArray(data) ? data : (data.data || data.expenses || []);
+        setExpenses(list);
         setArchived(!!(data.is_archived));
       }),
       api.get('/expenses/reasons').then(r => setReasons(r.data)),

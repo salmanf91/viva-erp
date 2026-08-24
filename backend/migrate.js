@@ -13,10 +13,10 @@ async function run() {
     multipleStatements: true // Allow multiple SQL statements in one query
   });
 
-  const sqlPath = path.join(__dirname, 'migrations', '016_dynamic_size_rates.sql');
+  const sqlPath = path.join(__dirname, 'migrations', '018_sales_discount.sql');
   const sql = fs.readFileSync(sqlPath, 'utf8');
   
-  console.log('Applying database migration (016_dynamic_size_rates.sql)...');
+  console.log('Applying database migration (018_sales_discount.sql)...');
   try {
     await connection.query(sql);
     console.log('Migration applied successfully!');
