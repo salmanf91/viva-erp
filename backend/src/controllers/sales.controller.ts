@@ -118,10 +118,11 @@ export async function getOrders(req: AuthRequest, res: Response): Promise<void> 
     const orders = await query<any[]>(
       `SELECT o.*, c.name AS client_name, c.city AS client_city,
               COALESCE(SUM(i.quantity * i.rate_per_pc), 0) AS subtotal,
+              ((GREATEST(0, COALESCE(SUM(i.quantity * i.rate_per_pc), 0) - o.discount)) * (1 + o.gst_percent / 100)) AS total,
               COUNT(i.id) AS item_count,
               (
                 SELECT COALESCE(SUM(
-                  (SELECT COALESCE(SUM(i2.quantity * i2.rate_per_pc), 0) FROM sales_order_items i2 WHERE i2.order_id = o2.id) 
+                  (GREATEST(0, (SELECT COALESCE(SUM(i2.quantity * i2.rate_per_pc), 0) FROM sales_order_items i2 WHERE i2.order_id = o2.id) - o2.discount))
                   * (1 + o2.gst_percent / 100) - o2.amount_paid
                 ), 0)
                 FROM sales_orders o2
@@ -168,7 +169,7 @@ export async function getOrder(req: AuthRequest, res: Response): Promise<void> {
     // Other outstanding invoices for the same client (excluding this one)
     const otherOutstanding = await query<any[]>(
       `SELECT o.id, o.invoice_number, o.order_date, o.status, o.amount_paid,
-              COALESCE(SUM(i.quantity * i.rate_per_pc), 0) * (1 + o.gst_percent / 100) AS total
+              (GREATEST(0, COALESCE(SUM(i.quantity * i.rate_per_pc), 0) - o.discount)) * (1 + o.gst_percent / 100) AS total
        FROM sales_orders o
        LEFT JOIN sales_order_items i ON i.order_id = o.id
        WHERE o.tenant_id=? AND o.client_id=? AND o.id != ?
@@ -187,7 +188,7 @@ export async function getOrder(req: AuthRequest, res: Response): Promise<void> {
 
 export async function createOrder(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
-  const { client_id, order_date, items, notes, include_gst, gst_percent } = req.body;
+  const { client_id, order_date, items, notes, include_gst, gst_percent, discount, discount_percent } = req.body;
 
   if (!client_id || !order_date || !Array.isArray(items) || items.length === 0) {
     res.status(400).json({ message: 'client_id, order_date and items required' }); return;
@@ -204,11 +205,18 @@ export async function createOrder(req: AuthRequest, res: Response): Promise<void
     const seq = seqRows[0].next_seq;
     const invoiceNumber = `INV-${year}-${String(seq).padStart(4, '0')}`;
 
+    let subtotal = 0;
+    for (const item of items) {
+      subtotal += (+item.quantity || 0) * (+item.rate_per_pc || 0);
+    }
+    const discountPct = parseFloat(discount_percent ?? discount) || 0;
+    const discountAmt = parseFloat(((subtotal * discountPct) / 100).toFixed(2));
+
     const r = await query<any>(
-      `INSERT INTO sales_orders (tenant_id, client_id, invoice_number, order_date, notes, include_gst, gst_percent)
-       VALUES (?,?,?,?,?,?,?)`,
+      `INSERT INTO sales_orders (tenant_id, client_id, invoice_number, order_date, notes, include_gst, gst_percent, discount_percent, discount)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
       [tenantId, client_id, invoiceNumber, order_date, notes || null,
-       include_gst ? 1 : 0, include_gst ? (gst_percent || 0) : 0]
+       include_gst ? 1 : 0, include_gst ? (gst_percent || 0) : 0, discountPct, discountAmt]
     );
     const orderId = r.insertId;
 
@@ -232,18 +240,25 @@ export async function createOrder(req: AuthRequest, res: Response): Promise<void
 export async function updateOrder(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
   const { id } = req.params;
-  const { client_id, order_date, items, notes, include_gst, gst_percent } = req.body;
+  const { client_id, order_date, items, notes, include_gst, gst_percent, discount, discount_percent } = req.body;
 
   if (!client_id || !order_date || !Array.isArray(items) || items.length === 0) {
     res.status(400).json({ message: 'client_id, order_date and items required' }); return;
   }
 
   try {
+    let subtotal = 0;
+    for (const item of items) {
+      subtotal += (+item.quantity || 0) * (+item.rate_per_pc || 0);
+    }
+    const discountPct = parseFloat(discount_percent ?? discount) || 0;
+    const discountAmt = parseFloat(((subtotal * discountPct) / 100).toFixed(2));
+
     await query(
       `UPDATE sales_orders 
-       SET client_id=?, order_date=?, notes=?, include_gst=?, gst_percent=?
+       SET client_id=?, order_date=?, notes=?, include_gst=?, gst_percent=?, discount_percent=?, discount=?
        WHERE id=? AND tenant_id=?`,
-      [client_id, order_date, notes || null, include_gst ? 1 : 0, include_gst ? (gst_percent || 0) : 0, id, tenantId]
+      [client_id, order_date, notes || null, include_gst ? 1 : 0, include_gst ? (gst_percent || 0) : 0, discountPct, discountAmt, id, tenantId]
     );
 
     await query('DELETE FROM sales_order_items WHERE order_id=?', [id]);
@@ -270,8 +285,9 @@ export async function markPaid(req: AuthRequest, res: Response): Promise<void> {
   try {
     // Compute full total and set amount_paid = total
     const totals = await query<any[]>(
-      `SELECT COALESCE(SUM(i.quantity * i.rate_per_pc), 0) AS sub,
-              o.gst_percent, o.include_gst
+      `SELECT o.amount_paid,
+              COALESCE(SUM(i.quantity * i.rate_per_pc), 0) AS sub,
+              o.discount, o.gst_percent, o.include_gst
        FROM sales_orders o
        LEFT JOIN sales_order_items i ON i.order_id = o.id
        WHERE o.id=? AND o.tenant_id=?
@@ -279,8 +295,18 @@ export async function markPaid(req: AuthRequest, res: Response): Promise<void> {
       [id, tenantId]
     );
     if (!totals.length) { res.status(404).json({ message: 'Not found' }); return; }
-    const { sub, gst_percent, include_gst } = totals[0];
-    const total = Number(sub) * (1 + (include_gst ? Number(gst_percent) / 100 : 0));
+    const { sub, discount, gst_percent, include_gst, amount_paid } = totals[0];
+    const taxable = Math.max(0, Number(sub) - Number(discount || 0));
+    const total = taxable * (1 + (include_gst ? Number(gst_percent) / 100 : 0));
+    const diff = total - Number(amount_paid || 0);
+
+    if (diff > 0) {
+      await query(
+        'INSERT INTO sales_payments (tenant_id, order_id, amount, payment_date) VALUES (?,?,?,CURDATE())',
+        [tenantId, id, diff]
+      );
+    }
+
     await query(
       `UPDATE sales_orders SET status='paid', paid_at=NOW(), amount_paid=? WHERE id=? AND tenant_id=?`,
       [total, id, tenantId]
@@ -300,7 +326,7 @@ export async function recordPayment(req: AuthRequest, res: Response): Promise<vo
     const rows = await query<any[]>(
       `SELECT o.amount_paid,
               COALESCE(SUM(i.quantity * i.rate_per_pc), 0) AS sub,
-              o.gst_percent, o.include_gst
+              o.discount, o.gst_percent, o.include_gst
        FROM sales_orders o
        LEFT JOIN sales_order_items i ON i.order_id = o.id
        WHERE o.id=? AND o.tenant_id=?
@@ -308,8 +334,9 @@ export async function recordPayment(req: AuthRequest, res: Response): Promise<vo
       [id, tenantId]
     );
     if (!rows.length) { res.status(404).json({ message: 'Not found' }); return; }
-    const { amount_paid, sub, gst_percent, include_gst } = rows[0];
-    const total      = Number(sub) * (1 + (include_gst ? Number(gst_percent) / 100 : 0));
+    const { amount_paid, sub, discount, gst_percent, include_gst } = rows[0];
+    const taxable    = Math.max(0, Number(sub) - Number(discount || 0));
+    const total      = taxable * (1 + (include_gst ? Number(gst_percent) / 100 : 0));
     const newPaid    = Math.min(Number(amount_paid) + Number(amount), total);
     const newStatus  = newPaid >= total ? 'paid' : 'partial';
     const paidAt     = newStatus === 'paid' ? 'NOW()' : 'NULL';
@@ -349,7 +376,7 @@ export async function getSalesSummary(req: AuthRequest, res: Response): Promise<
          COUNT(CASE WHEN sub.status != 'paid' THEN 1 END) AS pending_count
        FROM (
          SELECT o.id, o.status, o.amount_paid,
-                COALESCE(SUM(i.quantity * i.rate_per_pc), 0) * (1 + o.gst_percent / 100) AS billed
+                GREATEST(0, COALESCE(SUM(i.quantity * i.rate_per_pc), 0) - o.discount) * (1 + o.gst_percent / 100) AS billed
          FROM sales_orders o
          LEFT JOIN sales_order_items i ON i.order_id = o.id
          WHERE o.tenant_id = ?

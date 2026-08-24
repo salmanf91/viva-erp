@@ -95,9 +95,9 @@ export async function createPurchase(req: AuthRequest, res: Response): Promise<v
     let subtotal = 0;
     const processedItems = [];
 
-    for (const item of items) {
+    for (const item of (items || [])) {
       const qty = parseInt(item.quantity) || 0;
-      const rateInput = parseFloat(item.rate_per_pc) || 0;
+      const rateInput = parseFloat(item.rate_per_pc ?? item.price_per_piece) || 0;
       let amount = qty * rateInput;
       let rate_per_pc = rateInput;
 
@@ -123,9 +123,11 @@ export async function createPurchase(req: AuthRequest, res: Response): Promise<v
     const coolieAmt = transport ? (parseFloat(transport.coolie) || 0) : 0;
     const total = parseFloat((subtotal - discountAmt + taxAmount + freightAmt + coolieAmt).toFixed(2));
 
+    const finalStatus = advancePaid >= total ? 'paid' : (advancePaid > 0 ? 'partial' : (status || 'paid'));
+
     const [pRes] = await conn.execute(
       'INSERT INTO purchases (tenant_id,vendor_id,invoice_date,subtotal,discount,tax_rate,tax_amount,total,status,note,tax_inclusive,advance_paid) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-      [tenantId, vendor_id, invoice_date, subtotal, discountAmt, taxRate, taxAmount, total, status || 'paid', note || null, taxInclusive ? 1 : 0, advancePaid]
+      [tenantId, vendor_id, invoice_date, subtotal, discountAmt, taxRate, taxAmount, total, finalStatus, note || null, taxInclusive ? 1 : 0, advancePaid]
     );
     const purchaseId = (pRes as any).insertId;
 
@@ -168,20 +170,68 @@ export async function createPurchase(req: AuthRequest, res: Response): Promise<v
 export async function updatePurchase(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
   const { id } = req.params;
-  const { vendor_id, invoice_date, tax_rate, discount, note, freight, coolie, tax_inclusive, advance_paid } = req.body;
+  const { vendor_id, invoice_date, items, tax_rate, discount, note, freight, coolie, tax_inclusive, advance_paid, status } = req.body;
 
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
 
-    // Recalculate totals based on existing items + new tax/discount
-    const [itemRows] = await conn.execute(
-      'SELECT SUM(amount) AS subtotal FROM purchase_items WHERE purchase_id = ?', [id]
-    ) as any[];
-    const subtotal    = Number((itemRows as any[])[0]?.subtotal || 0);
+    const taxRate = parseFloat(tax_rate) || 0;
+    const taxInclusive = tax_inclusive !== undefined ? !!tax_inclusive : false;
+
+    let subtotal = 0;
+    let processedItems: Array<{ category: string; quantity: number; rate_per_pc: number; amount: number }> | null = null;
+
+    if (Array.isArray(items) && items.length > 0) {
+      processedItems = [];
+      for (const item of items) {
+        const qty = parseInt(item.quantity) || 0;
+        const rateInput = parseFloat(item.rate_per_pc ?? item.price_per_piece) || 0;
+        let amount = qty * rateInput;
+        let rate_per_pc = rateInput;
+
+        if (taxInclusive && taxRate > 0) {
+          const inclusiveAmount = qty * rateInput;
+          amount = parseFloat((inclusiveAmount / (1 + taxRate / 100)).toFixed(2));
+          rate_per_pc = parseFloat((amount / qty).toFixed(2));
+        }
+
+        subtotal += amount;
+        processedItems.push({
+          category: item.category,
+          quantity: qty,
+          rate_per_pc,
+          amount
+        });
+      }
+
+      // Update purchase_items
+      await conn.execute('DELETE FROM purchase_items WHERE purchase_id = ?', [id]);
+      for (const item of processedItems) {
+        await conn.execute(
+          'INSERT INTO purchase_items (purchase_id,category,quantity,rate_per_pc,amount) VALUES (?,?,?,?,?)',
+          [id, item.category, item.quantity, item.rate_per_pc, item.amount]
+        );
+      }
+
+      // Sync stock movements
+      await conn.execute('DELETE FROM stock_movements WHERE reference = CONCAT(\'PUR-\', ?)', [id]);
+      for (const item of processedItems) {
+        await conn.execute(
+          'INSERT INTO stock_movements (tenant_id,category,vendor_id,type,quantity,reference,movement_date) VALUES (?,?,?,?,?,?,?)',
+          [tenantId, item.category, vendor_id, 'in', item.quantity, `PUR-${id}`, invoice_date]
+        );
+      }
+    } else {
+      // Recalculate totals based on existing items
+      const [itemRows] = await conn.execute(
+        'SELECT SUM(amount) AS subtotal FROM purchase_items WHERE purchase_id = ?', [id]
+      ) as any[];
+      subtotal = Number((itemRows as any[])[0]?.subtotal || 0);
+    }
+
     const discountPct = parseFloat(discount) || 0;
     const discountAmt = parseFloat(((subtotal * discountPct) / 100).toFixed(2));
-    const taxRate     = parseFloat(tax_rate) || 0;
     const taxAmount   = parseFloat((((subtotal - discountAmt) * taxRate) / 100).toFixed(2));
 
     // Fetch existing/new advance_paid from purchases:
@@ -201,12 +251,12 @@ export async function updatePurchase(req: AuthRequest, res: Response): Promise<v
     const freightAmt = freight !== undefined ? (parseFloat(freight) || 0) : currentFreight;
     const coolieAmt = coolie !== undefined ? (parseFloat(coolie) || 0) : currentCoolie;
 
-    const total       = subtotal - discountAmt + taxAmount + freightAmt + coolieAmt;
-    const taxInclusive = tax_inclusive !== undefined ? !!tax_inclusive : false;
+    const total = parseFloat((subtotal - discountAmt + taxAmount + freightAmt + coolieAmt).toFixed(2));
+    const finalStatus = advancePaid >= total ? 'paid' : (advancePaid > 0 ? 'partial' : (status || 'paid'));
 
     await conn.execute(
-      'UPDATE purchases SET vendor_id=?, invoice_date=?, discount=?, tax_rate=?, tax_amount=?, total=?, note=?, tax_inclusive=?, advance_paid=? WHERE id=? AND tenant_id=?',
-      [vendor_id, invoice_date, discountAmt, taxRate, taxAmount, total, note || null, taxInclusive ? 1 : 0, advancePaid, id, tenantId]
+      'UPDATE purchases SET vendor_id=?, invoice_date=?, subtotal=?, discount=?, tax_rate=?, tax_amount=?, total=?, status=?, note=?, tax_inclusive=?, advance_paid=? WHERE id=? AND tenant_id=?',
+      [vendor_id, invoice_date, subtotal, discountAmt, taxRate, taxAmount, total, finalStatus, note || null, taxInclusive ? 1 : 0, advancePaid, id, tenantId]
     );
 
     // Update transport if provided

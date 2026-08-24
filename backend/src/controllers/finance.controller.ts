@@ -161,16 +161,30 @@ export async function getCashLedger(req: AuthRequest, res: Response): Promise<vo
       [tenantId, from, to]
     );
 
-    // 3. Sales received — use amount_paid (handles partial payments)
-    const sales = await query<any[]>(
+    // 3. Sales payments received — each payment on its actual payment date
+    const clientPayments = await query<any[]>(
+      `SELECT sp.payment_date AS date, 'sale' AS type,
+              CONCAT('💵 Payment — ', c.name) AS description,
+              sp.amount AS amount, 'in' AS direction,
+              o.invoice_number AS ref, NULL AS note, c.name AS party
+       FROM sales_payments sp
+       JOIN sales_orders o ON o.id = sp.order_id
+       JOIN clients c ON c.id = o.client_id
+       WHERE sp.tenant_id=?
+         AND sp.payment_date BETWEEN ? AND ?`,
+      [tenantId, from, to]
+    );
+
+    // Fallback for any legacy orders with amount_paid but no sales_payments entry
+    const legacyPayments = await query<any[]>(
       `SELECT o.order_date AS date, 'sale' AS type,
-              CONCAT('🚚 Sale — ', c.name,
-                CASE WHEN o.status='partial' THEN ' (partial)' ELSE '' END) AS description,
+              CONCAT('💵 Payment — ', c.name) AS description,
               o.amount_paid AS amount, 'in' AS direction,
               o.invoice_number AS ref, NULL AS note, c.name AS party
        FROM sales_orders o
        JOIN clients c ON c.id = o.client_id
        WHERE o.tenant_id=? AND o.amount_paid > 0
+         AND NOT EXISTS (SELECT 1 FROM sales_payments sp WHERE sp.order_id = o.id)
          AND o.order_date BETWEEN ? AND ?`,
       [tenantId, from, to]
     );
@@ -231,7 +245,7 @@ export async function getCashLedger(req: AuthRequest, res: Response): Promise<vo
 
     // Merge and sort chronologically
     const all = [
-      ...investments, ...drawings, ...sales,
+      ...investments, ...drawings, ...clientPayments, ...legacyPayments,
       ...companyExpenses, ...reimbursements, ...purchases, ...payrollRows,
     ].sort((a, b) => {
       const da = new Date(a.date).getTime();
@@ -278,7 +292,7 @@ export async function getClientLedger(req: AuthRequest, res: Response): Promise<
     if (from) {
       const [billedRows] = await query<any[]>(
         `SELECT COALESCE(SUM(item_total), 0) AS total_billed FROM (
-          SELECT COALESCE(SUM(i.quantity * i.rate_per_pc), 0) * (1 + o.gst_percent / 100) AS item_total
+          SELECT (GREATEST(0, COALESCE(SUM(i.quantity * i.rate_per_pc), 0) - o.discount)) * (1 + o.gst_percent / 100) AS item_total
           FROM sales_orders o
           LEFT JOIN sales_order_items i ON i.order_id = o.id
           WHERE o.tenant_id = ? AND o.client_id = ? AND o.order_date < ?
@@ -307,7 +321,7 @@ export async function getClientLedger(req: AuthRequest, res: Response): Promise<
 
     const invoices = await query<any[]>(
       `SELECT o.id, o.invoice_number AS ref, o.order_date AS date, 'invoice' AS type, 
-              COALESCE(SUM(i.quantity * i.rate_per_pc), 0) * (1 + o.gst_percent / 100) AS amount,
+              (GREATEST(0, COALESCE(SUM(i.quantity * i.rate_per_pc), 0) - o.discount)) * (1 + o.gst_percent / 100) AS amount,
               o.notes AS description
        FROM sales_orders o
        LEFT JOIN sales_order_items i ON i.order_id = o.id

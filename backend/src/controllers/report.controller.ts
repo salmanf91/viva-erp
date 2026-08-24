@@ -62,7 +62,7 @@ export async function getOverviewReport(req: AuthRequest, res: Response): Promis
       query<any[]>(
         `SELECT o.id, o.gst_percent, o.amount_paid, o.status,
                 COALESCE(SUM(i.quantity * i.rate_per_pc), 0) AS subtotal,
-                (COALESCE(SUM(i.quantity * i.rate_per_pc), 0) * (1 + o.gst_percent / 100)) AS total
+                ((GREATEST(0, COALESCE(SUM(i.quantity * i.rate_per_pc), 0) - o.discount)) * (1 + o.gst_percent / 100)) AS total
          FROM sales_orders o
          LEFT JOIN sales_order_items i ON i.order_id = o.id
          WHERE o.tenant_id=? AND o.order_date BETWEEN ? AND ?
@@ -124,7 +124,7 @@ export async function getOverviewReport(req: AuthRequest, res: Response): Promis
       // All sales orders to compute all-time outstanding receivables
       query<any[]>(
         `SELECT o.id, o.gst_percent, o.amount_paid,
-                (COALESCE(SUM(i.quantity * i.rate_per_pc), 0) * (1 + o.gst_percent / 100)) AS total
+                ((GREATEST(0, COALESCE(SUM(i.quantity * i.rate_per_pc), 0) - o.discount)) * (1 + o.gst_percent / 100)) AS total
          FROM sales_orders o
          LEFT JOIN sales_order_items i ON i.order_id = o.id
          WHERE o.tenant_id=?
@@ -242,12 +242,12 @@ export async function getSalesReport(req: AuthRequest, res: Response): Promise<v
       // 1. Detailed orders list
       query<any[]>(
         `SELECT o.id, o.tenant_id, o.client_id, o.invoice_number, o.order_date, o.status,
-                o.include_gst, o.gst_percent, o.amount_paid, o.created_at,
+                o.include_gst, o.gst_percent, o.discount_percent, o.discount, o.amount_paid, o.created_at,
                 c.name AS client_name, c.phone AS client_phone, c.city AS client_city,
                 COUNT(i.id) AS item_lines,
                 COALESCE(SUM(i.quantity), 0) AS total_pieces,
                 COALESCE(SUM(i.quantity * i.rate_per_pc), 0) AS subtotal,
-                (COALESCE(SUM(i.quantity * i.rate_per_pc), 0) * (1 + o.gst_percent / 100)) AS total
+                ((GREATEST(0, COALESCE(SUM(i.quantity * i.rate_per_pc), 0) - o.discount)) * (1 + o.gst_percent / 100)) AS total
          FROM sales_orders o
          JOIN clients c ON c.id = o.client_id
          LEFT JOIN sales_order_items i ON i.order_id = o.id
@@ -261,7 +261,7 @@ export async function getSalesReport(req: AuthRequest, res: Response): Promise<v
         `SELECT c.id AS client_id, c.name AS client_name, c.city AS client_city, c.phone AS client_phone,
                 COUNT(DISTINCT o.id) AS order_count,
                 COALESCE(SUM(i.quantity), 0) AS total_quantity,
-                COALESCE(SUM(i.quantity * i.rate_per_pc * (1 + o.gst_percent / 100)), 0) AS total_billed,
+                COALESCE(SUM((GREATEST(0, (SELECT COALESCE(SUM(i2.quantity * i2.rate_per_pc), 0) FROM sales_order_items i2 WHERE i2.order_id = o.id) - o.discount)) * (1 + o.gst_percent / 100)), 0) AS total_billed,
                 COALESCE(SUM(o.amount_paid), 0) AS total_paid
          FROM clients c
          JOIN sales_orders o ON o.client_id = c.id
@@ -288,7 +288,7 @@ export async function getSalesReport(req: AuthRequest, res: Response): Promise<v
       query<any[]>(
         `SELECT o.order_date,
                 COUNT(DISTINCT o.id) AS order_count,
-                COALESCE(SUM(i.quantity * i.rate_per_pc * (1 + o.gst_percent / 100)), 0) AS daily_total,
+                COALESCE(SUM((GREATEST(0, (SELECT COALESCE(SUM(i2.quantity * i2.rate_per_pc), 0) FROM sales_order_items i2 WHERE i2.order_id = o.id) - o.discount)) * (1 + o.gst_percent / 100)), 0) AS daily_total,
                 COALESCE(SUM(o.amount_paid), 0) AS daily_paid
          FROM sales_orders o
          LEFT JOIN sales_order_items i ON i.order_id = o.id
@@ -632,7 +632,7 @@ export async function getPnLReport(req: AuthRequest, res: Response): Promise<voi
       // Sales orders in date range with computed totals
       query<any[]>(
         `SELECT o.id, o.amount_paid,
-                (COALESCE(SUM(i.quantity * i.rate_per_pc), 0) * (1 + o.gst_percent / 100)) AS total
+                ((GREATEST(0, COALESCE(SUM(i.quantity * i.rate_per_pc), 0) - o.discount)) * (1 + o.gst_percent / 100)) AS total
          FROM sales_orders o
          LEFT JOIN sales_order_items i ON i.order_id = o.id
          WHERE o.tenant_id=? AND o.order_date BETWEEN ? AND ?

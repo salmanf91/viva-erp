@@ -449,6 +449,16 @@ export default function ReportsPage() {
                     </tr>
                   ))}
                 </tbody>
+                <tfoot>
+                  <tr style={{ background: 'var(--surface)', borderTop: '2px solid var(--border)', fontWeight: 800 }}>
+                    <td colSpan={2} style={{ padding: '10px 12px', fontWeight: 800 }}>Total</td>
+                    <td style={{ textAlign: 'right', padding: '10px 12px' }}>{salesData.client_summary?.reduce((s, c) => s + Number(c.order_count || 0), 0)}</td>
+                    <td style={{ textAlign: 'right', padding: '10px 12px' }}>{fmtInt(salesData.client_summary?.reduce((s, c) => s + Number(c.total_quantity || 0), 0))}</td>
+                    <td style={{ textAlign: 'right', padding: '10px 12px', color: 'var(--accent)' }}>{fmt(salesData.client_summary?.reduce((s, c) => s + Number(c.total_billed || 0), 0))}</td>
+                    <td style={{ textAlign: 'right', padding: '10px 12px', color: 'var(--green)' }}>{fmt(salesData.client_summary?.reduce((s, c) => s + Number(c.total_paid || 0), 0))}</td>
+                    <td style={{ textAlign: 'right', padding: '10px 12px', color: 'var(--red)' }}>{fmt(salesData.client_summary?.reduce((s, c) => s + Number(c.total_balance || 0), 0))}</td>
+                  </tr>
+                </tfoot>
               </table>
             )}
           </div>
@@ -477,6 +487,14 @@ export default function ReportsPage() {
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr style={{ background: 'var(--surface)', borderTop: '2px solid var(--border)', fontWeight: 800 }}>
+                  <td colSpan={2} style={{ padding: '10px 12px', fontWeight: 800 }}>Total</td>
+                  <td style={{ textAlign: 'right', padding: '10px 12px' }}>{fmtInt(salesData.product_summary?.reduce((s, p) => s + Number(p.total_quantity || 0), 0))} pcs</td>
+                  <td style={{ textAlign: 'right', padding: '10px 12px', color: 'var(--muted)' }}>—</td>
+                  <td style={{ textAlign: 'right', padding: '10px 12px', color: 'var(--accent)' }}>{fmt(salesData.product_summary?.reduce((s, p) => s + Number(p.total_amount || 0), 0))}</td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
@@ -534,6 +552,15 @@ export default function ReportsPage() {
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr style={{ background: 'var(--surface)', borderTop: '2px solid var(--border)', fontWeight: 800 }}>
+                  <td colSpan={2} style={{ padding: '10px 12px', fontWeight: 800 }}>Total</td>
+                  <td style={{ textAlign: 'right', padding: '10px 12px' }}>{purchaseData.vendor_summary?.reduce((s, v) => s + Number(v.bills_count || 0), 0)}</td>
+                  <td style={{ textAlign: 'right', padding: '10px 12px' }}>{fmt(purchaseData.vendor_summary?.reduce((s, v) => s + Number(v.total_purchased || 0), 0))}</td>
+                  <td style={{ textAlign: 'right', padding: '10px 12px', color: 'var(--green)' }}>{fmt(purchaseData.vendor_summary?.reduce((s, v) => s + Number(v.total_paid || 0), 0))}</td>
+                  <td style={{ textAlign: 'right', padding: '10px 12px', color: 'var(--red)' }}>{fmt(purchaseData.vendor_summary?.reduce((s, v) => s + Number(v.balance_payable || 0), 0))}</td>
+                </tr>
+              </tfoot>
             </table>
           </div>
 
@@ -559,6 +586,14 @@ export default function ReportsPage() {
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr style={{ background: 'var(--surface)', borderTop: '2px solid var(--border)', fontWeight: 800 }}>
+                  <td style={{ padding: '10px 12px', fontWeight: 800 }}>Total</td>
+                  <td style={{ textAlign: 'right', padding: '10px 12px' }}>{fmtInt(purchaseData.item_summary?.reduce((s, it) => s + Number(it.total_quantity || 0), 0))}</td>
+                  <td style={{ textAlign: 'right', padding: '10px 12px', color: 'var(--muted)' }}>—</td>
+                  <td style={{ textAlign: 'right', padding: '10px 12px', color: 'var(--accent)' }}>{fmt(purchaseData.item_summary?.reduce((s, it) => s + Number(it.total_amount || 0), 0))}</td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
@@ -617,6 +652,13 @@ export default function ReportsPage() {
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr style={{ background: 'var(--surface)', borderTop: '2px solid var(--border)', fontWeight: 800 }}>
+                  <td colSpan={3} style={{ padding: '10px 12px', fontWeight: 800 }}>Total ({productionData.batches?.length || 0} batches)</td>
+                  <td style={{ textAlign: 'right', padding: '10px 12px', color: 'var(--accent)' }}>{fmtInt(productionData.batches?.reduce((s, b) => s + Number(b.quantity || 0), 0))} pcs</td>
+                  <td colSpan={3}></td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
@@ -679,6 +721,17 @@ export default function ReportsPage() {
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr style={{ background: 'var(--surface)', borderTop: '2px solid var(--border)', fontWeight: 800 }}>
+                  <td colSpan={2} style={{ padding: '10px 12px', fontWeight: 800 }}>Total</td>
+                  <td style={{ textAlign: 'right', padding: '10px 12px' }}>{fmtInt(staffData.staff_summary?.reduce((s, st) => s + Number(st.total_completed || 0), 0))} pcs</td>
+                  <td style={{ textAlign: 'right', padding: '10px 12px' }}>{staffData.staff_summary?.reduce((s, st) => s + Number(st.cut_pieces || 0), 0)}</td>
+                  <td style={{ textAlign: 'right', padding: '10px 12px' }}>{staffData.staff_summary?.reduce((s, st) => s + Number(st.stitch_pieces || 0), 0)}</td>
+                  <td style={{ textAlign: 'right', padding: '10px 12px', color: 'var(--cyan, #0891b2)' }}>{fmt(staffData.staff_summary?.reduce((s, st) => s + Number(st.total_earned || 0), 0))}</td>
+                  <td style={{ textAlign: 'right', padding: '10px 12px', color: 'var(--green)' }}>{fmt(staffData.staff_summary?.reduce((s, st) => s + Number(st.settled_amount || 0), 0))}</td>
+                  <td style={{ textAlign: 'right', padding: '10px 12px', color: 'var(--red)' }}>{fmt(staffData.staff_summary?.reduce((s, st) => s + Number(st.pending_amount || 0), 0))}</td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
@@ -723,6 +776,13 @@ export default function ReportsPage() {
                     </tr>
                   ))}
                 </tbody>
+                <tfoot>
+                  <tr style={{ background: 'var(--surface)', borderTop: '2px solid var(--border)', fontWeight: 800 }}>
+                    <td style={{ padding: '10px 12px', fontWeight: 800 }}>Total</td>
+                    <td style={{ textAlign: 'right', padding: '10px 12px' }}>{expenseData.category_summary?.reduce((s, c) => s + Number(c.count || 0), 0)}</td>
+                    <td style={{ textAlign: 'right', padding: '10px 12px', color: 'var(--red)' }}>{fmt(expenseData.category_summary?.reduce((s, c) => s + Number(c.total_amount || 0), 0))}</td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
 
@@ -749,6 +809,14 @@ export default function ReportsPage() {
                     </tr>
                   ))}
                 </tbody>
+                <tfoot>
+                  <tr style={{ background: 'var(--surface)', borderTop: '2px solid var(--border)', fontWeight: 800 }}>
+                    <td style={{ padding: '10px 12px', fontWeight: 800 }}>Total</td>
+                    <td style={{ textAlign: 'right', padding: '10px 12px' }}>{fmt(expenseData.partner_summary?.reduce((s, p) => s + Number(p.total_amount || 0), 0))}</td>
+                    <td style={{ textAlign: 'right', padding: '10px 12px', color: 'var(--green)' }}>{fmt(expenseData.partner_summary?.reduce((s, p) => s + Number(p.reimbursed_amount || 0), 0))}</td>
+                    <td style={{ textAlign: 'right', padding: '10px 12px', color: 'var(--yellow)' }}>{fmt(expenseData.partner_summary?.reduce((s, p) => s + Number(p.pending_reimbursement || 0), 0))}</td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
           </div>
@@ -897,6 +965,19 @@ export default function ReportsPage() {
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr style={{ background: 'var(--surface)', borderTop: '2px solid var(--border)', fontWeight: 800 }}>
+                  <td style={{ padding: '10px 12px', fontWeight: 800 }}>Total</td>
+                  <td style={{ textAlign: 'right', padding: '10px 12px' }}>{fmtInt(inventoryData.stock_by_category?.reduce((s, st) => s + Number(st.fabric_purchased || 0), 0))}</td>
+                  <td style={{ textAlign: 'right', padding: '10px 12px' }}>{fmtInt(inventoryData.stock_by_category?.reduce((s, st) => s + Number(st.fabric_allocated || 0), 0))}</td>
+                  <td style={{ textAlign: 'right', padding: '10px 12px', color: 'var(--cyan, #0891b2)' }}>{fmtInt(inventoryData.stock_by_category?.reduce((s, st) => s + Number(st.finished_pieces || 0), 0))}</td>
+                  <td style={{ textAlign: 'right', padding: '10px 12px' }}>{fmtInt(inventoryData.stock_by_category?.reduce((s, st) => s + Number(st.sold_pieces || 0), 0))}</td>
+                  <td style={{ textAlign: 'right', padding: '10px 12px', color: 'var(--green)' }}>{fmtInt(inventoryData.stock_by_category?.reduce((s, st) => s + Number(st.stock_on_hand || 0), 0))} pcs</td>
+                  <td style={{ textAlign: 'right', padding: '10px 12px', color: 'var(--muted)' }}>—</td>
+                  <td style={{ textAlign: 'right', padding: '10px 12px', color: 'var(--cyan, #0891b2)' }}>{fmt(inventoryData.stock_by_category?.reduce((s, st) => s + Number(st.stock_cost_valuation || 0), 0))}</td>
+                  <td style={{ textAlign: 'right', padding: '10px 12px', color: 'var(--accent)' }}>{fmt(inventoryData.stock_by_category?.reduce((s, st) => s + Number(st.stock_sales_valuation || 0), 0))}</td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
