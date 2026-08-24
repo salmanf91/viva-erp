@@ -60,9 +60,9 @@ export async function getOverviewReport(req: AuthRequest, res: Response): Promis
     ] = await Promise.all([
       // Sales orders in date range with computed totals
       query<any[]>(
-        `SELECT o.id, o.gst_percent, o.amount_paid, o.status,
+        `SELECT o.id, COALESCE(o.gst_percent, 0) AS gst_percent, COALESCE(o.amount_paid, 0) AS amount_paid, o.status,
                 COALESCE(SUM(i.quantity * i.rate_per_pc), 0) AS subtotal,
-                ((GREATEST(0, COALESCE(SUM(i.quantity * i.rate_per_pc), 0) - o.discount)) * (1 + o.gst_percent / 100)) AS total
+                ((GREATEST(0, COALESCE(SUM(i.quantity * i.rate_per_pc), 0) - COALESCE(o.discount, 0))) * (1 + COALESCE(o.gst_percent, 0) / 100)) AS total
          FROM sales_orders o
          LEFT JOIN sales_order_items i ON i.order_id = o.id
          WHERE o.tenant_id=? AND o.order_date BETWEEN ? AND ?
@@ -123,8 +123,8 @@ export async function getOverviewReport(req: AuthRequest, res: Response): Promis
       ),
       // All sales orders to compute all-time outstanding receivables
       query<any[]>(
-        `SELECT o.id, o.gst_percent, o.amount_paid,
-                ((GREATEST(0, COALESCE(SUM(i.quantity * i.rate_per_pc), 0) - o.discount)) * (1 + o.gst_percent / 100)) AS total
+        `SELECT o.id, COALESCE(o.gst_percent, 0) AS gst_percent, COALESCE(o.amount_paid, 0) AS amount_paid,
+                ((GREATEST(0, COALESCE(SUM(i.quantity * i.rate_per_pc), 0) - COALESCE(o.discount, 0))) * (1 + COALESCE(o.gst_percent, 0) / 100)) AS total
          FROM sales_orders o
          LEFT JOIN sales_order_items i ON i.order_id = o.id
          WHERE o.tenant_id=?
@@ -242,12 +242,14 @@ export async function getSalesReport(req: AuthRequest, res: Response): Promise<v
       // 1. Detailed orders list
       query<any[]>(
         `SELECT o.id, o.tenant_id, o.client_id, o.invoice_number, o.order_date, o.status,
-                o.include_gst, o.gst_percent, o.discount_percent, o.discount, o.amount_paid, o.created_at,
+                o.include_gst, COALESCE(o.gst_percent, 0) AS gst_percent,
+                COALESCE(o.discount_percent, 0) AS discount_percent, COALESCE(o.discount, 0) AS discount,
+                COALESCE(o.amount_paid, 0) AS amount_paid, o.created_at,
                 c.name AS client_name, c.phone AS client_phone, c.city AS client_city,
                 COUNT(i.id) AS item_lines,
                 COALESCE(SUM(i.quantity), 0) AS total_pieces,
                 COALESCE(SUM(i.quantity * i.rate_per_pc), 0) AS subtotal,
-                ((GREATEST(0, COALESCE(SUM(i.quantity * i.rate_per_pc), 0) - o.discount)) * (1 + o.gst_percent / 100)) AS total
+                ((GREATEST(0, COALESCE(SUM(i.quantity * i.rate_per_pc), 0) - COALESCE(o.discount, 0))) * (1 + COALESCE(o.gst_percent, 0) / 100)) AS total
          FROM sales_orders o
          JOIN clients c ON c.id = o.client_id
          LEFT JOIN sales_order_items i ON i.order_id = o.id
@@ -259,14 +261,20 @@ export async function getSalesReport(req: AuthRequest, res: Response): Promise<v
       // 2. Client-wise breakdown
       query<any[]>(
         `SELECT c.id AS client_id, c.name AS client_name, c.city AS client_city, c.phone AS client_phone,
-                COUNT(DISTINCT o.id) AS order_count,
-                COALESCE(SUM(i.quantity), 0) AS total_quantity,
-                COALESCE(SUM((GREATEST(0, (SELECT COALESCE(SUM(i2.quantity * i2.rate_per_pc), 0) FROM sales_order_items i2 WHERE i2.order_id = o.id) - o.discount)) * (1 + o.gst_percent / 100)), 0) AS total_billed,
-                COALESCE(SUM(o.amount_paid), 0) AS total_paid
+                COUNT(DISTINCT ord.id) AS order_count,
+                COALESCE(SUM(ord.item_qty), 0) AS total_quantity,
+                COALESCE(SUM(ord.order_total), 0) AS total_billed,
+                COALESCE(SUM(ord.amount_paid), 0) AS total_paid
          FROM clients c
-         JOIN sales_orders o ON o.client_id = c.id
-         LEFT JOIN sales_order_items i ON i.order_id = o.id
-         WHERE o.tenant_id=? AND o.order_date BETWEEN ? AND ?
+         JOIN (
+           SELECT o.id, o.client_id, COALESCE(o.amount_paid, 0) AS amount_paid,
+                  COALESCE(SUM(i.quantity), 0) AS item_qty,
+                  ((GREATEST(0, COALESCE(SUM(i.quantity * i.rate_per_pc), 0) - COALESCE(o.discount, 0))) * (1 + COALESCE(o.gst_percent, 0) / 100)) AS order_total
+           FROM sales_orders o
+           LEFT JOIN sales_order_items i ON i.order_id = o.id
+           WHERE o.tenant_id=? AND o.order_date BETWEEN ? AND ?
+           GROUP BY o.id
+         ) ord ON ord.client_id = c.id
          GROUP BY c.id
          ORDER BY total_billed DESC`,
         [tenantId, from, to]
@@ -286,15 +294,20 @@ export async function getSalesReport(req: AuthRequest, res: Response): Promise<v
       ),
       // 4. Daily sales trend
       query<any[]>(
-        `SELECT o.order_date,
-                COUNT(DISTINCT o.id) AS order_count,
-                COALESCE(SUM((GREATEST(0, (SELECT COALESCE(SUM(i2.quantity * i2.rate_per_pc), 0) FROM sales_order_items i2 WHERE i2.order_id = o.id) - o.discount)) * (1 + o.gst_percent / 100)), 0) AS daily_total,
-                COALESCE(SUM(o.amount_paid), 0) AS daily_paid
-         FROM sales_orders o
-         LEFT JOIN sales_order_items i ON i.order_id = o.id
-         WHERE o.tenant_id=? AND o.order_date BETWEEN ? AND ?
-         GROUP BY o.order_date
-         ORDER BY o.order_date ASC`,
+        `SELECT ord.order_date,
+                COUNT(ord.id) AS order_count,
+                COALESCE(SUM(ord.order_total), 0) AS daily_total,
+                COALESCE(SUM(ord.amount_paid), 0) AS daily_paid
+         FROM (
+           SELECT o.id, o.order_date, COALESCE(o.amount_paid, 0) AS amount_paid,
+                  ((GREATEST(0, COALESCE(SUM(i.quantity * i.rate_per_pc), 0) - COALESCE(o.discount, 0))) * (1 + COALESCE(o.gst_percent, 0) / 100)) AS order_total
+           FROM sales_orders o
+           LEFT JOIN sales_order_items i ON i.order_id = o.id
+           WHERE o.tenant_id=? AND o.order_date BETWEEN ? AND ?
+           GROUP BY o.id
+         ) ord
+         GROUP BY ord.order_date
+         ORDER BY ord.order_date ASC`,
         [tenantId, from, to]
       ),
     ]);
@@ -631,8 +644,8 @@ export async function getPnLReport(req: AuthRequest, res: Response): Promise<voi
     const [salesOrders, fabricRow, laborRow, expenses, accessoryRow] = await Promise.all([
       // Sales orders in date range with computed totals
       query<any[]>(
-        `SELECT o.id, o.amount_paid,
-                ((GREATEST(0, COALESCE(SUM(i.quantity * i.rate_per_pc), 0) - o.discount)) * (1 + o.gst_percent / 100)) AS total
+        `SELECT o.id, COALESCE(o.amount_paid, 0) AS amount_paid,
+                ((GREATEST(0, COALESCE(SUM(i.quantity * i.rate_per_pc), 0) - COALESCE(o.discount, 0))) * (1 + COALESCE(o.gst_percent, 0) / 100)) AS total
          FROM sales_orders o
          LEFT JOIN sales_order_items i ON i.order_id = o.id
          WHERE o.tenant_id=? AND o.order_date BETWEEN ? AND ?
