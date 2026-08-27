@@ -135,7 +135,9 @@ export default function LoginPage() {
 
         <div className="divider" style={{ marginTop: 20 }} />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: 'var(--muted)' }}>
-          <span>Multi-Tenant Enterprise Platform</span>
+          <Link to="/super-admin/login" style={{ color: 'var(--muted)', textDecoration: 'none' }}>
+            🛡️ Platform Super Admin
+          </Link>
           <Link
             to="/onboard"
             className="btn btn-ghost btn-sm"

@@ -65,8 +65,14 @@ function getNavItems(user) {
     nav.push({ to: '/zatca', label: 'ZATCA Fatoora', icon: '🇸🇦' });
   }
 
-  // Admin Section
-  nav.push({ section: 'Admin' });
+  // Super Admin / Multi-Tenant Platform Management
+  if (user?.is_super_admin || user?.role === 'super_admin') {
+    nav.push({ section: 'Super Admin' });
+    nav.push({ to: '/platform-tenants', label: 'Platform Tenants', icon: '🛡️' });
+  }
+
+  // Settings Section
+  nav.push({ section: 'Preferences' });
   nav.push({ to: '/settings', label: 'Settings', icon: '⚙️' });
 
   return nav;

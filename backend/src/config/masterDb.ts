@@ -80,11 +80,11 @@ export async function initMasterDb(): Promise<void> {
     await masterPool.query(`
       CREATE TABLE IF NOT EXISTS master_users (
         id INT PRIMARY KEY AUTO_INCREMENT,
-        tenant_id INT NOT NULL,
+        tenant_id INT NULL,
         email VARCHAR(255) NOT NULL,
         password_hash VARCHAR(255) NOT NULL,
         name VARCHAR(255) NOT NULL,
-        role ENUM('owner','partner','manager','staff_admin') DEFAULT 'owner',
+        role ENUM('super_admin','owner','partner','manager','staff_admin') DEFAULT 'owner',
         is_active BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE KEY uq_tenant_user (tenant_id, email),
@@ -92,7 +92,32 @@ export async function initMasterDb(): Promise<void> {
       )
     `);
 
-    // 2. Check if default Viva Studio tenant exists in master, if not seed it
+    // Ensure tenant_id is nullable and role has super_admin if table already existed
+    try {
+      await masterPool.query('ALTER TABLE master_users MODIFY COLUMN tenant_id INT NULL');
+      await masterPool.query("ALTER TABLE master_users MODIFY COLUMN role ENUM('super_admin','owner','partner','manager','staff_admin') DEFAULT 'owner'");
+    } catch {}
+
+    // 2. Check if default Super Admin exists in master_users, if not seed it
+    const defaultAdminEmail = process.env.SUPER_ADMIN_EMAIL || 'admin@platform.com';
+    const [existingSuperAdmin] = await masterPool.query<any[]>(
+      'SELECT id FROM master_users WHERE role = ? OR email = ? LIMIT 1',
+      ['super_admin', defaultAdminEmail]
+    );
+
+    if (!existingSuperAdmin || existingSuperAdmin.length === 0) {
+      const bcrypt = require('bcryptjs');
+      const defaultPassword = process.env.SUPER_ADMIN_PASSWORD || 'admin123';
+      const passwordHash = await bcrypt.hash(defaultPassword, 10);
+      await masterPool.query(
+        `INSERT INTO master_users (tenant_id, email, password_hash, name, role)
+         VALUES (NULL, ?, ?, 'Platform Super Admin', 'super_admin')`,
+        [defaultAdminEmail.toLowerCase().trim(), passwordHash]
+      );
+      console.log(`[MasterDB] Seeded platform super admin '${defaultAdminEmail}' (default password: ${defaultPassword})`);
+    }
+
+    // 3. Check if default Viva Studio tenant exists in master, if not seed it
     const [existingTenants] = await masterPool.query<any[]>(
       `SELECT * FROM master_tenants WHERE slug = 'viva_studio' LIMIT 1`
     );

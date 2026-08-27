@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { query } from '../config/db';
-import { masterQuery } from '../config/masterDb';
+import { masterPool, masterQuery } from '../config/masterDb';
 import { provisionNewTenant } from '../services/tenantProvisioner.service';
 import { User, TenantModules } from '../types';
 
@@ -110,6 +110,8 @@ export async function login(req: Request, res: Response): Promise<void> {
       return;
     }
 
+    const isSuperAdmin = userRow.role === 'super_admin';
+
     const token = jwt.sign(
       {
         userId: userRow.id,
@@ -117,6 +119,7 @@ export async function login(req: Request, res: Response): Promise<void> {
         tenantSlug: tenantRow.slug,
         dbName: tenantRow.db_name,
         role: userRow.role,
+        isSuperAdmin,
         modules,
       },
       process.env.JWT_SECRET || 'secret',
@@ -129,6 +132,7 @@ export async function login(req: Request, res: Response): Promise<void> {
       name: userRow.name,
       email: userRow.email,
       role: userRow.role,
+      is_super_admin: isSuperAdmin,
       tenant_id: userRow.tenant_id,
       tenant_name: tenantRow.name,
       tenant_slug: tenantRow.slug,
@@ -139,6 +143,59 @@ export async function login(req: Request, res: Response): Promise<void> {
     });
   } catch (err) {
     console.error('Login error:', err);
+    res.status(500).json({ message: 'Server error', error: err instanceof Error ? err.message : String(err) });
+  }
+}
+
+export async function superAdminLogin(req: Request, res: Response): Promise<void> {
+  const { email, password } = req.body;
+  if (!email || !password) {
+    res.status(400).json({ message: 'Email and password are required' });
+    return;
+  }
+
+  try {
+    const cleanEmail = email.toLowerCase().trim();
+    const rows = await masterQuery<any[]>(
+      `SELECT * FROM master_users WHERE (LOWER(email) = ? OR email = ?) AND role = 'super_admin' LIMIT 1`,
+      [cleanEmail, email]
+    );
+
+    if (!rows || rows.length === 0) {
+      res.status(401).json({ message: 'Invalid super admin credentials' });
+      return;
+    }
+
+    const admin = rows[0];
+    const match = await bcrypt.compare(password, admin.password_hash);
+    if (!match) {
+      res.status(401).json({ message: 'Invalid super admin credentials' });
+      return;
+    }
+
+    const token = jwt.sign(
+      {
+        userId: admin.id,
+        tenantId: 0,
+        tenantSlug: 'platform',
+        role: 'super_admin',
+        isSuperAdmin: true,
+      },
+      process.env.JWT_SECRET || 'secret',
+      { expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as any }
+    );
+
+    res.json({
+      token,
+      id: admin.id,
+      name: admin.name,
+      email: admin.email,
+      role: 'super_admin',
+      is_super_admin: true,
+      tenant_name: 'Platform Administration',
+    });
+  } catch (err) {
+    console.error('Super Admin login error:', err);
     res.status(500).json({ message: 'Server error', error: err instanceof Error ? err.message : String(err) });
   }
 }
@@ -207,6 +264,24 @@ export async function changePassword(req: Request, res: Response): Promise<void>
   const { userId } = (req as any).user;
   const { current_password, new_password } = req.body;
   try {
+    let userFound = false;
+
+    // 1. Try master_users first
+    try {
+      const masterRows = await masterQuery<any[]>('SELECT * FROM master_users WHERE id = ?', [userId]);
+      if (masterRows && masterRows.length > 0) {
+        const user = masterRows[0];
+        const match = await bcrypt.compare(current_password, user.password_hash);
+        if (!match) { res.status(401).json({ message: 'Current password incorrect' }); return; }
+        const hash = await bcrypt.hash(new_password, 10);
+        await masterPool.query('UPDATE master_users SET password_hash = ? WHERE id = ?', [hash, userId]);
+        userFound = true;
+        res.json({ message: 'Password updated' });
+        return;
+      }
+    } catch {}
+
+    // 2. Fallback to local tenant users table
     const rows = await query<User[]>('SELECT * FROM users WHERE id = ?', [userId]);
     if (!rows.length) { res.status(404).json({ message: 'User not found' }); return; }
     const match = await bcrypt.compare(current_password, rows[0].password_hash);
