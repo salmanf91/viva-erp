@@ -13,6 +13,7 @@ export default function StaffReportTab() {
   const [year, setYear]               = useState(now.getFullYear());
   const [staffFilter, setStaffFilter] = useState('');
   const [workTypeFilter, setWorkTypeFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
   const [staffList, setStaffList]     = useState([]);
   const [rows, setRows]               = useState([]);
   const [loading, setLoading]         = useState(true);
@@ -47,6 +48,10 @@ export default function StaffReportTab() {
 
   const filteredRows = rows.filter(r => {
     if (workTypeFilter && r.work_type !== workTypeFilter) return false;
+    if (statusFilter === 'completed' && !(r.remaining_pcs === 0 && r.completed_pcs > 0)) return false;
+    if (statusFilter === 'pending' && !(r.remaining_pcs > 0)) return false;
+    if (statusFilter === 'settled' && !r.is_settled) return false;
+    if (statusFilter === 'unsettled' && r.is_settled) return false;
     return true;
   });
 
@@ -60,13 +65,16 @@ export default function StaffReportTab() {
   };
 
   const handleCopyText = () => {
-    const title = `STAFF WORK REPORT - ${selectedStaffObj ? selectedStaffObj.name.toUpperCase() : 'ALL STAFF'}\nPeriod: ${MONTH_NAMES[month - 1]} ${year}\n`;
+    const statusLabel = statusFilter ? ` | Status: ${statusFilter.toUpperCase()}` : '';
+    const workLabel = workTypeFilter ? ` | Type: ${workTypeFilter.toUpperCase()}` : '';
+    const title = `STAFF WORK REPORT - ${selectedStaffObj ? selectedStaffObj.name.toUpperCase() : 'ALL STAFF'}\nPeriod: ${MONTH_NAMES[month - 1]} ${year}${statusLabel}${workLabel}\n`;
     const summary = `Allocated: ${totalAlloc} pcs | Completed: ${totalDone} pcs | Pending: ${totalPend} pcs (${completionPct}% Done)\n\nBreakdown:\n`;
     const items = filteredRows.map(r => {
       const pName = getProductLabel(r.category);
       const allocD = fmtDate(r.entry_date);
       const compD = r.completion_date ? fmtDate(r.completion_date) : 'Pending';
-      return `• ${allocD} - ${pName} (${r.work_type}): ${r.completed_pcs}/${r.allocated_pcs} pcs [${r.remaining_pcs > 0 ? `${r.remaining_pcs} left` : 'Done'}]`;
+      const statusText = r.is_settled ? 'Settled' : r.remaining_pcs > 0 ? `${r.remaining_pcs} pcs pending` : 'Done';
+      return `• ${allocD} - ${pName} (${r.work_type}): ${r.completed_pcs}/${r.allocated_pcs} pcs [${statusText}]`;
     }).join('\n');
 
     navigator.clipboard.writeText(title + summary + items);
@@ -134,6 +142,18 @@ export default function StaffReportTab() {
             <option value="">All Work Types</option>
             <option value="cutting">✂️ Cutting</option>
             <option value="stitching">🧵 Stitching</option>
+          </select>
+
+          <select 
+            value={statusFilter} 
+            onChange={e => setStatusFilter(e.target.value)}
+            style={{ padding: '6px 12px', borderRadius: 8, border: '1.5px solid var(--border)', fontSize: 13, fontWeight: 600, background: 'var(--white)' }}
+          >
+            <option value="">All Statuses</option>
+            <option value="completed">✓ Completed</option>
+            <option value="pending">⏳ Pending</option>
+            <option value="settled">✓ Settled</option>
+            <option value="unsettled">⏳ Unsettled</option>
           </select>
         </div>
 
