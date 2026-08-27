@@ -14,6 +14,7 @@ import accessoryRoutes  from './routes/accessory.routes';
 import financeRoutes    from './routes/finance.routes';
 import reportRoutes     from './routes/report.routes';
 import zatcaRoutes      from './routes/zatca.routes';
+import tenantRoutes     from './routes/tenant.routes';
 
 dotenv.config();
 
@@ -23,6 +24,7 @@ app.use(cors({ origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173', cre
 app.use(express.json());
 
 app.use('/api/auth',        authRoutes);
+app.use('/api/tenants',     tenantRoutes);
 app.use('/api/partners',    partnerRoutes);
 app.use('/api/purchases',   purchaseRoutes);
 app.use('/api/expenses',    expenseRoutes);
