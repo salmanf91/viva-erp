@@ -209,8 +209,8 @@ export async function createOrder(req: AuthRequest, res: Response): Promise<void
     for (const item of items) {
       subtotal += (+item.quantity || 0) * (+item.rate_per_pc || 0);
     }
-    const discountPct = parseFloat(discount_percent ?? discount) || 0;
-    const discountAmt = parseFloat(((subtotal * discountPct) / 100).toFixed(2));
+    const discountAmt = parseFloat(discount) || 0;
+    const discountPct = subtotal > 0 ? parseFloat(((discountAmt / subtotal) * 100).toFixed(2)) : 0;
 
     const r = await query<any>(
       `INSERT INTO sales_orders (tenant_id, client_id, invoice_number, order_date, notes, include_gst, gst_percent, discount_percent, discount)
@@ -229,10 +229,16 @@ export async function createOrder(req: AuthRequest, res: Response): Promise<void
 
     // Return full order
     const full = await query<any[]>(
-      `SELECT o.*, c.name AS client_name, c.city AS client_city FROM sales_orders o
+      `SELECT o.*, c.name AS client_name, c.client_city FROM sales_orders o
        JOIN clients c ON c.id = o.client_id WHERE o.id=?`,
       [orderId]
-    );
+    ).catch(async () => {
+      return await query<any[]>(
+        `SELECT o.*, c.name AS client_name, c.city AS client_city FROM sales_orders o
+         JOIN clients c ON c.id = o.client_id WHERE o.id=?`,
+        [orderId]
+      );
+    });
     res.status(201).json(full[0]);
   } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
@@ -251,8 +257,8 @@ export async function updateOrder(req: AuthRequest, res: Response): Promise<void
     for (const item of items) {
       subtotal += (+item.quantity || 0) * (+item.rate_per_pc || 0);
     }
-    const discountPct = parseFloat(discount_percent ?? discount) || 0;
-    const discountAmt = parseFloat(((subtotal * discountPct) / 100).toFixed(2));
+    const discountAmt = parseFloat(discount) || 0;
+    const discountPct = subtotal > 0 ? parseFloat(((discountAmt / subtotal) * 100).toFixed(2)) : 0;
 
     await query(
       `UPDATE sales_orders 

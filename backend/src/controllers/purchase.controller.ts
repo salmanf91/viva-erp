@@ -116,8 +116,7 @@ export async function createPurchase(req: AuthRequest, res: Response): Promise<v
       });
     }
 
-    const discountPct = parseFloat(discount) || 0;
-    const discountAmt = parseFloat(((subtotal * discountPct) / 100).toFixed(2));
+    const discountAmt = parseFloat(discount) || 0;
     const taxAmount = parseFloat((((subtotal - discountAmt) * taxRate) / 100).toFixed(2));
     const freightAmt = transport ? (parseFloat(transport.freight) || 0) : 0;
     const coolieAmt = transport ? (parseFloat(transport.coolie) || 0) : 0;
@@ -230,8 +229,7 @@ export async function updatePurchase(req: AuthRequest, res: Response): Promise<v
       subtotal = Number((itemRows as any[])[0]?.subtotal || 0);
     }
 
-    const discountPct = parseFloat(discount) || 0;
-    const discountAmt = parseFloat(((subtotal * discountPct) / 100).toFixed(2));
+    const discountAmt = parseFloat(discount) || 0;
     const taxAmount   = parseFloat((((subtotal - discountAmt) * taxRate) / 100).toFixed(2));
 
     // Fetch existing/new advance_paid from purchases:
