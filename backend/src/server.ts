@@ -13,6 +13,7 @@ import salesRoutes      from './routes/sales.routes';
 import accessoryRoutes  from './routes/accessory.routes';
 import financeRoutes    from './routes/finance.routes';
 import reportRoutes     from './routes/report.routes';
+import zatcaRoutes      from './routes/zatca.routes';
 
 dotenv.config();
 
@@ -32,6 +33,7 @@ app.use('/api/sales',       salesRoutes);
 app.use('/api/accessories', accessoryRoutes);
 app.use('/api/finance',     financeRoutes);
 app.use('/api/reports',     reportRoutes);
+app.use('/api/zatca',       zatcaRoutes);
 
 app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error(err.stack);
@@ -39,9 +41,11 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 });
 
 import { initDb } from './config/db';
+import { initMasterDb } from './config/masterDb';
 
 const PORT = process.env.PORT || 5001;
 app.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
+  await initMasterDb();
   await initDb();
 });
