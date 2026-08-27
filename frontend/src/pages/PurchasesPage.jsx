@@ -40,7 +40,7 @@ export default function PurchasesPage() {
     purchase_date: (p.invoice_date || '').slice(0, 10),
     tax_percent:  p.tax_rate || 0,
     tax_inclusive: !!p.tax_inclusive,
-    discount:     p.discount_pct || '',
+    discount:     p.discount ? String(Number(p.discount)) : '',
     notes:        p.note || '',
     freight:      p.freight ? String(p.freight) : '',
     coolie:       p.coolie ? String(p.coolie) : '',
@@ -223,7 +223,7 @@ export default function PurchasesPage() {
                   <td style={{ textAlign: 'right' }}>{p.total_pieces}</td>
                   <td style={{ textAlign: 'right' }}>{fmt(p.subtotal)}</td>
                   <td style={{ textAlign: 'right', color: 'var(--green)' }}>
-                    {Number(p.discount_pct) > 0 ? `${p.discount_pct}%` : <span style={{ color: 'var(--muted)' }}>—</span>}
+                    {Number(p.discount) > 0 ? fmt(p.discount) : <span style={{ color: 'var(--muted)' }}>—</span>}
                   </td>
                   <td style={{ textAlign: 'right', fontWeight: 700 }}>
                     {fmtRound(p.total)}
@@ -311,7 +311,7 @@ export default function PurchasesPage() {
               </div>
               {Number(detail.purchase?.discount) > 0 && (
                 <div className="calc-row">
-                  <span className="cl" style={{ color: 'var(--green)' }}>Discount ({detail.purchase.discount_pct}%)</span>
+                  <span className="cl" style={{ color: 'var(--green)' }}>Discount</span>
                   <span className="cv" style={{ color: 'var(--green)' }}>−{fmt(detail.purchase.discount)}</span>
                 </div>
               )}
@@ -456,8 +456,8 @@ export default function PurchasesPage() {
 
             <div className="form-grid">
               <div className="field">
-                <label>Discount (%)</label>
-                <input type="number" step="0.01" placeholder="0" min="0" max="100" value={editForm.discount} onChange={e => setEditForm(f => ({ ...f, discount: e.target.value }))} />
+                <label>Discount (₹)</label>
+                <input type="number" step="0.01" placeholder="0" min="0" value={editForm.discount} onChange={e => setEditForm(f => ({ ...f, discount: e.target.value }))} />
               </div>
               <div className="field">
                 <label>Tax %</label>
@@ -559,8 +559,8 @@ export default function PurchasesPage() {
 
             <div className="form-grid">
               <div className="field">
-                <label>Discount (%)</label>
-                <input type="number" step="0.01" placeholder="0" min="0" max="100" value={form.discount} onChange={e => setForm(f => ({ ...f, discount: e.target.value }))} />
+                <label>Discount (₹)</label>
+                <input type="number" step="0.01" placeholder="0" min="0" value={form.discount} onChange={e => setForm(f => ({ ...f, discount: e.target.value }))} />
               </div>
               <div className="field">
                 <label>Tax %</label>

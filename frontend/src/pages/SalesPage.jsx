@@ -181,7 +181,7 @@ function OrdersTab({ onReload }) {
                         {fmt(total)}
                         {discountAmt > 0 && (
                           <div style={{ fontSize: 10, color: 'var(--green)', fontWeight: 600 }}>
-                            Disc: −{fmt(discountAmt)} ({o.discount_percent}%)
+                            Disc: −{fmt(discountAmt)}
                           </div>
                         )}
                       </td>
@@ -270,7 +270,7 @@ function NewOrderModal({ order, onClose, onSaved }) {
 
   const [date, setDate]         = useState(order ? order.order_date : today());
   const [notes, setNotes]       = useState(order ? (order.notes || '') : '');
-  const [discountPct, setDiscountPct] = useState(order ? String(Number(order.discount_percent || 0) || '') : '');
+  const [discountAmount, setDiscountAmount] = useState(order ? String(Number(order.discount || 0) || '') : '');
   const [includeGst, setIncludeGst] = useState(order ? !!order.include_gst : false);
   const [gstPct, setGstPct]     = useState(order ? String(Number(order.gst_percent)) : '5');
   const [items, setItems]       = useState(order && order.items ? order.items.map(it => ({ ...it, size: it.size || '' })) : [{ category: 'shawl_nighty', size: '', quantity: '', rate_per_pc: '' }]);
@@ -321,8 +321,7 @@ function NewOrderModal({ order, onClose, onSaved }) {
   };
 
   const subtotal    = items.reduce((s, it) => s + (+it.quantity || 0) * (+it.rate_per_pc || 0), 0);
-  const discountVal = parseFloat(discountPct) || 0;
-  const discountAmt = parseFloat(((subtotal * discountVal) / 100).toFixed(2));
+  const discountAmt = parseFloat(discountAmount) || 0;
   const taxable     = Math.max(0, subtotal - discountAmt);
   const gstAmt      = includeGst ? taxable * (+gstPct / 100) : 0;
   const total       = taxable + gstAmt;
@@ -336,7 +335,7 @@ function NewOrderModal({ order, onClose, onSaved }) {
       const payload = {
         client_id: +clientId, order_date: date, notes,
         include_gst: includeGst, gst_percent: includeGst ? +gstPct : 0,
-        discount_percent: discountVal, discount: discountAmt,
+        discount: discountAmt,
         items: validItems.map(it => ({ category: it.category, size: it.size || null, quantity: +it.quantity, rate_per_pc: +it.rate_per_pc })),
       };
       if (order) {
@@ -476,10 +475,10 @@ function NewOrderModal({ order, onClose, onSaved }) {
         <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <div style={{ padding: 12, background: 'var(--surface)', borderRadius: 8 }}>
             <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 6, display: 'block' }}>
-              Discount (%)
+              Discount (₹)
             </label>
-            <input type="number" min="0" max="100" step="0.01" placeholder="0" value={discountPct}
-              onChange={e => setDiscountPct(e.target.value)}
+            <input type="number" min="0" step="0.01" placeholder="0" value={discountAmount}
+              onChange={e => setDiscountAmount(e.target.value)}
               style={{ width: '100%', padding: '7px 10px', borderRadius: 7, border: '1.5px solid var(--border)', fontSize: 13 }} />
           </div>
 
@@ -506,9 +505,9 @@ function NewOrderModal({ order, onClose, onSaved }) {
         {/* Totals */}
         <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
           <div style={{ fontSize: 13, color: 'var(--muted)' }}>Subtotal: <b style={{ color: 'var(--text)' }}>{fmt(subtotal)}</b></div>
-          {discountVal > 0 && (
+          {discountAmt > 0 && (
             <div style={{ fontSize: 13, color: 'var(--green)' }}>
-              Discount ({discountVal}%): <b>−{fmt(discountAmt)}</b>
+              Discount: <b>−{fmt(discountAmt)}</b>
             </div>
           )}
           {includeGst && <div style={{ fontSize: 13, color: 'var(--muted)' }}>GST ({gstPct}%): <b style={{ color: 'var(--text)' }}>{fmt(gstAmt)}</b></div>}
@@ -762,7 +761,7 @@ function PaymentReceiptModal({ orderId, onClose }) {
               </div>
               {discountAmt > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', fontSize: 13, color: '#059669', borderBottom: '1px solid #f5f0e8' }}>
-                  <span>Discount ({order.discount_percent}%)</span><span>−{m(discountAmt)}</span>
+                  <span>Discount</span><span>−{m(discountAmt)}</span>
                 </div>
               )}
               {!!order.include_gst && (
@@ -1061,7 +1060,7 @@ function InvoiceModal({ order, onClose }) {
               </div>
               {discountAmt > 0 && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', fontSize: 13, color: '#059669', borderBottom: '1px solid #f5f0e8' }}>
-                  <span>Discount ({order.discount_percent}%)</span><span>−{fmt(discountAmt)}</span>
+                  <span>Discount</span><span>−{fmt(discountAmt)}</span>
                 </div>
               )}
               {!!order.include_gst && (
