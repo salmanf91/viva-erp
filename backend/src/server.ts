@@ -21,7 +21,8 @@ dotenv.config();
 const app = express();
 
 app.use(cors({ origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173', credentials: true }));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 app.use('/api/auth',        authRoutes);
 app.use('/api/tenants',     tenantRoutes);
@@ -37,9 +38,9 @@ app.use('/api/finance',     financeRoutes);
 app.use('/api/reports',     reportRoutes);
 app.use('/api/zatca',       zatcaRoutes);
 
-app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error(err.stack);
-  res.status(500).json({ message: 'Internal server error' });
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('Express error handler:', err);
+  res.status(err.status || 500).json({ message: err.message || 'Internal server error' });
 });
 
 import { initDb } from './config/db';
