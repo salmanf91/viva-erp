@@ -32,3 +32,11 @@ export function authenticate(req: AuthRequest, res: Response, next: NextFunction
     res.status(401).json({ message: 'Invalid or expired token' });
   }
 }
+
+export function requireSuperAdmin(req: AuthRequest, res: Response, next: NextFunction): void {
+  if (!req.user?.isSuperAdmin && req.user?.role !== 'super_admin') {
+    res.status(403).json({ message: 'Access denied: Super Admin privileges required.' });
+    return;
+  }
+  next();
+}

@@ -25,6 +25,14 @@ export function AuthProvider({ children }) {
     return data;
   };
 
+  const superAdminLogin = async (email, password) => {
+    const { data } = await api.post('/auth/super-admin/login', { email, password });
+    localStorage.setItem('erp_user', JSON.stringify(data));
+    api.defaults.headers.common['Authorization'] = `Bearer ${data.token}`;
+    setUser(data);
+    return data;
+  };
+
   const logout = () => {
     localStorage.removeItem('erp_user');
     delete api.defaults.headers.common['Authorization'];
@@ -32,7 +40,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading }}>
+    <AuthContext.Provider value={{ user, login, superAdminLogin, logout, loading }}>
       {children}
     </AuthContext.Provider>
   );

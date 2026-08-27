@@ -17,6 +17,7 @@ export interface AuthPayload {
   tenantSlug?: string;
   dbName?: string;
   role: string;
+  isSuperAdmin?: boolean;
   modules?: TenantModules;
 }
 
@@ -38,7 +39,7 @@ export interface User {
   name: string;
   email: string;
   password_hash: string;
-  role: 'owner' | 'partner' | 'manager';
+  role: 'super_admin' | 'owner' | 'partner' | 'manager' | 'staff_admin';
 }
 
 export interface Partner {
