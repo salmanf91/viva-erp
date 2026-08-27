@@ -33,7 +33,7 @@ export async function login(req: Request, res: Response): Promise<void> {
 
     try {
       const masterUsers = await masterQuery<any[]>(
-        `SELECT u.*, t.name AS tenant_name, t.slug AS tenant_slug, t.db_name, t.country, t.currency, t.business_domain, t.logo_url,
+        `SELECT u.*, t.name AS tenant_name, t.slug AS tenant_slug, t.db_name, t.country, t.currency, t.business_domain, t.logo_url, t.status AS tenant_status,
                 m.feature_accounting, m.feature_expenses, m.feature_party_ledger,
                 m.feature_sales_invoicing, m.feature_purchases, m.feature_inventory_stock,
                 m.feature_garment_production, m.feature_staff_piece_log, m.feature_payroll,
@@ -48,6 +48,10 @@ export async function login(req: Request, res: Response): Promise<void> {
 
       if (masterUsers && masterUsers.length > 0) {
         userRow = masterUsers[0];
+        if (userRow.tenant_status === 'suspended') {
+          res.status(403).json({ message: 'This workspace is currently deactivated. Please contact the administrator.' });
+          return;
+        }
         tenantRow = {
           id: userRow.tenant_id,
           name: userRow.tenant_name,
@@ -57,6 +61,7 @@ export async function login(req: Request, res: Response): Promise<void> {
           currency: userRow.currency,
           business_domain: userRow.business_domain,
           logo_url: userRow.logo_url,
+          status: userRow.tenant_status,
         };
         modules = {
           feature_accounting: !!userRow.feature_accounting,
