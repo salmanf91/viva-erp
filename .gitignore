@@ -1,0 +1,6 @@
+# Root gitignore
+node_modules/
+.env
+dist/
+*.log
+super_admin.md
