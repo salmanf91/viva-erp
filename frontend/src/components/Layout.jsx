@@ -4,6 +4,14 @@ import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
 
 function getNavItems(user) {
+  if (user?.role === 'super_admin') {
+    return [
+      { section: 'Platform Management' },
+      { to: '/platform-tenants', label: 'Workspaces & Tenants', icon: '🏢' },
+      { to: '/onboard', label: 'Onboard New Tenant', icon: '➕' },
+    ];
+  }
+
   if (user?.role === 'staff_admin') {
     return [
       { section: 'Staff' },
@@ -137,24 +145,28 @@ export default function Layout({ children, title }) {
       {/* ── SIDEBAR (Hidden on mobile) ── */}
       <aside className="sidebar">
         <div className="logo">
-          {user?.logo_url ? (
+          {user?.role === 'super_admin' ? (
+            <div style={{ width: 38, height: 38, borderRadius: 8, background: 'linear-gradient(135deg,#FFE87A,#C8860A)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
+              🛡️
+            </div>
+          ) : user?.logo_url ? (
             <img src={user.logo_url} alt={user?.tenant_name || 'Logo'} style={{ height: 38, maxWidth: 44, objectFit: 'contain', display: 'block', borderRadius: 6 }} />
           ) : (
             <img src="/logo.png" alt="Viva Studio" style={{ height: 38, width: 'auto', display: 'block' }} />
           )}
           <div>
             <div className="logo-text" style={{ background: 'linear-gradient(135deg,#FFE87A,#C8860A)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
-              {user?.tenant_name || 'Viva Studio'}
+              {user?.role === 'super_admin' ? 'Platform Admin' : (user?.tenant_name || 'Viva Studio')}
             </div>
-            <div className="logo-sub">ERP Platform</div>
+            <div className="logo-sub">{user?.role === 'super_admin' ? 'SaaS System Console' : 'ERP Platform'}</div>
           </div>
         </div>
 
         <div className="tenant-bar">
-          <div className="tenant-icon">{user?.country === 'SA' ? '🇸🇦' : user?.country === 'AE' ? '🇦🇪' : '🏭'}</div>
+          <div className="tenant-icon">{user?.role === 'super_admin' ? '🌐' : (user?.country === 'SA' ? '🇸🇦' : user?.country === 'AE' ? '🇦🇪' : '🏭')}</div>
           <div>
-            <div className="tenant-name">{user?.tenant_name || 'Viva Studio'}</div>
-            <div className="tenant-sub">{user?.currency ? `${user.currency} · ` : ''}Active Workspace</div>
+            <div className="tenant-name">{user?.role === 'super_admin' ? 'Multi-Tenant Infrastructure' : (user?.tenant_name || 'Viva Studio')}</div>
+            <div className="tenant-sub">{user?.role === 'super_admin' ? 'Root Platform Scope' : (`${user?.currency ? `${user.currency} · ` : ''}Active Workspace`)}</div>
           </div>
         </div>
 
