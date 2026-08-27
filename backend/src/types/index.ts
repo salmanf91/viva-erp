@@ -1,7 +1,23 @@
+export interface TenantModules {
+  feature_accounting: boolean;
+  feature_expenses: boolean;
+  feature_party_ledger: boolean;
+  feature_sales_invoicing: boolean;
+  feature_purchases: boolean;
+  feature_inventory_stock: boolean;
+  feature_garment_production: boolean;
+  feature_staff_piece_log: boolean;
+  feature_payroll: boolean;
+  feature_zatca_einvoicing: boolean;
+}
+
 export interface AuthPayload {
   userId: number;
   tenantId: number;
+  tenantSlug?: string;
+  dbName?: string;
   role: string;
+  modules?: TenantModules;
 }
 
 export interface RequestWithUser extends Express.Request {

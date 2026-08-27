@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { AuthPayload } from '../types';
+import { tenantStorage } from '../config/db';
 
 export interface AuthRequest extends Request {
   user?: AuthPayload;
@@ -16,7 +17,17 @@ export function authenticate(req: AuthRequest, res: Response, next: NextFunction
   try {
     const payload = jwt.verify(token, process.env.JWT_SECRET || 'secret') as AuthPayload;
     req.user = payload;
-    next();
+    
+    // Resolve tenant database context
+    const dbName = payload.dbName || (payload.tenantSlug ? `erp_tenant_${payload.tenantSlug}` : (process.env.DB_NAME || 'viva_erp'));
+    
+    tenantStorage.run({
+      tenantId: payload.tenantId,
+      dbName,
+      slug: payload.tenantSlug
+    }, () => {
+      next();
+    });
   } catch {
     res.status(401).json({ message: 'Invalid or expired token' });
   }

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
+import TenantOnboardModal from '../components/TenantOnboardModal';
 
 export default function LoginPage() {
   const [tenants, setTenants]   = useState([]);
@@ -9,23 +10,36 @@ export default function LoginPage() {
   const [email, setEmail]       = useState('');
   const [password, setPassword] = useState('');
   const [error, setError]       = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading]   = useState(false);
+  const [showOnboard, setShowOnboard] = useState(false);
   const { login, user }         = useAuth();
   const navigate                = useNavigate();
 
   const [tenantsLoading, setTenantsLoading] = useState(true);
 
-  useEffect(() => {
-    if (user) navigate('/');
+  const loadTenants = (selectSlugOrId) => {
+    setTenantsLoading(true);
     api.get('/auth/tenants').then(r => {
       setTenants(r.data);
-      if (r.data.length >= 1) setTenantId(String(r.data[0].id));
+      if (selectSlugOrId) {
+        const found = r.data.find(t => String(t.id) === String(selectSlugOrId) || t.slug === selectSlugOrId);
+        if (found) setTenantId(String(found.id));
+      } else if (r.data.length >= 1) {
+        setTenantId(String(r.data[0].id));
+      }
     }).catch(() => {}).finally(() => setTenantsLoading(false));
+  };
+
+  useEffect(() => {
+    if (user) navigate('/');
+    loadTenants();
   }, []);
 
   const handleSubmit = async e => {
     e.preventDefault();
     setError('');
+    setSuccessMsg('');
     if (!tenantId) { setError('Please select a workspace'); return; }
     setLoading(true);
     try {
@@ -38,13 +52,27 @@ export default function LoginPage() {
     }
   };
 
+  const handleOnboardSuccess = ({ name, slug, email: registeredEmail }) => {
+    setShowOnboard(false);
+    setSuccessMsg(`Workspace '${name}' and its isolated database have been provisioned successfully! You can now sign in.`);
+    setEmail(registeredEmail);
+    loadTenants(slug);
+  };
+
   return (
     <div className="login-wrap">
       <div className="login-box">
         <div className="login-logo">
           <div className="li"><img src="/logo.png" alt="Viva Studio" style={{ height: 64, width: 'auto' }} /></div>
-          <div className="ls">Manufacturing ERP · Sign in to continue</div>
+          <div className="ls">Enterprise ERP Platform · Sign in to continue</div>
         </div>
+
+        {successMsg && (
+          <div className="alert alert-green mb12">
+            <div className="a-icon">✓</div>
+            <div><div className="a-title">{successMsg}</div></div>
+          </div>
+        )}
 
         {error && (
           <div className="alert alert-red mb12">
@@ -55,13 +83,26 @@ export default function LoginPage() {
 
         <form onSubmit={handleSubmit}>
           <div className="field" style={{ marginBottom: 12 }}>
-            <label>Workspace</label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <label style={{ margin: 0 }}>Company Workspace</label>
+              <button
+                type="button"
+                onClick={() => setShowOnboard(true)}
+                style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: 0 }}
+              >
+                + New Workspace
+              </button>
+            </div>
             {tenantsLoading ? (
-              <select disabled><option>Loading…</option></select>
+              <select disabled><option>Loading workspaces…</option></select>
             ) : (
               <select value={tenantId} onChange={e => setTenantId(e.target.value)} required>
                 {tenants.length > 1 && <option value="">— Select workspace —</option>}
-                {tenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                {tenants.map(t => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} {t.country ? `(${t.country === 'SA' ? '🇸🇦 KSA' : t.country === 'IN' ? '🇮🇳 IN' : t.country})` : ''}
+                  </option>
+                ))}
               </select>
             )}
           </div>
@@ -70,7 +111,7 @@ export default function LoginPage() {
             <input
               type="email" value={email}
               onChange={e => setEmail(e.target.value)}
-              placeholder="partner_a@vivastudio.com"
+              placeholder="admin@company.com"
               required autoFocus
             />
           </div>
@@ -94,10 +135,25 @@ export default function LoginPage() {
         </form>
 
         <div className="divider" style={{ marginTop: 20 }} />
-        <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--muted)' }}>
-          Viva Studio · Multi-Tenant Manufacturing Platform
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: 'var(--muted)' }}>
+          <span>Multi-Tenant Enterprise Platform</span>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            style={{ fontSize: 11, padding: '3px 8px' }}
+            onClick={() => setShowOnboard(true)}
+          >
+            🏢 Create Workspace
+          </button>
         </div>
       </div>
+
+      {showOnboard && (
+        <TenantOnboardModal
+          onClose={() => setShowOnboard(false)}
+          onSuccess={handleOnboardSuccess}
+        />
+      )}
     </div>
   );
 }

@@ -15,6 +15,7 @@ import SalesPage      from './pages/SalesPage';
 import FinancePage    from './pages/FinancePage';
 import PartyLedgerPage from './pages/PartyLedgerPage';
 import ReportsPage    from './pages/ReportsPage';
+import ZatcaPage      from './pages/ZatcaPage';
 
 const TITLES = {
   '/':           'Dashboard',
@@ -30,6 +31,7 @@ const TITLES = {
   '/finance':    'Finance',
   '/settings':   'Settings',
   '/party-ledger': 'Party Ledger',
+  '/zatca':      'Saudi ZATCA E-Invoicing',
 };
 
 function Guard({ children, path, staffAdminOnly }) {
@@ -68,6 +70,7 @@ export default function App() {
           <Route path="/finance"    element={<Guard path="/finance"><FinancePage /></Guard>} />
           <Route path="/settings"   element={<Guard path="/settings"><SettingsPage /></Guard>} />
           <Route path="/party-ledger" element={<Guard path="/party-ledger"><PartyLedgerPage /></Guard>} />
+          <Route path="/zatca"      element={<Guard path="/zatca"><ZatcaPage /></Guard>} />
 
           {/* Staff admin routes */}
           <Route path="/staff-log"  element={<Guard path="/staff-log" staffAdminOnly><StaffLogPage /></Guard>} />

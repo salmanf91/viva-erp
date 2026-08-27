@@ -3,30 +3,74 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
 
-const NAV_FULL = [
-  { section: 'Overview' },
-  { to: '/',           label: 'Dashboard',          icon: '📊' },
-  { to: '/reports',     label: 'Reports & Analytics', icon: '📑' },
-  { section: 'Finance' },
-  { to: '/partners',   label: 'Capital & Partners', icon: '🤝' },
-  { to: '/finance',    label: 'Finance',            icon: '📈' },
-  { to: '/expenses',   label: 'Expenses',           icon: '🧾' },
-  { to: '/party-ledger', label: 'Party Ledger',       icon: '📒' },
-  { section: 'Inventory' },
-  { to: '/purchases',  label: 'Purchases',          icon: '📦' },
-  { to: '/stock',      label: 'Stock',              icon: '🏭' },
-  { section: 'Production & Sales' },
-  { to: '/production', label: 'Production Log',     icon: '✂️' },
-  { to: '/sales',      label: 'Sales',              icon: '🚚' },
-  { to: '/staff',      label: 'Staff & Payroll',    icon: '👷' },
-  { section: 'Admin' },
-  { to: '/settings',   label: 'Settings',           icon: '⚙️' },
-];
+function getNavItems(user) {
+  if (user?.role === 'staff_admin') {
+    return [
+      { section: 'Staff' },
+      { to: '/staff-log', label: 'Staff', icon: '👷' },
+    ];
+  }
 
-const NAV_STAFF_ADMIN = [
-  { section: 'Staff' },
-  { to: '/staff-log',  label: 'Staff',  icon: '👷' },
-];
+  const m = user?.modules || {
+    feature_accounting: true,
+    feature_expenses: true,
+    feature_party_ledger: true,
+    feature_sales_invoicing: true,
+    feature_purchases: true,
+    feature_inventory_stock: true,
+    feature_garment_production: true,
+    feature_staff_piece_log: true,
+    feature_payroll: true,
+    feature_zatca_einvoicing: false,
+  };
+
+  const nav = [];
+
+  // Overview Section
+  nav.push({ section: 'Overview' });
+  nav.push({ to: '/', label: 'Dashboard', icon: '📊' });
+  nav.push({ to: '/reports', label: 'Reports & Analytics', icon: '📑' });
+
+  // Finance Section
+  const financeItems = [];
+  if (m.feature_accounting || m.feature_expenses) financeItems.push({ to: '/partners', label: 'Capital & Partners', icon: '🤝' });
+  if (m.feature_accounting) financeItems.push({ to: '/finance', label: 'Finance', icon: '📈' });
+  if (m.feature_expenses) financeItems.push({ to: '/expenses', label: 'Expenses', icon: '🧾' });
+  if (m.feature_party_ledger) financeItems.push({ to: '/party-ledger', label: 'Party Ledger', icon: '📒' });
+  if (financeItems.length > 0) {
+    nav.push({ section: 'Finance' }, ...financeItems);
+  }
+
+  // Inventory & Purchasing
+  const inventoryItems = [];
+  if (m.feature_purchases) inventoryItems.push({ to: '/purchases', label: 'Purchases', icon: '📦' });
+  if (m.feature_inventory_stock) inventoryItems.push({ to: '/stock', label: 'Stock', icon: '🏭' });
+  if (inventoryItems.length > 0) {
+    nav.push({ section: 'Inventory' }, ...inventoryItems);
+  }
+
+  // Operations / Sales / Production
+  const opItems = [];
+  if (m.feature_garment_production) opItems.push({ to: '/production', label: 'Production Log', icon: '✂️' });
+  if (m.feature_sales_invoicing) opItems.push({ to: '/sales', label: 'Sales', icon: '🚚' });
+  if (m.feature_payroll) opItems.push({ to: '/staff', label: 'Staff & Payroll', icon: '👷' });
+  if (m.feature_staff_piece_log && !m.feature_garment_production) opItems.push({ to: '/staff-log', label: 'Staff Piece Log', icon: '📋' });
+  if (opItems.length > 0) {
+    nav.push({ section: m.feature_garment_production ? 'Production & Sales' : 'Operations & Sales' }, ...opItems);
+  }
+
+  // Saudi ZATCA E-Invoicing
+  if (m.feature_zatca_einvoicing) {
+    nav.push({ section: 'E-Invoicing' });
+    nav.push({ to: '/zatca', label: 'ZATCA Fatoora', icon: '🇸🇦' });
+  }
+
+  // Admin Section
+  nav.push({ section: 'Admin' });
+  nav.push({ to: '/settings', label: 'Settings', icon: '⚙️' });
+
+  return nav;
+}
 
 export default function Layout({ children, title }) {
   const { user, logout } = useAuth();
@@ -47,8 +91,7 @@ export default function Layout({ children, title }) {
     setActiveSectionMenu(null);
   }, [location.pathname]);
 
-  const isStaffAdmin = user?.role === 'staff_admin';
-  const NAV = isStaffAdmin ? NAV_STAFF_ADMIN : NAV_FULL;
+  const NAV = getNavItems(user);
 
   // Process sections for mobile bottom navigation
   const sections = [];
@@ -96,10 +139,10 @@ export default function Layout({ children, title }) {
         </div>
 
         <div className="tenant-bar">
-          <div className="tenant-icon">🏭</div>
+          <div className="tenant-icon">{user?.country === 'SA' ? '🇸🇦' : user?.country === 'AE' ? '🇦🇪' : '🏭'}</div>
           <div>
             <div className="tenant-name">{user?.tenant_name || 'Viva Studio'}</div>
-            <div className="tenant-sub">Active Workspace</div>
+            <div className="tenant-sub">{user?.currency ? `${user.currency} · ` : ''}Active Workspace</div>
           </div>
         </div>
 

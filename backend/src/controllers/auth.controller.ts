@@ -2,7 +2,11 @@ import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { query } from '../config/db';
-import { User } from '../types';
+import { masterQuery } from '../config/masterDb';
+import { provisionNewTenant } from '../services/tenantProvisioner.service';
+import { User, TenantModules } from '../types';
+
+const MASTER_DB_NAME = process.env.MASTER_DB_NAME || 'erp_master';
 
 export async function login(req: Request, res: Response): Promise<void> {
   const { email, password, tenant_id } = req.body;
@@ -11,42 +15,186 @@ export async function login(req: Request, res: Response): Promise<void> {
     return;
   }
   try {
-    const rows = await query<any[]>(
-      `SELECT u.*, t.name AS tenant_name
-       FROM users u JOIN tenants t ON t.id = u.tenant_id
-       WHERE u.email = ? AND u.tenant_id = ? LIMIT 1`,
-      [email, tenant_id]
-    );
-    if (!rows.length) {
-      res.status(401).json({ message: 'Invalid credentials' });
-      return;
+    const cleanEmail = email.toLowerCase().trim();
+
+    // 1. First check master database (master_users & master_tenants)
+    let userRow: any = null;
+    let tenantRow: any = null;
+    let modules: TenantModules = {
+      feature_accounting: true,
+      feature_expenses: true,
+      feature_party_ledger: true,
+      feature_sales_invoicing: true,
+      feature_purchases: true,
+      feature_inventory_stock: true,
+      feature_garment_production: true,
+      feature_staff_piece_log: true,
+      feature_payroll: true,
+      feature_zatca_einvoicing: false,
+    };
+
+    try {
+      const masterUsers = await masterQuery<any[]>(
+        `SELECT u.*, t.name AS tenant_name, t.slug AS tenant_slug, t.db_name, t.country, t.currency, t.business_domain,
+                m.feature_accounting, m.feature_expenses, m.feature_party_ledger,
+                m.feature_sales_invoicing, m.feature_purchases, m.feature_inventory_stock,
+                m.feature_garment_production, m.feature_staff_piece_log, m.feature_payroll,
+                m.feature_zatca_einvoicing
+         FROM \`${MASTER_DB_NAME}\`.master_users u
+         JOIN \`${MASTER_DB_NAME}\`.master_tenants t ON t.id = u.tenant_id
+         LEFT JOIN \`${MASTER_DB_NAME}\`.master_tenant_modules m ON m.tenant_id = t.id
+         WHERE (u.email = ? OR u.email = ?) AND (u.tenant_id = ? OR t.slug = ?)
+         LIMIT 1`,
+        [cleanEmail, email, tenant_id, tenant_id]
+      );
+
+      if (masterUsers && masterUsers.length > 0) {
+        userRow = masterUsers[0];
+        tenantRow = {
+          id: userRow.tenant_id,
+          name: userRow.tenant_name,
+          slug: userRow.tenant_slug,
+          db_name: userRow.db_name,
+          country: userRow.country,
+          currency: userRow.currency,
+          business_domain: userRow.business_domain,
+        };
+        modules = {
+          feature_accounting: !!userRow.feature_accounting,
+          feature_expenses: !!userRow.feature_expenses,
+          feature_party_ledger: !!userRow.feature_party_ledger,
+          feature_sales_invoicing: !!userRow.feature_sales_invoicing,
+          feature_purchases: !!userRow.feature_purchases,
+          feature_inventory_stock: !!userRow.feature_inventory_stock,
+          feature_garment_production: !!userRow.feature_garment_production,
+          feature_staff_piece_log: !!userRow.feature_staff_piece_log,
+          feature_payroll: !!userRow.feature_payroll,
+          feature_zatca_einvoicing: !!userRow.feature_zatca_einvoicing,
+        };
+      }
+    } catch {
+      // Master DB table not ready or fallback
     }
-    const user = rows[0];
-    const match = await bcrypt.compare(password, user.password_hash);
+
+    // 2. Fallback to legacy database if not found in master_users
+    if (!userRow) {
+      const rows = await query<any[]>(
+        `SELECT u.*, t.name AS tenant_name
+         FROM users u JOIN tenants t ON t.id = u.tenant_id
+         WHERE u.email = ? AND u.tenant_id = ? LIMIT 1`,
+        [cleanEmail, tenant_id]
+      );
+      if (!rows.length) {
+        res.status(401).json({ message: 'Invalid credentials' });
+        return;
+      }
+      userRow = rows[0];
+      tenantRow = {
+        id: userRow.tenant_id,
+        name: userRow.tenant_name,
+        slug: 'viva_studio',
+        db_name: process.env.DB_NAME || 'viva_erp',
+        country: 'IN',
+        currency: 'INR',
+      };
+    }
+
+    const match = await bcrypt.compare(password, userRow.password_hash);
     if (!match) {
       res.status(401).json({ message: 'Invalid credentials' });
       return;
     }
+
     const token = jwt.sign(
-      { userId: user.id, tenantId: user.tenant_id, role: user.role },
+      {
+        userId: userRow.id,
+        tenantId: userRow.tenant_id,
+        tenantSlug: tenantRow.slug,
+        dbName: tenantRow.db_name,
+        role: userRow.role,
+        modules,
+      },
       process.env.JWT_SECRET || 'secret',
       { expiresIn: (process.env.JWT_EXPIRES_IN || '7d') as any }
     );
+
     res.json({
       token,
-      id: user.id, name: user.name, email: user.email,
-      role: user.role, tenant_id: user.tenant_id, tenant_name: user.tenant_name,
+      id: userRow.id,
+      name: userRow.name,
+      email: userRow.email,
+      role: userRow.role,
+      tenant_id: userRow.tenant_id,
+      tenant_name: tenantRow.name,
+      tenant_slug: tenantRow.slug,
+      country: tenantRow.country,
+      currency: tenantRow.currency,
+      modules,
     });
   } catch (err) {
+    console.error('Login error:', err);
     res.status(500).json({ message: 'Server error', error: err instanceof Error ? err.message : String(err) });
   }
 }
 
 export async function getTenants(_req: Request, res: Response): Promise<void> {
   try {
+    // Try reading from master_tenants first
+    try {
+      const masterTenants = await masterQuery<any[]>(
+        `SELECT id, slug, name, country, currency, business_domain 
+         FROM \`${MASTER_DB_NAME}\`.master_tenants 
+         WHERE status = 'active' ORDER BY name ASC`
+      );
+      if (masterTenants && masterTenants.length > 0) {
+        res.json(masterTenants);
+        return;
+      }
+    } catch {
+      // fallback
+    }
+
     const tenants = await query<{ id: number; name: string }[]>('SELECT id, name FROM tenants ORDER BY name');
     res.json(tenants);
-  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+export async function registerTenant(req: Request, res: Response): Promise<void> {
+  const {
+    name, slug, country, currency, business_domain,
+    admin_name, admin_email, admin_password, features
+  } = req.body;
+
+  if (!name || !slug || !admin_email || !admin_password || !admin_name) {
+    res.status(400).json({ message: 'Company name, workspace slug, admin name, email and password are required' });
+    return;
+  }
+
+  try {
+    const result = await provisionNewTenant({
+      name,
+      slug,
+      country: country || 'SA',
+      currency: currency || 'SAR',
+      business_domain: business_domain || 'trading',
+      admin_name,
+      admin_email,
+      admin_password,
+      features: features || {},
+    });
+
+    res.status(201).json({
+      message: 'Tenant and database provisioned successfully',
+      tenant_id: result.tenantId,
+      db_name: result.dbName,
+    });
+  } catch (error: any) {
+    console.error('Tenant provisioning error:', error);
+    res.status(400).json({ message: error.message || 'Failed to provision tenant' });
+  }
 }
 
 export async function changePassword(req: Request, res: Response): Promise<void> {
@@ -60,5 +208,8 @@ export async function changePassword(req: Request, res: Response): Promise<void>
     const hash = await bcrypt.hash(new_password, 10);
     await query('UPDATE users SET password_hash = ? WHERE id = ?', [hash, userId]);
     res.json({ message: 'Password updated' });
-  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
+  }
 }
