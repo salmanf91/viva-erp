@@ -4,14 +4,13 @@ import bcrypt from 'bcryptjs';
 import { masterPool, masterQuery } from '../config/masterDb';
 import { getTenantPool } from '../config/tenantDbManager';
 
-const MASTER_DB_NAME = process.env.MASTER_DB_NAME || 'erp_master';
-
 export interface ProvisionTenantInput {
   name: string;
   slug: string;
   country?: string;
   currency?: string;
   business_domain?: string;
+  logo_url?: string;
   admin_name: string;
   admin_email: string;
   admin_password: string;
@@ -32,7 +31,7 @@ export interface ProvisionTenantInput {
 export async function provisionNewTenant(input: ProvisionTenantInput): Promise<{ tenantId: number; dbName: string }> {
   const {
     name, slug, country = 'SA', currency = 'SAR', business_domain = 'trading',
-    admin_name, admin_email, admin_password, features = {}
+    logo_url, admin_name, admin_email, admin_password, features = {}
   } = input;
 
   const cleanSlug = slug.toLowerCase().replace(/[^a-z0-9_]/g, '_');
@@ -40,7 +39,7 @@ export async function provisionNewTenant(input: ProvisionTenantInput): Promise<{
 
   // Check if slug or db already exists
   const existing = await masterQuery<any[]>(
-    `SELECT id FROM \`${MASTER_DB_NAME}\`.master_tenants WHERE slug = ? OR db_name = ? LIMIT 1`,
+    `SELECT id FROM master_tenants WHERE slug = ? OR db_name = ? LIMIT 1`,
     [cleanSlug, dbName]
   );
   if (existing && existing.length > 0) {
@@ -49,15 +48,15 @@ export async function provisionNewTenant(input: ProvisionTenantInput): Promise<{
 
   // 1. Insert into master_tenants
   const [tenantRes] = await masterPool.query<any>(
-    `INSERT INTO \`${MASTER_DB_NAME}\`.master_tenants (slug, name, country, currency, business_domain, db_name)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [cleanSlug, name, country, currency, business_domain, dbName]
+    `INSERT INTO master_tenants (slug, name, country, currency, business_domain, logo_url, db_name)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [cleanSlug, name, country, currency, business_domain, logo_url || null, dbName]
   );
   const tenantId = tenantRes.insertId;
 
   // 2. Insert into master_tenant_modules
   await masterPool.query(
-    `INSERT INTO \`${MASTER_DB_NAME}\`.master_tenant_modules (
+    `INSERT INTO master_tenant_modules (
       tenant_id, feature_accounting, feature_expenses, feature_party_ledger,
       feature_sales_invoicing, feature_purchases, feature_inventory_stock,
       feature_garment_production, feature_staff_piece_log, feature_payroll,
@@ -81,15 +80,26 @@ export async function provisionNewTenant(input: ProvisionTenantInput): Promise<{
   // 3. Create Admin User in master_users
   const passwordHash = await bcrypt.hash(admin_password, 10);
   await masterPool.query(
-    `INSERT INTO \`${MASTER_DB_NAME}\`.master_users (tenant_id, email, password_hash, name, role)
+    `INSERT INTO master_users (tenant_id, email, password_hash, name, role)
      VALUES (?, ?, ?, ?, 'owner')`,
     [tenantId, admin_email.toLowerCase().trim(), passwordHash, admin_name.trim()]
   );
 
   // 4. Create the physical isolated MySQL database
-  await masterPool.query(
-    `CREATE DATABASE \`${dbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
-  );
+  try {
+    await masterPool.query(
+      `CREATE DATABASE \`${dbName}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
+    );
+  } catch (err: any) {
+    if (err.code === 'ER_DBACCESS_DENIED_ERROR' || err.code === 'ER_ACCESS_DENIED_ERROR') {
+      const dbUser = process.env.DB_USER || 'vivauser';
+      throw new Error(
+        `MySQL permission required: The database user '${dbUser}' does not have permission to execute 'CREATE DATABASE'. ` +
+        `Please grant permissions in MySQL: GRANT ALL PRIVILEGES ON \`erp_%\`.* TO '${dbUser}'@'localhost'; FLUSH PRIVILEGES;`
+      );
+    }
+    throw err;
+  }
 
   // 5. Execute schema scripts on the new database
   const tenantPool = getTenantPool(dbName);
@@ -127,9 +137,8 @@ export async function provisionNewTenant(input: ProvisionTenantInput): Promise<{
 }
 
 async function executeSqlScript(pool: any, sqlContent: string): Promise<void> {
-  // Split on semicolons outside of comments
   const statements = sqlContent
-    .replace(/--.*$/gm, '') // remove line comments
+    .replace(/--.*$/gm, '')
     .split(';')
     .map(s => s.trim())
     .filter(s => s.length > 0);

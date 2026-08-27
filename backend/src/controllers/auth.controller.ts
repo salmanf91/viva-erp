@@ -6,8 +6,6 @@ import { masterQuery } from '../config/masterDb';
 import { provisionNewTenant } from '../services/tenantProvisioner.service';
 import { User, TenantModules } from '../types';
 
-const MASTER_DB_NAME = process.env.MASTER_DB_NAME || 'erp_master';
-
 export async function login(req: Request, res: Response): Promise<void> {
   const { email, password, tenant_id } = req.body;
   if (!email || !password || !tenant_id) {
@@ -35,14 +33,14 @@ export async function login(req: Request, res: Response): Promise<void> {
 
     try {
       const masterUsers = await masterQuery<any[]>(
-        `SELECT u.*, t.name AS tenant_name, t.slug AS tenant_slug, t.db_name, t.country, t.currency, t.business_domain,
+        `SELECT u.*, t.name AS tenant_name, t.slug AS tenant_slug, t.db_name, t.country, t.currency, t.business_domain, t.logo_url,
                 m.feature_accounting, m.feature_expenses, m.feature_party_ledger,
                 m.feature_sales_invoicing, m.feature_purchases, m.feature_inventory_stock,
                 m.feature_garment_production, m.feature_staff_piece_log, m.feature_payroll,
                 m.feature_zatca_einvoicing
-         FROM \`${MASTER_DB_NAME}\`.master_users u
-         JOIN \`${MASTER_DB_NAME}\`.master_tenants t ON t.id = u.tenant_id
-         LEFT JOIN \`${MASTER_DB_NAME}\`.master_tenant_modules m ON m.tenant_id = t.id
+         FROM master_users u
+         JOIN master_tenants t ON t.id = u.tenant_id
+         LEFT JOIN master_tenant_modules m ON m.tenant_id = t.id
          WHERE (u.email = ? OR u.email = ?) AND (u.tenant_id = ? OR t.slug = ?)
          LIMIT 1`,
         [cleanEmail, email, tenant_id, tenant_id]
@@ -58,6 +56,7 @@ export async function login(req: Request, res: Response): Promise<void> {
           country: userRow.country,
           currency: userRow.currency,
           business_domain: userRow.business_domain,
+          logo_url: userRow.logo_url,
         };
         modules = {
           feature_accounting: !!userRow.feature_accounting,
@@ -72,7 +71,7 @@ export async function login(req: Request, res: Response): Promise<void> {
           feature_zatca_einvoicing: !!userRow.feature_zatca_einvoicing,
         };
       }
-    } catch {
+    } catch (e) {
       // Master DB table not ready or fallback
     }
 
@@ -96,6 +95,7 @@ export async function login(req: Request, res: Response): Promise<void> {
         db_name: process.env.DB_NAME || 'viva_erp',
         country: 'IN',
         currency: 'INR',
+        logo_url: null,
       };
     }
 
@@ -129,6 +129,7 @@ export async function login(req: Request, res: Response): Promise<void> {
       tenant_slug: tenantRow.slug,
       country: tenantRow.country,
       currency: tenantRow.currency,
+      logo_url: tenantRow.logo_url,
       modules,
     });
   } catch (err) {
@@ -139,11 +140,10 @@ export async function login(req: Request, res: Response): Promise<void> {
 
 export async function getTenants(_req: Request, res: Response): Promise<void> {
   try {
-    // Try reading from master_tenants first
     try {
       const masterTenants = await masterQuery<any[]>(
-        `SELECT id, slug, name, country, currency, business_domain 
-         FROM \`${MASTER_DB_NAME}\`.master_tenants 
+        `SELECT id, slug, name, country, currency, business_domain, logo_url 
+         FROM master_tenants 
          WHERE status = 'active' ORDER BY name ASC`
       );
       if (masterTenants && masterTenants.length > 0) {
@@ -164,7 +164,7 @@ export async function getTenants(_req: Request, res: Response): Promise<void> {
 
 export async function registerTenant(req: Request, res: Response): Promise<void> {
   const {
-    name, slug, country, currency, business_domain,
+    name, slug, country, currency, business_domain, logo_url,
     admin_name, admin_email, admin_password, features
   } = req.body;
 
@@ -180,6 +180,7 @@ export async function registerTenant(req: Request, res: Response): Promise<void>
       country: country || 'SA',
       currency: currency || 'SAR',
       business_domain: business_domain || 'trading',
+      logo_url: logo_url || undefined,
       admin_name,
       admin_email,
       admin_password,
