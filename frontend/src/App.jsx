@@ -44,9 +44,13 @@ function Guard({ children, path, staffAdminOnly, superAdminOnly }) {
   if (!user)   return <Navigate to="/login" replace />;
 
   const isStaffAdmin = user.role === 'staff_admin';
-  const isSuperAdmin = user.is_super_admin || user.role === 'super_admin';
+  const isSuperAdmin = user.role === 'super_admin';
 
-  if (superAdminOnly && !isSuperAdmin) return <Navigate to="/" replace />;
+  // Super admin should only access platform level routes
+  if (isSuperAdmin && !superAdminOnly) return <Navigate to="/platform-tenants" replace />;
+
+  // Non-super admin trying to reach super-admin-only page → back to dashboard
+  if (!isSuperAdmin && superAdminOnly) return <Navigate to="/" replace />;
 
   // Staff admin trying to reach an owner/manager page → back to their log
   if (isStaffAdmin && !staffAdminOnly) return <Navigate to="/staff-log" replace />;
