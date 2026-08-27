@@ -20,18 +20,34 @@ export async function getItems(req: AuthRequest, res: Response): Promise<void> {
   const showAll = req.query.all === '1';
 
   try {
-    const items = await query<any[]>(
-      `SELECT * FROM product_config 
-       WHERE tenant_id = ? ${showAll ? '' : 'AND is_active = 1'} 
-       ORDER BY is_active DESC, name ASC, category ASC`,
-      [tenantId]
-    );
+    let items: any[] = [];
+    try {
+      items = await query<any[]>(
+        `SELECT * FROM product_config 
+         WHERE tenant_id = ? ${showAll ? '' : 'AND (is_active IS NULL OR is_active = 1)'} 
+         ORDER BY id ASC`,
+        [tenantId]
+      );
+    } catch (err: any) {
+      // If is_active column is not yet present
+      if (err.message && err.message.includes('Unknown column')) {
+        items = await query<any[]>(
+          `SELECT * FROM product_config WHERE tenant_id = ? ORDER BY id ASC`,
+          [tenantId]
+        );
+      } else {
+        throw err;
+      }
+    }
 
-    // Fetch size rates for all items
-    const sizeRates = await query<any[]>(
-      `SELECT * FROM product_size_selling_rates WHERE tenant_id = ? ORDER BY id ASC`,
-      [tenantId]
-    );
+    // Fetch size rates safely
+    let sizeRates: any[] = [];
+    try {
+      sizeRates = await query<any[]>(
+        `SELECT * FROM product_size_selling_rates WHERE tenant_id = ? ORDER BY id ASC`,
+        [tenantId]
+      );
+    } catch {}
 
     const sizeRatesByConfigId = new Map<number, any[]>();
     for (const sr of sizeRates) {
@@ -43,7 +59,11 @@ export async function getItems(req: AuthRequest, res: Response): Promise<void> {
 
     const result = items.map(item => ({
       ...item,
+      name: item.name || formatCategoryName(item.category),
       display_name: item.name || formatCategoryName(item.category),
+      item_type: item.item_type || 'product',
+      uom: item.uom || 'pcs',
+      is_active: item.is_active !== undefined ? (item.is_active === 1 || item.is_active === true) : true,
       size_rates: sizeRatesByConfigId.get(item.id) || [],
     }));
 
@@ -70,14 +90,21 @@ export async function getItemById(req: AuthRequest, res: Response): Promise<void
     }
 
     const item = rows[0];
-    const sizeRates = await query<any[]>(
-      'SELECT * FROM product_size_selling_rates WHERE product_config_id = ? AND tenant_id = ?',
-      [item.id, tenantId]
-    );
+    let sizeRates: any[] = [];
+    try {
+      sizeRates = await query<any[]>(
+        'SELECT * FROM product_size_selling_rates WHERE product_config_id = ? AND tenant_id = ?',
+        [item.id, tenantId]
+      );
+    } catch {}
 
     res.json({
       ...item,
+      name: item.name || formatCategoryName(item.category),
       display_name: item.name || formatCategoryName(item.category),
+      item_type: item.item_type || 'product',
+      uom: item.uom || 'pcs',
+      is_active: item.is_active !== undefined ? (item.is_active === 1 || item.is_active === true) : true,
       size_rates: sizeRates || [],
     });
   } catch (error) {
