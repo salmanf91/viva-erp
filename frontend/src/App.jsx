@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import Layout from './components/Layout';
 import LoginPage      from './pages/LoginPage';
+import OnboardPage    from './pages/OnboardPage';
 import DashboardPage  from './pages/DashboardPage';
 import PartnersPage   from './pages/PartnersPage';
 import PurchasesPage  from './pages/PurchasesPage';
@@ -56,6 +57,8 @@ export default function App() {
       <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/onboard" element={<OnboardPage />} />
+          <Route path="/register" element={<OnboardPage />} />
 
           {/* Owner / partner / manager routes */}
           <Route path="/"           element={<Guard path="/"><DashboardPage /></Guard>} />

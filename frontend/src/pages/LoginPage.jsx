@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
-import TenantOnboardModal from '../components/TenantOnboardModal';
 
 export default function LoginPage() {
   const [tenants, setTenants]   = useState([]);
@@ -12,9 +11,9 @@ export default function LoginPage() {
   const [error, setError]       = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading]   = useState(false);
-  const [showOnboard, setShowOnboard] = useState(false);
   const { login, user }         = useAuth();
   const navigate                = useNavigate();
+  const location                = useLocation();
 
   const [tenantsLoading, setTenantsLoading] = useState(true);
 
@@ -33,7 +32,15 @@ export default function LoginPage() {
 
   useEffect(() => {
     if (user) navigate('/');
-    loadTenants();
+    
+    // Check if redirected from /onboard with state
+    if (location.state?.msg) {
+      setSuccessMsg(location.state.msg);
+      if (location.state.registeredEmail) setEmail(location.state.registeredEmail);
+      loadTenants(location.state.selectedSlug);
+    } else {
+      loadTenants();
+    }
   }, []);
 
   const handleSubmit = async e => {
@@ -50,13 +57,6 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleOnboardSuccess = ({ name, slug, email: registeredEmail }) => {
-    setShowOnboard(false);
-    setSuccessMsg(`Workspace '${name}' and its isolated database have been provisioned successfully! You can now sign in.`);
-    setEmail(registeredEmail);
-    loadTenants(slug);
   };
 
   return (
@@ -85,13 +85,12 @@ export default function LoginPage() {
           <div className="field" style={{ marginBottom: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
               <label style={{ margin: 0 }}>Company Workspace</label>
-              <button
-                type="button"
-                onClick={() => setShowOnboard(true)}
-                style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 11, fontWeight: 700, cursor: 'pointer', padding: 0 }}
+              <Link
+                to="/onboard"
+                style={{ color: 'var(--accent)', fontSize: 11, fontWeight: 700, textDecoration: 'none' }}
               >
                 + New Workspace
-              </button>
+              </Link>
             </div>
             {tenantsLoading ? (
               <select disabled><option>Loading workspaces…</option></select>
@@ -137,23 +136,15 @@ export default function LoginPage() {
         <div className="divider" style={{ marginTop: 20 }} />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: 'var(--muted)' }}>
           <span>Multi-Tenant Enterprise Platform</span>
-          <button
-            type="button"
+          <Link
+            to="/onboard"
             className="btn btn-ghost btn-sm"
-            style={{ fontSize: 11, padding: '3px 8px' }}
-            onClick={() => setShowOnboard(true)}
+            style={{ fontSize: 11, padding: '3px 8px', textDecoration: 'none' }}
           >
             🏢 Create Workspace
-          </button>
+          </Link>
         </div>
       </div>
-
-      {showOnboard && (
-        <TenantOnboardModal
-          onClose={() => setShowOnboard(false)}
-          onSuccess={handleOnboardSuccess}
-        />
-      )}
     </div>
   );
 }

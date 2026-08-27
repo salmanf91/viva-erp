@@ -131,9 +131,15 @@ export default function Layout({ children, title }) {
       {/* ── SIDEBAR (Hidden on mobile) ── */}
       <aside className="sidebar">
         <div className="logo">
-          <img src="/logo.png" alt="Viva Studio" style={{ height: 38, width: 'auto', display: 'block' }} />
+          {user?.logo_url ? (
+            <img src={user.logo_url} alt={user?.tenant_name || 'Logo'} style={{ height: 38, maxWidth: 44, objectFit: 'contain', display: 'block', borderRadius: 6 }} />
+          ) : (
+            <img src="/logo.png" alt="Viva Studio" style={{ height: 38, width: 'auto', display: 'block' }} />
+          )}
           <div>
-            <div className="logo-text" style={{ background: 'linear-gradient(135deg,#FFE87A,#C8860A)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>Viva Studio</div>
+            <div className="logo-text" style={{ background: 'linear-gradient(135deg,#FFE87A,#C8860A)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
+              {user?.tenant_name || 'Viva Studio'}
+            </div>
             <div className="logo-sub">ERP Platform</div>
           </div>
         </div>
