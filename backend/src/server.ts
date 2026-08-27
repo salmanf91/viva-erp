@@ -15,6 +15,7 @@ import financeRoutes    from './routes/finance.routes';
 import reportRoutes     from './routes/report.routes';
 import zatcaRoutes      from './routes/zatca.routes';
 import tenantRoutes     from './routes/tenant.routes';
+import itemRoutes       from './routes/item.routes';
 
 dotenv.config();
 
@@ -26,6 +27,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 app.use('/api/auth',        authRoutes);
 app.use('/api/tenants',     tenantRoutes);
+app.use('/api/items',       itemRoutes);
 app.use('/api/partners',    partnerRoutes);
 app.use('/api/purchases',   purchaseRoutes);
 app.use('/api/expenses',    expenseRoutes);

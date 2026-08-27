@@ -49,12 +49,13 @@ function getNavItems(user) {
     nav.push({ section: 'Finance' }, ...financeItems);
   }
 
-  // Inventory & Purchasing
+  // Catalog & Inventory
   const inventoryItems = [];
-  if (m.feature_purchases) inventoryItems.push({ to: '/purchases', label: 'Purchases', icon: '📦' });
+  inventoryItems.push({ to: '/items', label: 'Items & Products', icon: '📦' });
+  if (m.feature_purchases) inventoryItems.push({ to: '/purchases', label: 'Purchases', icon: '🛒' });
   if (m.feature_inventory_stock) inventoryItems.push({ to: '/stock', label: 'Stock', icon: '🏭' });
   if (inventoryItems.length > 0) {
-    nav.push({ section: 'Inventory' }, ...inventoryItems);
+    nav.push({ section: 'Catalog & Inventory' }, ...inventoryItems);
   }
 
   // Operations / Sales / Production

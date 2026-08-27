@@ -150,9 +150,14 @@ export default function SettingsPage() {
     <>
       {/* Product Config section */}
       <div className="card mb16">
-        <div style={{ display: 'flex', justifyContent: 'between', alignItems: 'center', marginBottom: 12 }}>
-          <div className="card-hd" style={{ margin: 0 }}>Product Management</div>
-          <button className="btn btn-primary btn-sm" onClick={openNewCfg}>➕ Add Product</button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div>
+            <div className="card-hd" style={{ margin: 0 }}>Product & Manufacturing Configurations</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+              For universal catalog management, SKU codes, and Unit of Measure (UOM), visit <a href="/items" style={{ color: 'var(--accent)', fontWeight: 600 }}>📦 Items Master</a>
+            </div>
+          </div>
+          <a href="/items" className="btn btn-primary btn-sm">📦 Open Items Master</a>
         </div>
         <div className="g3" style={{ marginBottom: 0 }}>
           {configs.map(cfg => {
