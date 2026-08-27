@@ -9,6 +9,7 @@ const ROLE_LABEL = { cutting_master: 'Cutting Master', tailor: 'Tailor' };
 const CAT_LABEL  = { shawl_nighty: 'Shawl Nighty', ordinary_nighty: 'Ordinary Nighty', shawl_nighty_lace: 'Shawl + Lace' };
 const getProductLabel = cat => CAT_LABEL[cat] || (cat ? cat.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') : '—');
 const CATEGORIES = ['shawl_nighty', 'ordinary_nighty', 'shawl_nighty_lace'];
+import StaffReportTab from '../components/StaffReportTab';
 
 export default function StaffPage() {
   const { user } = useAuth();
@@ -228,6 +229,7 @@ export default function StaffPage() {
       <div className="tabs">
         <div className={`tab${activeTab === 'payroll' ? ' active' : ''}`} onClick={() => setActiveTab('payroll')}>Payroll &amp; Settlement</div>
         <div className={`tab${activeTab === 'entries' ? ' active' : ''}`} onClick={() => setActiveTab('entries')}>📋 Work Entries &amp; Edits</div>
+        <div className={`tab${activeTab === 'report'  ? ' active' : ''}`} onClick={() => setActiveTab('report')}>📄 Staff Report</div>
         <div className={`tab${activeTab === 'staff'   ? ' active' : ''}`} onClick={() => setActiveTab('staff')}>Staff Directory</div>
         {isOwner && <div className={`tab${activeTab === 'admins' ? ' active' : ''}`} onClick={() => setActiveTab('admins')}>Staff Admins</div>}
       </div>
@@ -600,6 +602,11 @@ export default function StaffPage() {
               )}
           </div>
         </div>
+      )}
+
+      {/* ── Staff Report tab (shareable piece-rate output without wages) ── */}
+      {activeTab === 'report' && (
+        <StaffReportTab />
       )}
 
       {/* ── Edit Work Entry Modal (Allocation/Completion Dates, Category, Pcs) ── */}
