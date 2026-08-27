@@ -137,6 +137,18 @@ export async function ensureTenantSchema(pool: mysql.Pool, _dbName?: string): Pr
     { table: 'staff_work_logs', column: 'tenant_id', def: 'INT NOT NULL DEFAULT 1' },
     { table: 'zatca_config', column: 'tenant_id', def: 'INT NOT NULL DEFAULT 1' },
     { table: 'zatca_invoices', column: 'tenant_id', def: 'INT NOT NULL DEFAULT 1' },
+    // Universal Item & UOM attributes
+    { table: 'product_config', column: 'name', def: 'VARCHAR(255) DEFAULT NULL' },
+    { table: 'product_config', column: 'item_code', def: 'VARCHAR(100) DEFAULT NULL' },
+    { table: 'product_config', column: 'item_type', def: "VARCHAR(50) DEFAULT 'product'" },
+    { table: 'product_config', column: 'uom', def: "VARCHAR(20) DEFAULT 'pcs'" },
+    { table: 'product_config', column: 'purchase_cost', def: 'DECIMAL(12,2) DEFAULT 0.00' },
+    { table: 'product_config', column: 'tax_rate', def: 'DECIMAL(5,2) DEFAULT 0.00' },
+    { table: 'product_config', column: 'hsn_code', def: 'VARCHAR(50) DEFAULT NULL' },
+    { table: 'product_config', column: 'description', def: 'TEXT DEFAULT NULL' },
+    { table: 'product_config', column: 'is_active', def: 'BOOLEAN DEFAULT TRUE' },
+    { table: 'sales_order_items', column: 'uom', def: "VARCHAR(20) DEFAULT 'pcs'" },
+    { table: 'purchase_items', column: 'uom', def: "VARCHAR(20) DEFAULT 'pcs'" },
   ];
 
   for (const item of tableColumns) {

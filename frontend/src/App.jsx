@@ -19,9 +19,11 @@ import PartyLedgerPage from './pages/PartyLedgerPage';
 import ReportsPage    from './pages/ReportsPage';
 import ZatcaPage      from './pages/ZatcaPage';
 import PlatformTenantsPage from './pages/PlatformTenantsPage';
+import ItemsPage      from './pages/ItemsPage';
 
 const TITLES = {
   '/':           'Dashboard',
+  '/items':      'Products & Services Master',
   '/reports':    'Reports & Analytics',
   '/partners':   'Capital & Partners',
   '/purchases':  'Purchases',
@@ -74,6 +76,8 @@ export default function App() {
 
           {/* Owner / partner / manager routes */}
           <Route path="/"           element={<Guard path="/"><DashboardPage /></Guard>} />
+          <Route path="/items"      element={<Guard path="/items"><ItemsPage /></Guard>} />
+          <Route path="/products"   element={<Guard path="/items"><ItemsPage /></Guard>} />
           <Route path="/reports"    element={<Guard path="/reports"><ReportsPage /></Guard>} />
           <Route path="/partners"   element={<Guard path="/partners"><PartnersPage /></Guard>} />
           <Route path="/purchases"  element={<Guard path="/purchases"><PurchasesPage /></Guard>} />
