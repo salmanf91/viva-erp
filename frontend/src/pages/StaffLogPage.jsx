@@ -16,13 +16,15 @@ const fmtDate   = s => s ? new Date(s + 'T00:00:00').toLocaleDateString('en-IN',
 const fmtShort  = s => s ? new Date(s + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
 const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
+import StaffReportTab from '../components/StaffReportTab';
+
 export default function StaffLogPage() {
   const [tab, setTab] = useState('log');
 
   return (
     <>
       <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1.5px solid var(--border)' }}>
-        {[['log','📋 Daily Log'],['history','📆 History'],['staff','👷 Staff Directory']].map(([t, label]) => (
+        {[['log','📋 Daily Log'],['history','📆 History'],['report','📄 Staff Report'],['staff','👷 Staff Directory']].map(([t, label]) => (
           <button key={t} onClick={() => setTab(t)}
             style={{
               padding: '8px 18px', fontWeight: 600, fontSize: 13, border: 'none', cursor: 'pointer',
@@ -35,6 +37,7 @@ export default function StaffLogPage() {
       </div>
       {tab === 'log'     && <DailyLogTab />}
       {tab === 'history' && <HistoryTab />}
+      {tab === 'report'  && <StaffReportTab />}
       {tab === 'staff'   && <StaffTab />}
     </>
   );

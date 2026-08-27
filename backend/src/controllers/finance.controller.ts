@@ -271,8 +271,8 @@ export async function getCashLedger(req: AuthRequest, res: Response): Promise<vo
 export async function getPartyLedgerParties(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
   try {
-    const clients = await query<any[]>('SELECT id, name FROM clients WHERE tenant_id=? ORDER BY name ASC', [tenantId]);
-    const vendors = await query<any[]>('SELECT id, name FROM vendors WHERE tenant_id=? ORDER BY name ASC', [tenantId]);
+    const clients = await query<any[]>('SELECT id, name, phone, city FROM clients WHERE tenant_id=? ORDER BY name ASC', [tenantId]);
+    const vendors = await query<any[]>('SELECT id, name, phone FROM vendors WHERE tenant_id=? ORDER BY name ASC', [tenantId]);
     res.json({ clients, vendors });
   } catch (error: any) {
     console.error(error);
@@ -322,7 +322,14 @@ export async function getClientLedger(req: AuthRequest, res: Response): Promise<
     const invoices = await query<any[]>(
       `SELECT o.id, o.invoice_number AS ref, o.order_date AS date, 'invoice' AS type, 
               (GREATEST(0, COALESCE(SUM(i.quantity * i.rate_per_pc), 0) - o.discount)) * (1 + o.gst_percent / 100) AS amount,
-              o.notes AS description
+              o.notes AS description,
+              GROUP_CONCAT(
+                CONCAT(
+                  i.category, 
+                  IF(i.size IS NOT NULL AND i.size != '', CONCAT(' (', i.size, ')'), ''), 
+                  ' × ', i.quantity, ' @ ₹', i.rate_per_pc
+                ) SEPARATOR ', '
+              ) AS items_detail
        FROM sales_orders o
        LEFT JOIN sales_order_items i ON i.order_id = o.id
        WHERE ${orderCond}
@@ -337,7 +344,7 @@ export async function getClientLedger(req: AuthRequest, res: Response): Promise<
 
     const payments = await query<any[]>(
       `SELECT p.id, o.invoice_number AS ref, p.payment_date AS date, 'payment' AS type, 
-              p.amount, 'Payment received' AS description
+              p.amount, 'Payment received' AS description, NULL AS items_detail
        FROM sales_payments p
        JOIN sales_orders o ON o.id = p.order_id
        WHERE ${payCond}`,
@@ -406,9 +413,15 @@ export async function getVendorLedger(req: AuthRequest, res: Response): Promise<
 
     const purchases = await query<any[]>(
       `SELECT p.id, CONCAT('PUR-', p.id) AS ref, p.invoice_date AS date, 'bill' AS type, 
-              p.total AS amount, p.note AS description
+              p.total AS amount, p.note AS description,
+              GROUP_CONCAT(
+                CONCAT(pi.category, ' × ', pi.quantity, ' @ ₹', pi.rate_per_pc)
+                SEPARATOR ', '
+              ) AS items_detail
        FROM purchases p
-       WHERE ${pCond}`,
+       LEFT JOIN purchase_items pi ON pi.purchase_id = p.id
+       WHERE ${pCond}
+       GROUP BY p.id`,
       pParams
     );
 
@@ -419,7 +432,7 @@ export async function getVendorLedger(req: AuthRequest, res: Response): Promise<
 
     const payments = await query<any[]>(
       `SELECT p.id, CONCAT('PUR-', p.id) AS ref, p.invoice_date AS date, 'payment' AS type, 
-              p.advance_paid AS amount, 'Advance payment' AS description
+              p.advance_paid AS amount, 'Advance payment' AS description, NULL AS items_detail
        FROM purchases p
        WHERE ${payCond}`,
       payParams
