@@ -20,6 +20,8 @@ import ReportsPage    from './pages/ReportsPage';
 import ZatcaPage      from './pages/ZatcaPage';
 import PlatformTenantsPage from './pages/PlatformTenantsPage';
 import ItemsPage      from './pages/ItemsPage';
+import QuotationsPage  from './pages/QuotationsPage';
+import DeliveryNotesPage from './pages/DeliveryNotesPage';
 
 const TITLES = {
   '/':           'Dashboard',
@@ -31,6 +33,8 @@ const TITLES = {
   '/production': 'Production Log',
   '/stock':      'Stock',
   '/sales':      'Sales',
+  '/quotations': 'Quotations & Estimates',
+  '/delivery-notes': 'Delivery Notes & Logistics Challans',
   '/staff':      'Staff & Payroll',
   '/staff-log':  'Staff',
   '/finance':    'Finance',
@@ -85,6 +89,8 @@ export default function App() {
           <Route path="/production" element={<Guard path="/production"><ProductionPage /></Guard>} />
           <Route path="/stock"      element={<Guard path="/stock"><StockPage /></Guard>} />
           <Route path="/sales"      element={<Guard path="/sales"><SalesPage /></Guard>} />
+          <Route path="/quotations" element={<Guard path="/quotations"><QuotationsPage /></Guard>} />
+          <Route path="/delivery-notes" element={<Guard path="/delivery-notes"><DeliveryNotesPage /></Guard>} />
           <Route path="/staff"      element={<Guard path="/staff"><StaffPage /></Guard>} />
           <Route path="/finance"    element={<Guard path="/finance"><FinancePage /></Guard>} />
           <Route path="/settings"   element={<Guard path="/settings"><SettingsPage /></Guard>} />

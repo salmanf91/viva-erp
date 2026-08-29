@@ -16,6 +16,8 @@ import reportRoutes     from './routes/report.routes';
 import zatcaRoutes      from './routes/zatca.routes';
 import tenantRoutes     from './routes/tenant.routes';
 import itemRoutes       from './routes/item.routes';
+import quotationRoutes  from './routes/quotation.routes';
+import deliveryNoteRoutes from './routes/deliveryNote.routes';
 
 dotenv.config();
 
@@ -25,20 +27,22 @@ app.use(cors({ origin: process.env.CLIENT_ORIGIN || 'http://localhost:5173', cre
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-app.use('/api/auth',        authRoutes);
-app.use('/api/tenants',     tenantRoutes);
-app.use('/api/items',       itemRoutes);
-app.use('/api/partners',    partnerRoutes);
-app.use('/api/purchases',   purchaseRoutes);
-app.use('/api/expenses',    expenseRoutes);
-app.use('/api/production',  productionRoutes);
-app.use('/api/staff',       staffRoutes);
-app.use('/api/stock',       stockRoutes);
-app.use('/api/sales',       salesRoutes);
-app.use('/api/accessories', accessoryRoutes);
-app.use('/api/finance',     financeRoutes);
-app.use('/api/reports',     reportRoutes);
-app.use('/api/zatca',       zatcaRoutes);
+app.use('/api/auth',           authRoutes);
+app.use('/api/tenants',        tenantRoutes);
+app.use('/api/items',          itemRoutes);
+app.use('/api/quotations',     quotationRoutes);
+app.use('/api/delivery-notes', deliveryNoteRoutes);
+app.use('/api/partners',       partnerRoutes);
+app.use('/api/purchases',      purchaseRoutes);
+app.use('/api/expenses',       expenseRoutes);
+app.use('/api/production',     productionRoutes);
+app.use('/api/staff',          staffRoutes);
+app.use('/api/stock',          stockRoutes);
+app.use('/api/sales',          salesRoutes);
+app.use('/api/accessories',    accessoryRoutes);
+app.use('/api/finance',        financeRoutes);
+app.use('/api/reports',        reportRoutes);
+app.use('/api/zatca',          zatcaRoutes);
 
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error('Express error handler:', err);

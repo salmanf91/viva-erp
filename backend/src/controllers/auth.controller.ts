@@ -29,6 +29,8 @@ export async function login(req: Request, res: Response): Promise<void> {
       feature_staff_piece_log: true,
       feature_payroll: true,
       feature_zatca_einvoicing: false,
+      feature_quotations: false,
+      feature_delivery_notes: false,
     };
 
     try {
@@ -37,7 +39,7 @@ export async function login(req: Request, res: Response): Promise<void> {
                 m.feature_accounting, m.feature_expenses, m.feature_party_ledger,
                 m.feature_sales_invoicing, m.feature_purchases, m.feature_inventory_stock,
                 m.feature_garment_production, m.feature_staff_piece_log, m.feature_payroll,
-                m.feature_zatca_einvoicing
+                m.feature_zatca_einvoicing, m.feature_quotations, m.feature_delivery_notes
          FROM master_users u
          JOIN master_tenants t ON t.id = u.tenant_id
          LEFT JOIN master_tenant_modules m ON m.tenant_id = t.id
@@ -74,6 +76,8 @@ export async function login(req: Request, res: Response): Promise<void> {
           feature_staff_piece_log: !!userRow.feature_staff_piece_log,
           feature_payroll: !!userRow.feature_payroll,
           feature_zatca_einvoicing: !!userRow.feature_zatca_einvoicing,
+          feature_quotations: !!userRow.feature_quotations,
+          feature_delivery_notes: !!userRow.feature_delivery_notes,
         };
       }
     } catch (e) {

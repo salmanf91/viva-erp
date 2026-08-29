@@ -9,6 +9,8 @@ export interface TenantModules {
   feature_staff_piece_log: boolean;
   feature_payroll: boolean;
   feature_zatca_einvoicing: boolean;
+  feature_quotations: boolean;
+  feature_delivery_notes: boolean;
 }
 
 export interface AuthPayload {

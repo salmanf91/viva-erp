@@ -25,6 +25,8 @@ export interface ProvisionTenantInput {
     feature_staff_piece_log?: boolean;
     feature_payroll?: boolean;
     feature_zatca_einvoicing?: boolean;
+    feature_quotations?: boolean;
+    feature_delivery_notes?: boolean;
   };
 }
 
@@ -399,8 +401,8 @@ export async function provisionNewTenant(input: ProvisionTenantInput): Promise<{
       tenant_id, feature_accounting, feature_expenses, feature_party_ledger,
       feature_sales_invoicing, feature_purchases, feature_inventory_stock,
       feature_garment_production, feature_staff_piece_log, feature_payroll,
-      feature_zatca_einvoicing
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      feature_zatca_einvoicing, feature_quotations, feature_delivery_notes
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       tenantId,
       features.feature_accounting ?? true,
@@ -413,6 +415,8 @@ export async function provisionNewTenant(input: ProvisionTenantInput): Promise<{
       features.feature_staff_piece_log ?? false,
       features.feature_payroll ?? true,
       features.feature_zatca_einvoicing ?? (country === 'SA'),
+      features.feature_quotations ?? (business_domain !== 'garments' && business_domain !== 'manufacturing'),
+      features.feature_delivery_notes ?? (business_domain !== 'garments' && business_domain !== 'manufacturing'),
     ]
   );
 

@@ -1,0 +1,970 @@
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useAuth } from '../context/AuthContext';
+import api from '../api/client';
+
+export default function DeliveryNotesPage() {
+  const { user } = useAuth();
+  const currency = user?.currency || 'SAR';
+
+  // State
+  const [deliveryNotes, setDeliveryNotes] = useState([]);
+  const [clients, setClients] = useState([]);
+  const [salesOrders, setSalesOrders] = useState([]);
+  const [catalogItems, setCatalogItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  // View modes: 'list' | 'new' | 'edit'
+  const [viewMode, setViewMode] = useState('list');
+  const [editingNote, setEditingNote] = useState(null);
+
+  // Filters
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+
+  // Preview / Print Modal
+  const [previewNote, setPreviewNote] = useState(null);
+  const [previewItems, setPreviewItems] = useState([]);
+  const printRef = useRef(null);
+
+  // Form State
+  const emptyForm = {
+    client_id: '',
+    order_id: '',
+    delivery_date: new Date().toISOString().slice(0, 10),
+    status: 'dispatched',
+    shipping_address: '',
+    transporter_name: '',
+    vehicle_number: '',
+    tracking_lr_number: '',
+    notes: '',
+    items: [{ category: '', description: '', uom: 'pcs', quantity: 1, remarks: '' }],
+  };
+  const [form, setForm] = useState(emptyForm);
+
+  // Load Data
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const [dnRes, cRes, oRes, iRes] = await Promise.all([
+        api.get('/delivery-notes?limit=100'),
+        api.get('/sales/clients'),
+        api.get('/sales?limit=100'),
+        api.get('/items'),
+      ]);
+      setDeliveryNotes(dnRes.data?.data || []);
+      setClients(cRes.data || []);
+      setSalesOrders(oRes.data?.data || oRes.data || []);
+      setCatalogItems(iRes.data || []);
+    } catch (err) {
+      console.error('Failed to load delivery notes:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  // Form Handlers
+  const openNew = () => {
+    setEditingNote(null);
+    setForm({
+      ...emptyForm,
+      delivery_date: new Date().toISOString().slice(0, 10),
+      client_id: clients[0]?.id || '',
+    });
+    setViewMode('new');
+  };
+
+  const openEdit = async (note) => {
+    try {
+      const res = await api.get(`/delivery-notes/${note.id}`);
+      const dn = res.data.delivery_note;
+      const items = res.data.items || [];
+      setEditingNote(dn);
+      setForm({
+        client_id: dn.client_id,
+        order_id: dn.order_id || '',
+        delivery_date: dn.delivery_date?.slice(0, 10) || '',
+        status: dn.status || 'dispatched',
+        shipping_address: dn.shipping_address || '',
+        transporter_name: dn.transporter_name || '',
+        vehicle_number: dn.vehicle_number || '',
+        tracking_lr_number: dn.tracking_lr_number || '',
+        notes: dn.notes || '',
+        items: items.length > 0 ? items.map(it => ({
+          category: it.category,
+          description: it.description || '',
+          uom: it.uom || 'pcs',
+          quantity: it.quantity,
+          remarks: it.remarks || ''
+        })) : [{ category: '', description: '', uom: 'pcs', quantity: 1, remarks: '' }],
+      });
+      setViewMode('edit');
+    } catch (err) {
+      alert('Failed to load delivery note for editing');
+    }
+  };
+
+  const openPreview = async (note) => {
+    try {
+      const res = await api.get(`/delivery-notes/${note.id}`);
+      setPreviewNote(res.data.delivery_note);
+      setPreviewItems(res.data.items || []);
+    } catch (err) {
+      alert('Failed to load delivery note preview');
+    }
+  };
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  // When a Sales Order is selected in the form, automatically populate client & line items!
+  const handleSelectOrder = async (orderId) => {
+    setForm(prev => ({ ...prev, order_id: orderId }));
+    if (!orderId) return;
+
+    try {
+      const res = await api.get(`/sales/${orderId}`);
+      const order = res.data;
+      if (order) {
+        setForm(prev => ({
+          ...prev,
+          order_id: orderId,
+          client_id: order.client_id || prev.client_id,
+          shipping_address: order.client_address || prev.shipping_address,
+          notes: `Delivery for Invoice #${order.invoice_number}`,
+          items: order.items && order.items.length > 0 ? order.items.map(it => ({
+            category: it.category,
+            description: it.description || '',
+            uom: it.uom || 'pcs',
+            quantity: it.quantity,
+            remarks: `Inv #${order.invoice_number}`
+          })) : prev.items
+        }));
+      }
+    } catch {}
+  };
+
+  // Line Item Handlers
+  const updateItem = (index, field, value) => {
+    const updated = [...form.items];
+    updated[index][field] = value;
+    setForm({ ...form, items: updated });
+  };
+
+  const addItem = () => {
+    setForm({
+      ...form,
+      items: [...form.items, { category: '', description: '', uom: 'pcs', quantity: 1, remarks: '' }]
+    });
+  };
+
+  const removeItem = (index) => {
+    if (form.items.length === 1) return;
+    setForm({
+      ...form,
+      items: form.items.filter((_, i) => i !== index)
+    });
+  };
+
+  // Total Dispatched Pieces
+  const totalPieces = useMemo(() => {
+    return form.items.reduce((sum, it) => sum + (parseInt(it.quantity) || 0), 0);
+  }, [form.items]);
+
+  // Save Delivery Note
+  const handleSave = async (e) => {
+    e?.preventDefault();
+    if (!form.client_id) {
+      alert('Please select a client.');
+      return;
+    }
+    if (form.items.length === 0 || !form.items.some(i => i.category.trim())) {
+      alert('Please enter at least one dispatched item.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      if (viewMode === 'edit' && editingNote) {
+        await api.put(`/delivery-notes/${editingNote.id}`, form);
+        setMsg({ type: 'success', text: `Delivery Note #${editingNote.delivery_note_number} updated.` });
+      } else {
+        const res = await api.post('/delivery-notes', form);
+        setMsg({ type: 'success', text: `Delivery Note #${res.data?.delivery_note_number} created successfully.` });
+      }
+      setViewMode('list');
+      loadData();
+      setTimeout(() => setMsg(null), 3500);
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to save delivery note.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Fast Status Update
+  const handleQuickStatus = async (note, newStatus) => {
+    try {
+      await api.put(`/delivery-notes/${note.id}/status`, { status: newStatus });
+      setMsg({ type: 'success', text: `Note #${note.delivery_note_number} marked as ${newStatus}.` });
+      loadData();
+      setTimeout(() => setMsg(null), 3000);
+    } catch (err) {
+      alert('Failed to update status');
+    }
+  };
+
+  // Delete Note
+  const handleDelete = async (note) => {
+    if (!window.confirm(`Delete Delivery Note #${note.delivery_note_number}?`)) return;
+    try {
+      await api.delete(`/delivery-notes/${note.id}`);
+      setMsg({ type: 'success', text: `Delivery Note #${note.delivery_note_number} deleted.` });
+      loadData();
+      setTimeout(() => setMsg(null), 3000);
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to delete delivery note.');
+    }
+  };
+
+  // Filtered List
+  const filtered = useMemo(() => {
+    return deliveryNotes.filter(dn => {
+      if (statusFilter !== 'all' && dn.status !== statusFilter) return false;
+      if (!search) return true;
+      const term = search.toLowerCase();
+      return (
+        (dn.delivery_note_number && dn.delivery_note_number.toLowerCase().includes(term)) ||
+        (dn.client_name && dn.client_name.toLowerCase().includes(term)) ||
+        (dn.transporter_name && dn.transporter_name.toLowerCase().includes(term)) ||
+        (dn.vehicle_number && dn.vehicle_number.toLowerCase().includes(term))
+      );
+    });
+  }, [deliveryNotes, search, statusFilter]);
+
+  const getBadge = (status) => {
+    switch (status) {
+      case 'dispatched': return <span className="badge b-orange">🚚 In-Transit / Dispatched</span>;
+      case 'delivered':  return <span className="badge b-green">✓ Delivered</span>;
+      case 'cancelled':  return <span className="badge b-red">Cancelled</span>;
+      default:           return <span className="badge b-gray">{status}</span>;
+    }
+  };
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // VIEW: FULL-PAGE DELIVERY NOTE EDITOR
+  // ═════════════════════════════════════════════════════════════════════════
+  if (viewMode === 'new' || viewMode === 'edit') {
+    return (
+      <div style={{ maxWidth: 1040, margin: '0 auto', paddingBottom: 50 }}>
+        {/* Top Sticky Action Bar */}
+        <div style={{
+          background: 'var(--white)',
+          padding: '16px 20px',
+          borderRadius: 12,
+          border: '1px solid var(--border)',
+          boxShadow: '0 1px 4px rgba(0,0,0,0.03)',
+          marginBottom: 20,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 12
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button
+              type="button"
+              onClick={() => setViewMode('list')}
+              className="btn btn-ghost"
+            >
+              ← Back to Dispatches
+            </button>
+            <div>
+              <h1 style={{ fontSize: 18, fontWeight: 800, color: 'var(--text)', margin: 0 }}>
+                {viewMode === 'edit' ? `Edit Delivery Note: #${editingNote?.delivery_note_number}` : 'New Delivery Note & Gate Pass'}
+              </h1>
+              <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0, marginTop: 2 }}>
+                Track logistics dispatches, transport details, and recipient sign-offs.
+              </p>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button
+              type="button"
+              onClick={() => setViewMode('list')}
+              className="btn btn-ghost"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving}
+              className="btn btn-primary"
+              style={{ minWidth: 140 }}
+            >
+              {saving ? 'Saving…' : (viewMode === 'edit' ? 'Update Note' : 'Save Delivery Note')}
+            </button>
+          </div>
+        </div>
+
+        {/* Form Body Grid */}
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            {/* 1. Client & Order Reference */}
+            <div className="card" style={{ padding: '20px 24px' }}>
+              <h2 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 16px', color: 'var(--text)' }}>
+                1. Delivery & Recipient Details
+              </h2>
+              <div className="form-grid">
+                <div className="field">
+                  <label>Link to Sales Order (Optional)</label>
+                  <select
+                    value={form.order_id}
+                    onChange={(e) => handleSelectOrder(e.target.value)}
+                  >
+                    <option value="">-- Standalone Delivery Note --</option>
+                    {salesOrders.map(o => (
+                      <option key={o.id} value={o.id}>
+                        {o.invoice_number} - {o.client_name} ({o.total_pieces || 0} pcs)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="field">
+                  <label>Client / Consignee *</label>
+                  <select
+                    value={form.client_id}
+                    onChange={(e) => setForm({ ...form, client_id: e.target.value })}
+                  >
+                    <option value="">Select a Client</option>
+                    {clients.map(c => (
+                      <option key={c.id} value={c.id}>{c.name} {c.city ? `(${c.city})` : ''}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="field">
+                  <label>Dispatch / Delivery Date *</label>
+                  <input
+                    type="date"
+                    value={form.delivery_date}
+                    onChange={(e) => setForm({ ...form, delivery_date: e.target.value })}
+                  />
+                </div>
+
+                <div className="field">
+                  <label>Dispatch Status</label>
+                  <select
+                    value={form.status}
+                    onChange={(e) => setForm({ ...form, status: e.target.value })}
+                  >
+                    <option value="dispatched">🚚 In-Transit / Dispatched</option>
+                    <option value="delivered">✓ Delivered & Acknowledged</option>
+                    <option value="draft">Draft</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                </div>
+
+                <div className="field form-full">
+                  <label>Delivery / Shipping Address</label>
+                  <textarea
+                    rows={2}
+                    value={form.shipping_address}
+                    onChange={(e) => setForm({ ...form, shipping_address: e.target.value })}
+                    placeholder="Destination warehouse, street address, gate number..."
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Dispatched Package Items */}
+            <div className="card" style={{ padding: '20px 24px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                <h2 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: 'var(--text)' }}>
+                  2. Dispatched Packages & Items
+                </h2>
+                <button
+                  type="button"
+                  onClick={addItem}
+                  className="btn btn-ghost btn-sm"
+                  style={{ color: 'var(--accent)', borderColor: 'var(--accent)' }}
+                >
+                  + Add Item
+                </button>
+              </div>
+
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid var(--border)', background: 'var(--bg)' }}>
+                      <th style={{ padding: '8px 10px', fontSize: 11, textAlign: 'left', color: '#475569', width: '35%' }}>ITEM / CATEGORY *</th>
+                      <th style={{ padding: '8px 10px', fontSize: 11, textAlign: 'left', color: '#475569' }}>BOX / PACKING REMARKS</th>
+                      <th style={{ padding: '8px 10px', fontSize: 11, textAlign: 'center', color: '#475569', width: 80 }}>UOM</th>
+                      <th style={{ padding: '8px 10px', fontSize: 11, textAlign: 'right', color: '#475569', width: 90 }}>QTY</th>
+                      <th style={{ padding: '8px 10px', width: 40 }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {form.items.map((it, idx) => (
+                      <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ padding: '8px 6px' }}>
+                          <input
+                            type="text"
+                            list={`dn-catalog-${idx}`}
+                            placeholder="e.g. Cotton Uniform"
+                            value={it.category}
+                            onChange={(e) => updateItem(idx, 'category', e.target.value)}
+                          />
+                          <datalist id={`dn-catalog-${idx}`}>
+                            {catalogItems.map(ci => (
+                              <option key={ci.id} value={ci.name || ci.category} />
+                            ))}
+                          </datalist>
+                        </td>
+                        <td style={{ padding: '8px 6px' }}>
+                          <input
+                            type="text"
+                            placeholder="Box #1, Bundle of 10..."
+                            value={it.remarks}
+                            onChange={(e) => updateItem(idx, 'remarks', e.target.value)}
+                          />
+                        </td>
+                        <td style={{ padding: '8px 6px' }}>
+                          <select
+                            value={it.uom}
+                            onChange={(e) => updateItem(idx, 'uom', e.target.value)}
+                            style={{ textAlign: 'center' }}
+                          >
+                            <option value="pcs">pcs</option>
+                            <option value="meters">mtrs</option>
+                            <option value="boxes">box</option>
+                            <option value="rolls">rolls</option>
+                            <option value="sets">sets</option>
+                          </select>
+                        </td>
+                        <td style={{ padding: '8px 6px' }}>
+                          <input
+                            type="number"
+                            min="1"
+                            value={it.quantity}
+                            onChange={(e) => updateItem(idx, 'quantity', e.target.value)}
+                            style={{ textAlign: 'right' }}
+                          />
+                        </td>
+                        <td style={{ padding: '8px 6px', textAlign: 'center' }}>
+                          <button
+                            type="button"
+                            onClick={() => removeItem(idx)}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              color: 'var(--red)',
+                              cursor: 'pointer',
+                              fontSize: 14,
+                              opacity: form.items.length === 1 ? 0.3 : 1
+                            }}
+                            disabled={form.items.length === 1}
+                          >
+                            ✕
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Logistics Column */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            <div className="card" style={{ padding: '20px 24px', position: 'sticky', top: 20 }}>
+              <h2 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 16px', color: 'var(--text)' }}>
+                Logistics & Carrier Details
+              </h2>
+
+              <div className="field">
+                <label>Transporter / Logistics Co.</label>
+                <input
+                  type="text"
+                  value={form.transporter_name}
+                  onChange={(e) => setForm({ ...form, transporter_name: e.target.value })}
+                  placeholder="e.g. BlueDart / SMSA / In-House"
+                />
+              </div>
+
+              <div className="field">
+                <label>Vehicle / Driver No.</label>
+                <input
+                  type="text"
+                  value={form.vehicle_number}
+                  onChange={(e) => setForm({ ...form, vehicle_number: e.target.value })}
+                  placeholder="e.g. KA-01-AB-1234"
+                />
+              </div>
+
+              <div className="field">
+                <label>Tracking / LR / Waybill #</label>
+                <input
+                  type="text"
+                  value={form.tracking_lr_number}
+                  onChange={(e) => setForm({ ...form, tracking_lr_number: e.target.value })}
+                  placeholder="e.g. LR-984210"
+                />
+              </div>
+
+              <div className="field">
+                <label>Driver / Dispatch Notes</label>
+                <textarea
+                  rows={2}
+                  value={form.notes}
+                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                  placeholder="Fragile, gate pass instructions..."
+                />
+              </div>
+
+              <div style={{
+                background: 'var(--bg)',
+                borderRadius: 8,
+                padding: '14px 16px',
+                marginTop: 10,
+                border: '1px solid var(--border)',
+                textAlign: 'center'
+              }}>
+                <div style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', fontWeight: 600 }}>
+                  Total Package Pieces
+                </div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--accent)', marginTop: 4 }}>
+                  {totalPieces} Pieces
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={saving}
+                className="btn btn-primary"
+                style={{ width: '100%', marginTop: 20, padding: '12px 16px', fontSize: 14 }}
+              >
+                {saving ? 'Saving…' : (viewMode === 'edit' ? 'Update Delivery Note' : 'Generate Delivery Note')}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // VIEW: CATALOG & DISPATCHES LIST
+  // ═════════════════════════════════════════════════════════════════════════
+  const totalDispatches = deliveryNotes.length;
+  const inTransitCount = deliveryNotes.filter(dn => dn.status === 'dispatched').length;
+  const deliveredCount = deliveryNotes.filter(dn => dn.status === 'delivered').length;
+
+  return (
+    <div>
+      {/* Toast Notification */}
+      {msg && (
+        <div style={{
+          position: 'fixed',
+          top: 24,
+          right: 24,
+          background: msg.type === 'success' ? '#10b981' : '#ef4444',
+          color: '#fff',
+          padding: '12px 20px',
+          borderRadius: 8,
+          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+          zIndex: 9999,
+          fontWeight: 600,
+          fontSize: 13
+        }}>
+          {msg.text}
+        </div>
+      )}
+
+      {/* KPI Stat Cards Header */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+        gap: 16,
+        marginBottom: 20
+      }}>
+        <div className="card" style={{ padding: '16px 20px', borderLeft: '4px solid var(--accent)' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase' }}>Total Dispatches</div>
+          <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--text)', marginTop: 4 }}>
+            {totalDispatches} Dispatches
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>Logged delivery notes</div>
+        </div>
+
+        <div className="card" style={{ padding: '16px 20px', borderLeft: '4px solid var(--orange)' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase' }}>In Transit / Out for Delivery</div>
+          <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--orange)', marginTop: 4 }}>
+            {inTransitCount} Shipments
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>Awaiting receiver sign-off</div>
+        </div>
+
+        <div className="card" style={{ padding: '16px 20px', borderLeft: '4px solid var(--green)' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase' }}>Completed Deliveries</div>
+          <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--green)', marginTop: 4 }}>
+            {deliveredCount} Delivered
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>Successfully fulfilled</div>
+        </div>
+
+        <div className="card" style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center' }}>
+          <button
+            type="button"
+            onClick={openNew}
+            className="btn btn-primary"
+            style={{ width: '100%', padding: '10px 16px', fontSize: 13, gap: 6 }}
+          >
+            <span style={{ fontSize: 16 }}>+</span> New Delivery Note
+          </button>
+        </div>
+      </div>
+
+      {/* Search & Filter Bar */}
+      <div style={{
+        background: 'var(--white)',
+        padding: '12px 16px',
+        borderRadius: 10,
+        border: '1px solid var(--border)',
+        marginBottom: 16,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexWrap: 'wrap',
+        gap: 12
+      }}>
+        <div className="search-wrap" style={{ flex: '1 1 240px', maxWidth: 360 }}>
+          <span className="sw-icon">🔍</span>
+          <input
+            type="text"
+            placeholder="Search by DN #, client, carrier, vehicle..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          {search && (
+            <button type="button" className="sw-clear" onClick={() => setSearch('')}>✕</button>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {[
+            { id: 'all', label: 'All' },
+            { id: 'dispatched', label: '🚚 In-Transit' },
+            { id: 'delivered', label: '✓ Delivered' },
+            { id: 'draft', label: 'Draft' }
+          ].map(p => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setStatusFilter(p.id)}
+              style={{
+                background: statusFilter === p.id ? 'var(--accent)' : 'var(--bg)',
+                color: statusFilter === p.id ? '#fff' : 'var(--muted)',
+                border: '1px solid',
+                borderColor: statusFilter === p.id ? 'var(--accent)' : 'var(--border)',
+                borderRadius: 20,
+                padding: '5px 12px',
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all 0.12s'
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        {loading ? (
+          <div className="spinner" style={{ padding: 40 }}>Loading delivery notes…</div>
+        ) : filtered.length === 0 ? (
+          <div className="empty-state" style={{ padding: 48, textAlign: 'center' }}>
+            <p style={{ fontSize: 14, color: 'var(--muted)', margin: 0 }}>No delivery notes found matching your criteria.</p>
+            <button
+              type="button"
+              onClick={openNew}
+              className="btn btn-primary"
+              style={{ marginTop: 14 }}
+            >
+              + Create First Delivery Note
+            </button>
+          </div>
+        ) : (
+          <div className="tbl-wrap">
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr style={{ background: 'var(--bg)', borderBottom: '2px solid var(--border)' }}>
+                  <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'left', color: '#475569' }}>NOTE #</th>
+                  <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'left', color: '#475569' }}>DATE</th>
+                  <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'left', color: '#475569' }}>CLIENT & DESTINATION</th>
+                  <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'left', color: '#475569' }}>ORDER REF</th>
+                  <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'center', color: '#475569' }}>PIECES</th>
+                  <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'left', color: '#475569' }}>CARRIER / VEHICLE</th>
+                  <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'center', color: '#475569' }}>STATUS</th>
+                  <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'center', color: '#475569' }}>ACTIONS</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(dn => (
+                  <tr key={dn.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <td style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--accent)' }}>
+                      <span
+                        onClick={() => openPreview(dn)}
+                        style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                        title="Click to view gate pass"
+                      >
+                        {dn.delivery_note_number}
+                      </span>
+                    </td>
+                    <td style={{ padding: '12px 14px', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                      {dn.delivery_date?.slice(0, 10)}
+                    </td>
+                    <td style={{ padding: '12px 14px' }}>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{dn.client_name}</div>
+                      {dn.client_city && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{dn.client_city}</div>}
+                    </td>
+                    <td style={{ padding: '12px 14px', fontSize: 12 }}>
+                      {dn.order_invoice_number ? (
+                        <span style={{ fontWeight: 600, color: 'var(--text)' }}>
+                          {dn.order_invoice_number}
+                        </span>
+                      ) : (
+                        <span style={{ color: 'var(--muted)' }}>Direct</span>
+                      )}
+                    </td>
+                    <td style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 700, fontSize: 13 }}>
+                      {dn.total_pieces || dn.total_items_count || 0} pcs
+                    </td>
+                    <td style={{ padding: '12px 14px', fontSize: 12 }}>
+                      {dn.transporter_name && <div style={{ fontWeight: 600 }}>{dn.transporter_name}</div>}
+                      {dn.vehicle_number && <div style={{ fontSize: 11, color: 'var(--muted)' }}>🚛 {dn.vehicle_number}</div>}
+                      {!dn.transporter_name && !dn.vehicle_number && <span style={{ color: 'var(--muted)' }}>—</span>}
+                    </td>
+                    <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                      {getBadge(dn.status)}
+                    </td>
+                    <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                      <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                        <button
+                          type="button"
+                          onClick={() => openPreview(dn)}
+                          className="btn btn-ghost btn-sm"
+                          title="Print Gate Pass"
+                        >
+                          📄 Gate Pass
+                        </button>
+
+                        {dn.status === 'dispatched' && (
+                          <button
+                            type="button"
+                            onClick={() => handleQuickStatus(dn, 'delivered')}
+                            className="btn btn-sm"
+                            style={{ background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0' }}
+                            title="Mark as Delivered"
+                          >
+                            ✓ Received
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => openEdit(dn)}
+                          className="btn btn-ghost btn-sm"
+                          title="Edit Note"
+                        >
+                          ✏️
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(dn)}
+                          className="btn btn-red btn-sm"
+                          title="Delete Note"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      {/* MODAL: PRINTABLE DELIVERY CHALLAN / GATE PASS */}
+      {/* ═══════════════════════════════════════════════════════════════════ */}
+      {previewNote && (
+        <div className="modal-overlay" onClick={() => setPreviewNote(null)}>
+          <div
+            className="modal"
+            style={{ width: 780, maxWidth: '95vw', padding: 0, overflow: 'hidden' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div style={{
+              padding: '14px 20px',
+              borderBottom: '1px solid var(--border)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: 'var(--bg)'
+            }}>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>
+                Delivery Challan Preview: #{previewNote.delivery_note_number}
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={handlePrint}
+                  className="btn btn-primary btn-sm"
+                >
+                  🖨️ Print Gate Pass
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewNote(null)}
+                  className="btn btn-ghost btn-sm"
+                >
+                  ✕ Close
+                </button>
+              </div>
+            </div>
+
+            {/* Printable Document Sheet */}
+            <div ref={printRef} style={{ padding: '32px 36px', background: '#fff', color: '#1e293b' }}>
+              {/* Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '2px solid #e2e8f0', paddingBottom: 18 }}>
+                <div>
+                  <h1 style={{ fontSize: 22, fontWeight: 900, color: 'var(--accent)', margin: 0 }}>
+                    {user?.tenant_name || 'VIVA STUDIO'}
+                  </h1>
+                  <p style={{ fontSize: 12, color: '#64748b', margin: '4px 0 0' }}>
+                    Delivery Challan & Gate Pass (Dispatch Note)
+                  </p>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: '#0f172a' }}>{previewNote.delivery_note_number}</div>
+                  <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
+                    Date: <strong>{previewNote.delivery_date?.slice(0, 10)}</strong>
+                  </div>
+                  {previewNote.order_invoice_number && (
+                    <div style={{ fontSize: 12, color: '#64748b' }}>
+                      Invoice Ref: <strong>{previewNote.order_invoice_number}</strong>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Consignee & Carrier Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, margin: '20px 0', fontSize: 13 }}>
+                <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Consignee / Deliver To:</div>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: '#0f172a' }}>{previewNote.client_name}</div>
+                  {previewNote.client_phone && <div style={{ color: '#475569', marginTop: 2 }}>📞 {previewNote.client_phone}</div>}
+                  <div style={{ color: '#475569', marginTop: 2 }}>
+                    📍 {previewNote.shipping_address || previewNote.client_address || 'Same as office address'}
+                  </div>
+                </div>
+
+                <div style={{ background: '#f8fafc', padding: '12px 16px', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: 4 }}>Transport & Carrier:</div>
+                  <div>Carrier: <strong>{previewNote.transporter_name || 'Self Dispatch'}</strong></div>
+                  {previewNote.vehicle_number && <div>Vehicle #: <strong>{previewNote.vehicle_number}</strong></div>}
+                  {previewNote.tracking_lr_number && <div>LR/Docket #: <strong>{previewNote.tracking_lr_number}</strong></div>}
+                  <div style={{ marginTop: 4 }}>{getBadge(previewNote.status)}</div>
+                </div>
+              </div>
+
+              {/* Items Table */}
+              <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 10 }}>
+                <thead>
+                  <tr style={{ background: '#f1f5f9', borderBottom: '2px solid #cbd5e1' }}>
+                    <th style={{ padding: '8px 10px', fontSize: 11, textAlign: 'left', color: '#475569', width: 24 }}>#</th>
+                    <th style={{ padding: '8px 10px', fontSize: 11, textAlign: 'left', color: '#475569' }}>ITEM DESCRIPTION</th>
+                    <th style={{ padding: '8px 10px', fontSize: 11, textAlign: 'center', color: '#475569', width: 80 }}>UOM</th>
+                    <th style={{ padding: '8px 10px', fontSize: 11, textAlign: 'right', color: '#475569', width: 100 }}>DISPATCH QTY</th>
+                    <th style={{ padding: '8px 10px', fontSize: 11, textAlign: 'left', color: '#475569' }}>PACKING / REMARKS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {previewItems.map((it, idx) => (
+                    <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
+                      <td style={{ padding: '10px', fontSize: 12, color: '#64748b' }}>{idx + 1}</td>
+                      <td style={{ padding: '10px' }}>
+                        <div style={{ fontWeight: 700, fontSize: 13 }}>{it.category}</div>
+                        {it.description && <div style={{ fontSize: 11, color: '#64748b' }}>{it.description}</div>}
+                      </td>
+                      <td style={{ padding: '10px', textAlign: 'center', fontSize: 12, color: '#64748b' }}>{it.uom || 'pcs'}</td>
+                      <td style={{ padding: '10px', textAlign: 'right', fontWeight: 800, fontSize: 14 }}>{it.quantity}</td>
+                      <td style={{ padding: '10px', fontSize: 12, color: '#64748b' }}>{it.remarks || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {/* Total Pieces */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'flex-end',
+                padding: '12px 16px',
+                background: '#f8fafc',
+                border: '1px solid #e2e8f0',
+                borderRadius: 8,
+                marginTop: 16
+              }}>
+                <div style={{ fontSize: 14, fontWeight: 800, color: '#0f172a' }}>
+                  Total Dispatched Quantity: <span style={{ color: 'var(--accent)', fontSize: 16 }}>{previewNote.total_pieces || previewNote.total_items_count || 0} Pieces</span>
+                </div>
+              </div>
+
+              {/* Signatures & Notes */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 20, marginTop: 48, paddingTop: 16, borderTop: '1px dashed #cbd5e1' }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ height: 40 }}></div>
+                  <div style={{ borderTop: '1px solid #94a3b8', paddingTop: 6, fontSize: 12, fontWeight: 700, color: '#475569' }}>
+                    Prepared / Warehouse
+                  </div>
+                </div>
+
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ height: 40 }}></div>
+                  <div style={{ borderTop: '1px solid #94a3b8', paddingTop: 6, fontSize: 12, fontWeight: 700, color: '#475569' }}>
+                    Driver / Carrier Sign
+                  </div>
+                </div>
+
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ height: 40 }}></div>
+                  <div style={{ borderTop: '1px solid #94a3b8', paddingTop: 6, fontSize: 12, fontWeight: 700, color: '#475569' }}>
+                    Receiver Stamp & Signature
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
