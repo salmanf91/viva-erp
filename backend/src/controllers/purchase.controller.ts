@@ -101,28 +101,41 @@ export async function createPurchase(req: AuthRequest, res: Response): Promise<v
       let amount = qty * rateInput;
       let rate_per_pc = rateInput;
 
-      if (taxInclusive && taxRate > 0) {
+      if (taxInclusive && taxRate > 0 && qty > 0) {
         const inclusiveAmount = qty * rateInput;
         amount = parseFloat((inclusiveAmount / (1 + taxRate / 100)).toFixed(2));
         rate_per_pc = parseFloat((amount / qty).toFixed(2));
       }
 
-      subtotal += amount;
-      processedItems.push({
-        category: item.category,
-        quantity: qty,
-        rate_per_pc,
-        amount
-      });
+      if (qty > 0 && rate_per_pc > 0) {
+        subtotal += amount;
+        processedItems.push({
+          category: item.category || 'mixed',
+          quantity: qty,
+          rate_per_pc,
+          amount
+        });
+      } else if (item.category && parseFloat(item.amount) > 0) {
+        subtotal += parseFloat(item.amount);
+        processedItems.push({
+          category: item.category,
+          quantity: qty,
+          rate_per_pc: rateInput,
+          amount: parseFloat(item.amount)
+        });
+      }
     }
 
     const discountAmt = parseFloat(discount) || 0;
-    const taxAmount = parseFloat((((subtotal - discountAmt) * taxRate) / 100).toFixed(2));
+    const taxAmount = parseFloat((((Math.max(0, subtotal - discountAmt)) * taxRate) / 100).toFixed(2));
     const freightAmt = transport ? (parseFloat(transport.freight) || 0) : 0;
     const coolieAmt = transport ? (parseFloat(transport.coolie) || 0) : 0;
-    const total = parseFloat((subtotal - discountAmt + taxAmount + freightAmt + coolieAmt).toFixed(2));
+    
+    // If subtotal is 0 but advance_paid is entered, grand total reflects advance_paid
+    const calculatedTotal = subtotal - discountAmt + taxAmount + freightAmt + coolieAmt;
+    const total = parseFloat((calculatedTotal > 0 ? calculatedTotal : (advancePaid > 0 ? advancePaid : 0)).toFixed(2));
 
-    const finalStatus = advancePaid >= total ? 'paid' : (advancePaid > 0 ? 'partial' : (status || 'paid'));
+    const finalStatus = (total > 0 && advancePaid >= total) ? 'paid' : (advancePaid > 0 ? 'partial' : (status || 'paid'));
 
     const [pRes] = await conn.execute(
       'INSERT INTO purchases (tenant_id,vendor_id,invoice_date,subtotal,discount,tax_rate,tax_amount,total,status,note,tax_inclusive,advance_paid) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
@@ -131,15 +144,17 @@ export async function createPurchase(req: AuthRequest, res: Response): Promise<v
     const purchaseId = (pRes as any).insertId;
 
     for (const item of processedItems) {
-      await conn.execute(
-        'INSERT INTO purchase_items (purchase_id,category,quantity,rate_per_pc,amount) VALUES (?,?,?,?,?)',
-        [purchaseId, item.category, item.quantity, item.rate_per_pc, item.amount]
-      );
-      // record stock movement
-      await conn.execute(
-        'INSERT INTO stock_movements (tenant_id,category,vendor_id,type,quantity,reference,movement_date) VALUES (?,?,?,?,?,?,?)',
-        [tenantId, item.category, vendor_id, 'in', item.quantity, `PUR-${purchaseId}`, invoice_date]
-      );
+      if (item.quantity > 0) {
+        await conn.execute(
+          'INSERT INTO purchase_items (purchase_id,category,quantity,rate_per_pc,amount) VALUES (?,?,?,?,?)',
+          [purchaseId, item.category, item.quantity, item.rate_per_pc, item.amount]
+        );
+        // record stock movement
+        await conn.execute(
+          'INSERT INTO stock_movements (tenant_id,category,vendor_id,type,quantity,reference,movement_date) VALUES (?,?,?,?,?,?,?)',
+          [tenantId, item.category, vendor_id, 'in', item.quantity, `PUR-${purchaseId}`, invoice_date]
+        );
+      }
     }
 
     if (transport) {
