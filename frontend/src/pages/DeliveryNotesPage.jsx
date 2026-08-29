@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
+import { exportToCSV } from '../utils/csvExport';
 
 export default function DeliveryNotesPage() {
   const { user } = useAuth();
@@ -248,6 +249,49 @@ export default function DeliveryNotesPage() {
     });
   }, [deliveryNotes, search, statusFilter]);
 
+  // CSV Export
+  const handleExportCSV = () => {
+    if (!filtered.length) {
+      alert('No delivery notes available to export.');
+      return;
+    }
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const filename = `Delivery_Notes_Export_${todayStr}`;
+
+    const headers = [
+      'Delivery Note #',
+      'Dispatch Date',
+      'Client / Consignee',
+      'City',
+      'Order Invoice Ref',
+      'Total Pieces',
+      'Transporter / Courier',
+      'Vehicle Number',
+      'Tracking / LR #',
+      'Status',
+      'Shipping Address',
+      'Driver Notes'
+    ];
+
+    const rows = filtered.map(dn => [
+      dn.delivery_note_number || '',
+      dn.delivery_date?.slice(0, 10) || '',
+      dn.client_name || '',
+      dn.client_city || '',
+      dn.order_invoice_number || 'Direct',
+      dn.total_pieces || dn.total_items_count || 0,
+      dn.transporter_name || '',
+      dn.vehicle_number || '',
+      dn.tracking_lr_number || '',
+      (dn.status || '').toUpperCase(),
+      dn.shipping_address || '',
+      dn.notes || ''
+    ]);
+
+    exportToCSV(filename, headers, rows);
+  };
+
   const getBadge = (status) => {
     switch (status) {
       case 'dispatched': return <span className="badge b-orange">🚚 In-Transit / Dispatched</span>;
@@ -262,11 +306,11 @@ export default function DeliveryNotesPage() {
   // ═════════════════════════════════════════════════════════════════════════
   if (viewMode === 'new' || viewMode === 'edit') {
     return (
-      <div style={{ maxWidth: 1040, margin: '0 auto', paddingBottom: 50 }}>
+      <div style={{ maxWidth: 1180, margin: '0 auto', paddingBottom: 60 }}>
         {/* Top Sticky Action Bar */}
         <div style={{
           background: 'var(--white)',
-          padding: '16px 20px',
+          padding: '16px 24px',
           borderRadius: 12,
           border: '1px solid var(--border)',
           boxShadow: '0 1px 4px rgba(0,0,0,0.03)',
@@ -277,29 +321,32 @@ export default function DeliveryNotesPage() {
           flexWrap: 'wrap',
           gap: 12
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
             <button
               type="button"
               onClick={() => setViewMode('list')}
               className="btn btn-ghost"
+              style={{ padding: '8px 14px', fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}
             >
-              ← Back to Dispatches
+              <span>←</span> All Dispatches
             </button>
             <div>
-              <h1 style={{ fontSize: 18, fontWeight: 800, color: 'var(--text)', margin: 0 }}>
+              <h1 style={{ fontSize: 18, fontWeight: 800, color: 'var(--text)', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>🚚</span>
                 {viewMode === 'edit' ? `Edit Delivery Note: #${editingNote?.delivery_note_number}` : 'New Delivery Note & Gate Pass'}
               </h1>
               <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0, marginTop: 2 }}>
-                Track logistics dispatches, transport details, and recipient sign-offs.
+                Track logistics dispatches, transporter details, vehicle LR numbers, and recipient receipts.
               </p>
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <button
               type="button"
               onClick={() => setViewMode('list')}
               className="btn btn-ghost"
+              style={{ padding: '8px 18px', fontSize: 13 }}
             >
               Cancel
             </button>
@@ -308,256 +355,379 @@ export default function DeliveryNotesPage() {
               onClick={handleSave}
               disabled={saving}
               className="btn btn-primary"
-              style={{ minWidth: 140 }}
+              style={{ minWidth: 140, padding: '9px 22px', fontSize: 13, fontWeight: 700 }}
             >
-              {saving ? 'Saving…' : (viewMode === 'edit' ? 'Update Note' : 'Save Delivery Note')}
+              {saving ? 'Saving…' : (viewMode === 'edit' ? '✓ Update Note' : '✓ Save Delivery Note')}
             </button>
           </div>
         </div>
 
-        {/* Form Body Grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            {/* 1. Client & Order Reference */}
-            <div className="card" style={{ padding: '20px 24px' }}>
-              <h2 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 16px', color: 'var(--text)' }}>
-                1. Delivery & Recipient Details
-              </h2>
-              <div className="form-grid">
-                <div className="field">
-                  <label>Link to Sales Order (Optional)</label>
-                  <select
-                    value={form.order_id}
-                    onChange={(e) => handleSelectOrder(e.target.value)}
-                  >
-                    <option value="">-- Standalone Delivery Note --</option>
-                    {salesOrders.map(o => (
-                      <option key={o.id} value={o.id}>
-                        {o.invoice_number} - {o.client_name} ({o.total_pieces || 0} pcs)
-                      </option>
-                    ))}
-                  </select>
-                </div>
+        {/* ── SECTION 1: DELIVERY & RECIPIENT DETAILS (FULL WIDTH) ── */}
+        <div className="card" style={{ padding: '22px 24px', marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ color: 'var(--accent)' }}>1.</span> Delivery &amp; Consignee Details
+            </div>
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>* Required fields</span>
+          </div>
 
-                <div className="field">
-                  <label>Client / Consignee *</label>
-                  <select
-                    value={form.client_id}
-                    onChange={(e) => setForm({ ...form, client_id: e.target.value })}
-                  >
-                    <option value="">Select a Client</option>
-                    {clients.map(c => (
-                      <option key={c.id} value={c.id}>{c.name} {c.city ? `(${c.city})` : ''}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="field">
-                  <label>Dispatch / Delivery Date *</label>
-                  <input
-                    type="date"
-                    value={form.delivery_date}
-                    onChange={(e) => setForm({ ...form, delivery_date: e.target.value })}
-                  />
-                </div>
-
-                <div className="field">
-                  <label>Dispatch Status</label>
-                  <select
-                    value={form.status}
-                    onChange={(e) => setForm({ ...form, status: e.target.value })}
-                  >
-                    <option value="dispatched">🚚 In-Transit / Dispatched</option>
-                    <option value="delivered">✓ Delivered & Acknowledged</option>
-                    <option value="draft">Draft</option>
-                    <option value="cancelled">Cancelled</option>
-                  </select>
-                </div>
-
-                <div className="field form-full">
-                  <label>Delivery / Shipping Address</label>
-                  <textarea
-                    rows={2}
-                    value={form.shipping_address}
-                    onChange={(e) => setForm({ ...form, shipping_address: e.target.value })}
-                    placeholder="Destination warehouse, street address, gate number..."
-                  />
-                </div>
-              </div>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+            gap: 16,
+            alignItems: 'start'
+          }}>
+            {/* Link to Sales Order */}
+            <div className="field" style={{ margin: 0 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                Link to Sales Order (Optional)
+              </label>
+              <select
+                value={form.order_id}
+                onChange={(e) => handleSelectOrder(e.target.value)}
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, fontSize: 13 }}
+              >
+                <option value="">-- Standalone Delivery Note --</option>
+                {salesOrders.map(o => (
+                  <option key={o.id} value={o.id}>
+                    {o.invoice_number} - {o.client_name} ({o.total_pieces || 0} pcs)
+                  </option>
+                ))}
+              </select>
             </div>
 
-            {/* 2. Dispatched Package Items */}
-            <div className="card" style={{ padding: '20px 24px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                <h2 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: 'var(--text)' }}>
-                  2. Dispatched Packages & Items
-                </h2>
-                <button
-                  type="button"
-                  onClick={addItem}
-                  className="btn btn-ghost btn-sm"
-                  style={{ color: 'var(--accent)', borderColor: 'var(--accent)' }}
-                >
-                  + Add Item
-                </button>
-              </div>
+            {/* Client Selector */}
+            <div className="field" style={{ margin: 0 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                Client / Consignee <span style={{ color: 'var(--red)' }}>*</span>
+              </label>
+              <select
+                value={form.client_id}
+                onChange={(e) => setForm({ ...form, client_id: e.target.value })}
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, fontSize: 13, fontWeight: 600 }}
+              >
+                <option value="">— Select Client —</option>
+                {clients.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} {c.city ? `(${c.city})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '2px solid var(--border)', background: 'var(--bg)' }}>
-                      <th style={{ padding: '8px 10px', fontSize: 11, textAlign: 'left', color: '#475569', width: '35%' }}>ITEM / CATEGORY *</th>
-                      <th style={{ padding: '8px 10px', fontSize: 11, textAlign: 'left', color: '#475569' }}>BOX / PACKING REMARKS</th>
-                      <th style={{ padding: '8px 10px', fontSize: 11, textAlign: 'center', color: '#475569', width: 80 }}>UOM</th>
-                      <th style={{ padding: '8px 10px', fontSize: 11, textAlign: 'right', color: '#475569', width: 90 }}>QTY</th>
-                      <th style={{ padding: '8px 10px', width: 40 }}></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {form.items.map((it, idx) => (
-                      <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td style={{ padding: '8px 6px' }}>
-                          <input
-                            type="text"
-                            list={`dn-catalog-${idx}`}
-                            placeholder="e.g. Cotton Uniform"
-                            value={it.category}
-                            onChange={(e) => updateItem(idx, 'category', e.target.value)}
-                          />
-                          <datalist id={`dn-catalog-${idx}`}>
-                            {catalogItems.map(ci => (
-                              <option key={ci.id} value={ci.name || ci.category} />
-                            ))}
-                          </datalist>
-                        </td>
-                        <td style={{ padding: '8px 6px' }}>
-                          <input
-                            type="text"
-                            placeholder="Box #1, Bundle of 10..."
-                            value={it.remarks}
-                            onChange={(e) => updateItem(idx, 'remarks', e.target.value)}
-                          />
-                        </td>
-                        <td style={{ padding: '8px 6px' }}>
-                          <select
-                            value={it.uom}
-                            onChange={(e) => updateItem(idx, 'uom', e.target.value)}
-                            style={{ textAlign: 'center' }}
-                          >
-                            <option value="pcs">pcs</option>
-                            <option value="meters">mtrs</option>
-                            <option value="boxes">box</option>
-                            <option value="rolls">rolls</option>
-                            <option value="sets">sets</option>
-                          </select>
-                        </td>
-                        <td style={{ padding: '8px 6px' }}>
-                          <input
-                            type="number"
-                            min="1"
-                            value={it.quantity}
-                            onChange={(e) => updateItem(idx, 'quantity', e.target.value)}
-                            style={{ textAlign: 'right' }}
-                          />
-                        </td>
-                        <td style={{ padding: '8px 6px', textAlign: 'center' }}>
-                          <button
-                            type="button"
-                            onClick={() => removeItem(idx)}
-                            style={{
-                              background: 'transparent',
-                              border: 'none',
-                              color: 'var(--red)',
-                              cursor: 'pointer',
-                              fontSize: 14,
-                              opacity: form.items.length === 1 ? 0.3 : 1
-                            }}
-                            disabled={form.items.length === 1}
-                          >
-                            ✕
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+            {/* Delivery Date */}
+            <div className="field" style={{ margin: 0 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                Dispatch / Delivery Date <span style={{ color: 'var(--red)' }}>*</span>
+              </label>
+              <input
+                type="date"
+                value={form.delivery_date}
+                onChange={(e) => setForm({ ...form, delivery_date: e.target.value })}
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, fontSize: 13 }}
+              />
+            </div>
+
+            {/* Status */}
+            <div className="field" style={{ margin: 0 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                Dispatch Status
+              </label>
+              <select
+                value={form.status}
+                onChange={(e) => setForm({ ...form, status: e.target.value })}
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, fontSize: 13 }}
+              >
+                <option value="dispatched">🚚 In-Transit / Dispatched</option>
+                <option value="delivered">✓ Delivered &amp; Acknowledged</option>
+                <option value="draft">Draft</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
             </div>
           </div>
 
-          {/* Right Logistics Column */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            <div className="card" style={{ padding: '20px 24px', position: 'sticky', top: 20 }}>
-              <h2 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 16px', color: 'var(--text)' }}>
-                Logistics & Carrier Details
-              </h2>
+          <div className="field" style={{ margin: 0, marginTop: 14 }}>
+            <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+              Destination / Shipping Address
+            </label>
+            <textarea
+              rows={2}
+              value={form.shipping_address}
+              onChange={(e) => setForm({ ...form, shipping_address: e.target.value })}
+              placeholder="Destination warehouse, street address, receiver contact, gate number..."
+              style={{ width: '100%', padding: '10px 12px', borderRadius: 8, fontSize: 13, lineHeight: 1.4 }}
+            />
+          </div>
+        </div>
 
-              <div className="field">
-                <label>Transporter / Logistics Co.</label>
+        {/* ── SECTION 2: DISPATCHED PACKAGES & ITEMS (FULL WIDTH) ── */}
+        <div className="card" style={{ padding: '22px 24px', marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ color: 'var(--accent)' }}>2.</span> Dispatched Packages &amp; Item Breakdown
+                <span className="badge b-gray" style={{ fontSize: 11, marginLeft: 4 }}>
+                  {form.items.length} {form.items.length === 1 ? 'entry' : 'entries'}
+                </span>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                List all cartons, packages, and quantities included in this dispatch shipment.
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={addItem}
+              className="btn btn-ghost btn-sm"
+              style={{
+                color: 'var(--accent)',
+                borderColor: 'var(--accent)',
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '6px 14px'
+              }}
+            >
+              <span>+</span> Add Package Row
+            </button>
+          </div>
+
+          {/* Table Container */}
+          <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', margin: 0 }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg)', borderBottom: '1px solid var(--border)' }}>
+                    <th style={{ padding: '10px 8px', fontSize: 11, fontWeight: 700, color: '#475569', textAlign: 'center', width: 36 }}>#</th>
+                    <th style={{ padding: '10px 12px', fontSize: 11, fontWeight: 700, color: '#475569', textAlign: 'left', minWidth: 220, width: '35%' }}>
+                      ITEM / CATEGORY <span style={{ color: 'var(--red)' }}>*</span>
+                    </th>
+                    <th style={{ padding: '10px 12px', fontSize: 11, fontWeight: 700, color: '#475569', textAlign: 'left', minWidth: 220 }}>
+                      BOX / PACKING REMARKS
+                    </th>
+                    <th style={{ padding: '10px 8px', fontSize: 11, fontWeight: 700, color: '#475569', textAlign: 'center', width: 100 }}>UOM</th>
+                    <th style={{ padding: '10px 12px', fontSize: 11, fontWeight: 700, color: '#475569', textAlign: 'right', width: 120 }}>DISPATCH QTY</th>
+                    <th style={{ padding: '10px 8px', width: 38 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {form.items.map((it, idx) => (
+                    <tr key={idx} style={{ borderBottom: idx < form.items.length - 1 ? '1px solid var(--border)' : 'none', background: '#fff' }}>
+                      <td style={{ padding: '10px 8px', textAlign: 'center', fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>
+                        {idx + 1}
+                      </td>
+
+                      <td style={{ padding: '8px 10px' }}>
+                        <input
+                          type="text"
+                          list={`dn-catalog-${idx}`}
+                          placeholder="e.g. Cotton Uniform"
+                          value={it.category}
+                          onChange={(e) => updateItem(idx, 'category', e.target.value)}
+                          style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid var(--border)', fontSize: 13, boxSizing: 'border-box' }}
+                        />
+                        <datalist id={`dn-catalog-${idx}`}>
+                          {catalogItems.map(ci => (
+                            <option key={ci.id} value={ci.name || ci.category} />
+                          ))}
+                        </datalist>
+                      </td>
+
+                      <td style={{ padding: '8px 10px' }}>
+                        <input
+                          type="text"
+                          placeholder="Box #1, Bundle of 10, Polybag..."
+                          value={it.remarks}
+                          onChange={(e) => updateItem(idx, 'remarks', e.target.value)}
+                          style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid var(--border)', fontSize: 13, boxSizing: 'border-box' }}
+                        />
+                      </td>
+
+                      <td style={{ padding: '8px 6px' }}>
+                        <select
+                          value={it.uom}
+                          onChange={(e) => updateItem(idx, 'uom', e.target.value)}
+                          style={{ width: '100%', padding: '8px 6px', borderRadius: 7, border: '1px solid var(--border)', fontSize: 13, textAlign: 'center', boxSizing: 'border-box' }}
+                        >
+                          <option value="pcs">pcs</option>
+                          <option value="meters">mtrs</option>
+                          <option value="boxes">box</option>
+                          <option value="rolls">rolls</option>
+                          <option value="sets">sets</option>
+                        </select>
+                      </td>
+
+                      <td style={{ padding: '8px 12px' }}>
+                        <input
+                          type="number"
+                          min="1"
+                          value={it.quantity}
+                          onChange={(e) => updateItem(idx, 'quantity', e.target.value)}
+                          style={{ width: '100%', padding: '8px 10px', borderRadius: 7, border: '1px solid var(--border)', fontSize: 13, textAlign: 'right', fontWeight: 700, boxSizing: 'border-box' }}
+                        />
+                      </td>
+
+                      <td style={{ padding: '8px 6px', textAlign: 'center' }}>
+                        <button
+                          type="button"
+                          onClick={() => removeItem(idx)}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: form.items.length === 1 ? '#cbd5e1' : 'var(--red)',
+                            cursor: form.items.length === 1 ? 'not-allowed' : 'pointer',
+                            fontSize: 15,
+                            padding: 4,
+                            lineHeight: 1
+                          }}
+                          disabled={form.items.length === 1}
+                          title={form.items.length === 1 ? 'Cannot delete only row' : 'Remove item'}
+                        >
+                          ✕
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div style={{
+              background: 'var(--bg)',
+              padding: '10px 16px',
+              borderTop: '1px solid var(--border)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 10
+            }}>
+              <button
+                type="button"
+                onClick={addItem}
+                className="btn btn-ghost btn-sm"
+                style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', borderColor: 'var(--accent)' }}
+              >
+                + Add Another Row
+              </button>
+
+              <div style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', gap: 16 }}>
+                <span>Total Packages: <b style={{ color: 'var(--text)' }}>{form.items.length}</b></span>
+                <span>Total Pieces Dispatched: <b style={{ color: 'var(--accent)' }}>{totalPieces} pcs</b></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── SECTION 3: BOTTOM SPLIT (LOGISTICS & DISPATCH SUMMARY) ── */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
+          gap: 20,
+          alignItems: 'start'
+        }}>
+          {/* Card 3: Logistics & Transporter Details */}
+          <div className="card" style={{ padding: '22px 24px' }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ color: 'var(--accent)' }}>3.</span> Transporter &amp; Logistics Info
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+              <div className="field" style={{ margin: 0 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                  Transporter / Logistics Co.
+                </label>
                 <input
                   type="text"
                   value={form.transporter_name}
                   onChange={(e) => setForm({ ...form, transporter_name: e.target.value })}
                   placeholder="e.g. BlueDart / SMSA / In-House"
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, fontSize: 13 }}
                 />
               </div>
 
-              <div className="field">
-                <label>Vehicle / Driver No.</label>
+              <div className="field" style={{ margin: 0 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                  Vehicle / Driver No.
+                </label>
                 <input
                   type="text"
                   value={form.vehicle_number}
                   onChange={(e) => setForm({ ...form, vehicle_number: e.target.value })}
                   placeholder="e.g. KA-01-AB-1234"
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, fontSize: 13 }}
                 />
               </div>
-
-              <div className="field">
-                <label>Tracking / LR / Waybill #</label>
-                <input
-                  type="text"
-                  value={form.tracking_lr_number}
-                  onChange={(e) => setForm({ ...form, tracking_lr_number: e.target.value })}
-                  placeholder="e.g. LR-984210"
-                />
-              </div>
-
-              <div className="field">
-                <label>Driver / Dispatch Notes</label>
-                <textarea
-                  rows={2}
-                  value={form.notes}
-                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                  placeholder="Fragile, gate pass instructions..."
-                />
-              </div>
-
-              <div style={{
-                background: 'var(--bg)',
-                borderRadius: 8,
-                padding: '14px 16px',
-                marginTop: 10,
-                border: '1px solid var(--border)',
-                textAlign: 'center'
-              }}>
-                <div style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', fontWeight: 600 }}>
-                  Total Package Pieces
-                </div>
-                <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--accent)', marginTop: 4 }}>
-                  {totalPieces} Pieces
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={saving}
-                className="btn btn-primary"
-                style={{ width: '100%', marginTop: 20, padding: '12px 16px', fontSize: 14 }}
-              >
-                {saving ? 'Saving…' : (viewMode === 'edit' ? 'Update Delivery Note' : 'Generate Delivery Note')}
-              </button>
             </div>
+
+            <div className="field" style={{ marginBottom: 14 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                Tracking / LR / Waybill #
+              </label>
+              <input
+                type="text"
+                value={form.tracking_lr_number}
+                onChange={(e) => setForm({ ...form, tracking_lr_number: e.target.value })}
+                placeholder="e.g. LR-984210"
+                style={{ width: '100%', padding: '8px 10px', borderRadius: 8, fontSize: 13 }}
+              />
+            </div>
+
+            <div className="field" style={{ margin: 0 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                Driver / Dispatch Notes
+              </label>
+              <textarea
+                rows={2}
+                value={form.notes}
+                onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                placeholder="Fragile, gate pass instructions, delivery time window..."
+                style={{ width: '100%', padding: '10px 12px', borderRadius: 8, fontSize: 13, lineHeight: 1.4 }}
+              />
+            </div>
+          </div>
+
+          {/* Card 4: Dispatch Summary Card */}
+          <div className="card" style={{ padding: '22px 24px' }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ color: 'var(--accent)' }}>4.</span> Dispatch Summary &amp; Confirmation
+            </div>
+
+            <div style={{
+              background: 'var(--bg)',
+              borderRadius: 10,
+              padding: '20px',
+              border: '1px solid var(--border)',
+              textAlign: 'center',
+              marginBottom: 16
+            }}>
+              <div style={{ fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', fontWeight: 700, letterSpacing: '0.5px' }}>
+                Total Dispatched Quantity
+              </div>
+              <div style={{ fontSize: 28, fontWeight: 900, color: 'var(--accent)', marginTop: 6 }}>
+                {totalPieces} Pieces
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                Across {form.items.length} line {form.items.length === 1 ? 'package' : 'packages'}
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving}
+              className="btn btn-primary"
+              style={{
+                width: '100%',
+                padding: '12px 18px',
+                fontSize: 14,
+                fontWeight: 700,
+                boxShadow: '0 2px 8px rgba(79, 70, 229, 0.25)'
+              }}
+            >
+              {saving ? 'Saving…' : (viewMode === 'edit' ? '✓ Update Delivery Note' : '✓ Generate Delivery Note')}
+            </button>
           </div>
         </div>
       </div>
@@ -661,33 +831,46 @@ export default function DeliveryNotesPage() {
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {[
-            { id: 'all', label: 'All' },
-            { id: 'dispatched', label: '🚚 In-Transit' },
-            { id: 'delivered', label: '✓ Delivered' },
-            { id: 'draft', label: 'Draft' }
-          ].map(p => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => setStatusFilter(p.id)}
-              style={{
-                background: statusFilter === p.id ? 'var(--accent)' : 'var(--bg)',
-                color: statusFilter === p.id ? '#fff' : 'var(--muted)',
-                border: '1px solid',
-                borderColor: statusFilter === p.id ? 'var(--accent)' : 'var(--border)',
-                borderRadius: 20,
-                padding: '5px 12px',
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: 'pointer',
-                transition: 'all 0.12s'
-              }}
-            >
-              {p.label}
-            </button>
-          ))}
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {[
+              { id: 'all', label: 'All' },
+              { id: 'dispatched', label: '🚚 In-Transit' },
+              { id: 'delivered', label: '✓ Delivered' },
+              { id: 'draft', label: 'Draft' }
+            ].map(p => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setStatusFilter(p.id)}
+                style={{
+                  background: statusFilter === p.id ? 'var(--accent)' : 'var(--bg)',
+                  color: statusFilter === p.id ? '#fff' : 'var(--muted)',
+                  border: '1px solid',
+                  borderColor: statusFilter === p.id ? 'var(--accent)' : 'var(--border)',
+                  borderRadius: 20,
+                  padding: '5px 12px',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.12s'
+                }}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={handleExportCSV}
+            className="btn btn-ghost btn-sm"
+            style={{ fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}
+            disabled={filtered.length === 0}
+            title="Download CSV spreadsheet of delivery notes"
+          >
+            📥 Export CSV
+          </button>
         </div>
       </div>
 

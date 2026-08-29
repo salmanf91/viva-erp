@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
+import { exportToCSV } from '../utils/csvExport';
 
 export default function QuotationsPage() {
   const { user } = useAuth();
@@ -247,6 +248,51 @@ export default function QuotationsPage() {
     });
   }, [quotations, search, statusFilter]);
 
+  // CSV Export
+  const handleExportCSV = () => {
+    if (!filtered.length) {
+      alert('No quotations available to export.');
+      return;
+    }
+
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const filename = `Quotations_Export_${todayStr}`;
+
+    const headers = [
+      'Quote #',
+      'Quotation Date',
+      'Valid Until',
+      'Client Name',
+      'City',
+      'Total Items',
+      'Total Pieces',
+      `Subtotal (${currency})`,
+      `Discount (${currency})`,
+      `Tax / VAT (${currency})`,
+      `Total Amount (${currency})`,
+      'Status',
+      'Internal Notes'
+    ];
+
+    const rows = filtered.map(q => [
+      q.quotation_number || '',
+      q.quote_date?.slice(0, 10) || '',
+      q.expiry_date?.slice(0, 10) || '',
+      q.client_name || '',
+      q.client_city || '',
+      q.items_count || 0,
+      q.total_quantity || 0,
+      Number(q.subtotal || 0).toFixed(2),
+      Number(q.discount || 0).toFixed(2),
+      Number(q.gst_amount || 0).toFixed(2),
+      Number(q.total || 0).toFixed(2),
+      (q.status || '').toUpperCase(),
+      q.notes || ''
+    ]);
+
+    exportToCSV(filename, headers, rows);
+  };
+
   // Status badge helper
   const getBadge = (status) => {
     switch (status) {
@@ -265,11 +311,11 @@ export default function QuotationsPage() {
   // ═════════════════════════════════════════════════════════════════════════
   if (viewMode === 'new' || viewMode === 'edit') {
     return (
-      <div style={{ maxWidth: 1040, margin: '0 auto', paddingBottom: 50 }}>
+      <div style={{ maxWidth: 1180, margin: '0 auto', paddingBottom: 60 }}>
         {/* Top Sticky Action Bar */}
         <div style={{
           background: 'var(--white)',
-          padding: '16px 20px',
+          padding: '16px 24px',
           borderRadius: 12,
           border: '1px solid var(--border)',
           boxShadow: '0 1px 4px rgba(0,0,0,0.03)',
@@ -280,29 +326,32 @@ export default function QuotationsPage() {
           flexWrap: 'wrap',
           gap: 12
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
             <button
               type="button"
               onClick={() => setViewMode('list')}
               className="btn btn-ghost"
+              style={{ padding: '8px 14px', fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}
             >
-              ← Back to Quotes
+              <span>←</span> All Quotes
             </button>
             <div>
-              <h1 style={{ fontSize: 18, fontWeight: 800, color: 'var(--text)', margin: 0 }}>
-                {viewMode === 'edit' ? `Edit Quote: #${editingQuote?.quotation_number}` : 'New Quotation & Estimate'}
+              <h1 style={{ fontSize: 18, fontWeight: 800, color: 'var(--text)', margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>📄</span>
+                {viewMode === 'edit' ? `Edit Quotation: #${editingQuote?.quotation_number}` : 'New Quotation & Estimate'}
               </h1>
               <p style={{ fontSize: 12, color: 'var(--muted)', margin: 0, marginTop: 2 }}>
-                Create commercial estimates, pricing proposals, and convert directly to sales orders.
+                Draft commercial estimates, customer proposals, and 1-click convert into active sales invoices.
               </p>
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <button
               type="button"
               onClick={() => setViewMode('list')}
               className="btn btn-ghost"
+              style={{ padding: '8px 18px', fontSize: 13 }}
             >
               Cancel
             </button>
@@ -311,222 +360,378 @@ export default function QuotationsPage() {
               onClick={handleSave}
               disabled={saving}
               className="btn btn-primary"
-              style={{ minWidth: 130 }}
+              style={{ minWidth: 140, padding: '9px 22px', fontSize: 13, fontWeight: 700 }}
             >
-              {saving ? 'Saving…' : (viewMode === 'edit' ? 'Update Quote' : 'Save Quotation')}
+              {saving ? 'Saving…' : (viewMode === 'edit' ? '✓ Update Quotation' : '✓ Save Quotation')}
             </button>
           </div>
         </div>
 
-        {/* Form Body Grid */}
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 20 }}>
-          {/* Main Column */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            {/* 1. Header Information */}
-            <div className="card" style={{ padding: '20px 24px' }}>
-              <h2 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 16px', color: 'var(--text)' }}>
-                1. Quotation & Client Details
-              </h2>
-              <div className="form-grid">
-                <div className="field">
-                  <label>Client / Customer *</label>
-                  <select
-                    value={form.client_id}
-                    onChange={(e) => setForm({ ...form, client_id: e.target.value })}
-                  >
-                    <option value="">Select a Client</option>
-                    {clients.map(c => (
-                      <option key={c.id} value={c.id}>{c.name} {c.city ? `(${c.city})` : ''}</option>
-                    ))}
-                  </select>
-                </div>
+        {/* ── SECTION 1: QUOTATION & CLIENT DETAILS (FULL WIDTH) ── */}
+        <div className="card" style={{ padding: '22px 24px', marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ color: 'var(--accent)' }}>1.</span> Quotation &amp; Client Details
+            </div>
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>* Required fields</span>
+          </div>
 
-                <div className="field">
-                  <label>Quote Status</label>
-                  <select
-                    value={form.status}
-                    onChange={(e) => setForm({ ...form, status: e.target.value })}
-                  >
-                    <option value="draft">Draft (Internal)</option>
-                    <option value="sent">Sent to Client</option>
-                    <option value="accepted">Accepted / Approved</option>
-                    <option value="rejected">Rejected</option>
-                    <option value="expired">Expired</option>
-                  </select>
-                </div>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gap: 16,
+            alignItems: 'start'
+          }}>
+            {/* Client Selector */}
+            <div className="field" style={{ margin: 0 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                Client / Customer <span style={{ color: 'var(--red)' }}>*</span>
+              </label>
+              <select
+                value={form.client_id}
+                onChange={(e) => setForm({ ...form, client_id: e.target.value })}
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, fontSize: 13, fontWeight: 600 }}
+              >
+                <option value="">— Select Client —</option>
+                {clients.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.name} {c.city ? `(${c.city})` : ''} {c.phone ? `• ${c.phone}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-                <div className="field">
-                  <label>Quotation Date *</label>
-                  <input
-                    type="date"
-                    value={form.quote_date}
-                    onChange={(e) => setForm({ ...form, quote_date: e.target.value })}
-                  />
-                </div>
+            {/* Status */}
+            <div className="field" style={{ margin: 0 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                Quotation Status
+              </label>
+              <select
+                value={form.status}
+                onChange={(e) => setForm({ ...form, status: e.target.value })}
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, fontSize: 13 }}
+              >
+                <option value="draft">Draft (Internal Review)</option>
+                <option value="sent">Sent to Customer</option>
+                <option value="accepted">Accepted / Approved</option>
+                <option value="rejected">Rejected</option>
+                <option value="expired">Expired</option>
+              </select>
+            </div>
 
-                <div className="field">
-                  <label>Valid Until / Expiry Date</label>
-                  <input
-                    type="date"
-                    value={form.expiry_date}
-                    onChange={(e) => setForm({ ...form, expiry_date: e.target.value })}
-                  />
-                </div>
+            {/* Quotation Date */}
+            <div className="field" style={{ margin: 0 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                Quotation Date <span style={{ color: 'var(--red)' }}>*</span>
+              </label>
+              <input
+                type="date"
+                value={form.quote_date}
+                onChange={(e) => setForm({ ...form, quote_date: e.target.value })}
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, fontSize: 13 }}
+              />
+            </div>
+
+            {/* Validity / Expiry Date */}
+            <div className="field" style={{ margin: 0 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                Valid Until / Expiry Date
+              </label>
+              <input
+                type="date"
+                value={form.expiry_date}
+                onChange={(e) => setForm({ ...form, expiry_date: e.target.value })}
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, fontSize: 13 }}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* ── SECTION 2: LINE ITEMS & PRICING (FULL WIDTH) ── */}
+        <div className="card" style={{ padding: '22px 24px', marginBottom: 20 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ color: 'var(--accent)' }}>2.</span> Line Items &amp; Commercial Pricing
+                <span className="badge b-gray" style={{ fontSize: 11, marginLeft: 4 }}>
+                  {form.items.length} {form.items.length === 1 ? 'item' : 'items'}
+                </span>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                Add items with unit rates. Total amounts calculate in real-time.
               </div>
             </div>
 
-            {/* 2. Line Items */}
-            <div className="card" style={{ padding: '20px 24px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-                <h2 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: 'var(--text)' }}>
-                  2. Quotation Line Items
-                </h2>
-                <button
-                  type="button"
-                  onClick={addItem}
-                  className="btn btn-ghost btn-sm"
-                  style={{ color: 'var(--accent)', borderColor: 'var(--accent)' }}
-                >
-                  + Add Item
-                </button>
-              </div>
+            <button
+              type="button"
+              onClick={addItem}
+              className="btn btn-ghost btn-sm"
+              style={{
+                color: 'var(--accent)',
+                borderColor: 'var(--accent)',
+                fontWeight: 700,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                padding: '6px 14px'
+              }}
+            >
+              <span>+</span> Add Line Item
+            </button>
+          </div>
 
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '2px solid var(--border)', background: 'var(--bg)' }}>
-                      <th style={{ padding: '8px 10px', fontSize: 11, textAlign: 'left', color: '#475569', width: '30%' }}>ITEM / CATEGORY *</th>
-                      <th style={{ padding: '8px 10px', fontSize: 11, textAlign: 'left', color: '#475569' }}>DESCRIPTION</th>
-                      <th style={{ padding: '8px 10px', fontSize: 11, textAlign: 'center', color: '#475569', width: 70 }}>UOM</th>
-                      <th style={{ padding: '8px 10px', fontSize: 11, textAlign: 'right', color: '#475569', width: 80 }}>QTY</th>
-                      <th style={{ padding: '8px 10px', fontSize: 11, textAlign: 'right', color: '#475569', width: 110 }}>RATE ({currency})</th>
-                      <th style={{ padding: '8px 10px', fontSize: 11, textAlign: 'right', color: '#475569', width: 110 }}>AMOUNT</th>
-                      <th style={{ padding: '8px 10px', width: 40 }}></th>
+          {/* Items Table Container */}
+          <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', margin: 0 }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg)', borderBottom: '1px solid var(--border)' }}>
+                    <th style={{ padding: '10px 8px', fontSize: 11, fontWeight: 700, color: '#475569', textAlign: 'center', width: 36 }}>#</th>
+                    <th style={{ padding: '10px 12px', fontSize: 11, fontWeight: 700, color: '#475569', textAlign: 'left', minWidth: 220, width: '28%' }}>
+                      ITEM / CATEGORY <span style={{ color: 'var(--red)' }}>*</span>
+                    </th>
+                    <th style={{ padding: '10px 12px', fontSize: 11, fontWeight: 700, color: '#475569', textAlign: 'left', minWidth: 180 }}>
+                      DESCRIPTION &amp; SPECIFICATIONS
+                    </th>
+                    <th style={{ padding: '10px 8px', fontSize: 11, fontWeight: 700, color: '#475569', textAlign: 'center', width: 90 }}>UOM</th>
+                    <th style={{ padding: '10px 8px', fontSize: 11, fontWeight: 700, color: '#475569', textAlign: 'right', width: 95 }}>QTY</th>
+                    <th style={{ padding: '10px 8px', fontSize: 11, fontWeight: 700, color: '#475569', textAlign: 'right', width: 125 }}>
+                      RATE ({currency})
+                    </th>
+                    <th style={{ padding: '10px 12px', fontSize: 11, fontWeight: 700, color: '#475569', textAlign: 'right', width: 130 }}>
+                      AMOUNT ({currency})
+                    </th>
+                    <th style={{ padding: '10px 8px', width: 38 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {form.items.map((it, idx) => (
+                    <tr key={idx} style={{ borderBottom: idx < form.items.length - 1 ? '1px solid var(--border)' : 'none', background: '#fff' }}>
+                      {/* Row Index */}
+                      <td style={{ padding: '10px 8px', textAlign: 'center', fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>
+                        {idx + 1}
+                      </td>
+
+                      {/* Item Category */}
+                      <td style={{ padding: '8px 10px' }}>
+                        <input
+                          type="text"
+                          list={`catalog-list-${idx}`}
+                          placeholder="e.g. Abaya, Uniform, Fabric"
+                          value={it.category}
+                          onChange={(e) => updateItem(idx, 'category', e.target.value)}
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            borderRadius: 7,
+                            border: '1px solid var(--border)',
+                            fontSize: 13,
+                            boxSizing: 'border-box'
+                          }}
+                        />
+                        <datalist id={`catalog-list-${idx}`}>
+                          {catalogItems.map(ci => (
+                            <option key={ci.id} value={ci.name || ci.category} />
+                          ))}
+                        </datalist>
+                      </td>
+
+                      {/* Item Description */}
+                      <td style={{ padding: '8px 10px' }}>
+                        <input
+                          type="text"
+                          placeholder="Optional specifications, sizes, notes..."
+                          value={it.description}
+                          onChange={(e) => updateItem(idx, 'description', e.target.value)}
+                          style={{
+                            width: '100%',
+                            padding: '8px 10px',
+                            borderRadius: 7,
+                            border: '1px solid var(--border)',
+                            fontSize: 13,
+                            boxSizing: 'border-box'
+                          }}
+                        />
+                      </td>
+
+                      {/* UOM */}
+                      <td style={{ padding: '8px 6px' }}>
+                        <select
+                          value={it.uom}
+                          onChange={(e) => updateItem(idx, 'uom', e.target.value)}
+                          style={{
+                            width: '100%',
+                            padding: '8px 6px',
+                            borderRadius: 7,
+                            border: '1px solid var(--border)',
+                            fontSize: 13,
+                            textAlign: 'center',
+                            boxSizing: 'border-box'
+                          }}
+                        >
+                          <option value="pcs">pcs</option>
+                          <option value="meters">mtrs</option>
+                          <option value="rolls">rolls</option>
+                          <option value="sets">sets</option>
+                          <option value="boxes">box</option>
+                          <option value="kg">kg</option>
+                        </select>
+                      </td>
+
+                      {/* Quantity */}
+                      <td style={{ padding: '8px 6px' }}>
+                        <input
+                          type="number"
+                          min="1"
+                          value={it.quantity}
+                          onChange={(e) => updateItem(idx, 'quantity', e.target.value)}
+                          style={{
+                            width: '100%',
+                            padding: '8px 8px',
+                            borderRadius: 7,
+                            border: '1px solid var(--border)',
+                            fontSize: 13,
+                            textAlign: 'right',
+                            fontWeight: 600,
+                            boxSizing: 'border-box'
+                          }}
+                        />
+                      </td>
+
+                      {/* Rate / Pc */}
+                      <td style={{ padding: '8px 6px' }}>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={it.rate_per_pc}
+                          onChange={(e) => updateItem(idx, 'rate_per_pc', e.target.value)}
+                          style={{
+                            width: '100%',
+                            padding: '8px 8px',
+                            borderRadius: 7,
+                            border: '1px solid var(--border)',
+                            fontSize: 13,
+                            textAlign: 'right',
+                            fontWeight: 600,
+                            boxSizing: 'border-box'
+                          }}
+                        />
+                      </td>
+
+                      {/* Line Amount */}
+                      <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, fontSize: 13, color: 'var(--text)' }}>
+                        {(it.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+
+                      {/* Delete Button */}
+                      <td style={{ padding: '8px 6px', textAlign: 'center' }}>
+                        <button
+                          type="button"
+                          onClick={() => removeItem(idx)}
+                          style={{
+                            background: 'transparent',
+                            border: 'none',
+                            color: form.items.length === 1 ? '#cbd5e1' : 'var(--red)',
+                            cursor: form.items.length === 1 ? 'not-allowed' : 'pointer',
+                            fontSize: 15,
+                            padding: 4,
+                            lineHeight: 1
+                          }}
+                          disabled={form.items.length === 1}
+                          title={form.items.length === 1 ? 'Cannot delete only row' : 'Remove item'}
+                        >
+                          ✕
+                        </button>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody>
-                    {form.items.map((it, idx) => (
-                      <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td style={{ padding: '8px 6px' }}>
-                          <input
-                            type="text"
-                            list={`catalog-list-${idx}`}
-                            placeholder="e.g. Abaya / Uniform"
-                            value={it.category}
-                            onChange={(e) => updateItem(idx, 'category', e.target.value)}
-                          />
-                          <datalist id={`catalog-list-${idx}`}>
-                            {catalogItems.map(ci => (
-                              <option key={ci.id} value={ci.name || ci.category} />
-                            ))}
-                          </datalist>
-                        </td>
-                        <td style={{ padding: '8px 6px' }}>
-                          <input
-                            type="text"
-                            placeholder="Optional item details"
-                            value={it.description}
-                            onChange={(e) => updateItem(idx, 'description', e.target.value)}
-                          />
-                        </td>
-                        <td style={{ padding: '8px 6px' }}>
-                          <select
-                            value={it.uom}
-                            onChange={(e) => updateItem(idx, 'uom', e.target.value)}
-                            style={{ textAlign: 'center' }}
-                          >
-                            <option value="pcs">pcs</option>
-                            <option value="meters">mtrs</option>
-                            <option value="rolls">rolls</option>
-                            <option value="sets">sets</option>
-                            <option value="boxes">box</option>
-                            <option value="kg">kg</option>
-                          </select>
-                        </td>
-                        <td style={{ padding: '8px 6px' }}>
-                          <input
-                            type="number"
-                            min="1"
-                            value={it.quantity}
-                            onChange={(e) => updateItem(idx, 'quantity', e.target.value)}
-                            style={{ textAlign: 'right' }}
-                          />
-                        </td>
-                        <td style={{ padding: '8px 6px' }}>
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={it.rate_per_pc}
-                            onChange={(e) => updateItem(idx, 'rate_per_pc', e.target.value)}
-                            style={{ textAlign: 'right' }}
-                          />
-                        </td>
-                        <td style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 700, fontSize: 13 }}>
-                          {currency} {(it.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </td>
-                        <td style={{ padding: '8px 6px', textAlign: 'center' }}>
-                          <button
-                            type="button"
-                            onClick={() => removeItem(idx)}
-                            style={{
-                              background: 'transparent',
-                              border: 'none',
-                              color: 'var(--red)',
-                              cursor: 'pointer',
-                              fontSize: 14,
-                              opacity: form.items.length === 1 ? 0.3 : 1
-                            }}
-                            disabled={form.items.length === 1}
-                          >
-                            ✕
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                  ))}
+                </tbody>
+              </table>
             </div>
 
-            {/* 3. Terms & Notes */}
-            <div className="card" style={{ padding: '20px 24px' }}>
-              <h2 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 14px', color: 'var(--text)' }}>
-                3. Commercial Terms & Client Notes
-              </h2>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                <div className="field">
-                  <label>Terms & Conditions (Printed on Quotation)</label>
-                  <textarea
-                    rows={4}
-                    value={form.terms_conditions}
-                    onChange={(e) => setForm({ ...form, terms_conditions: e.target.value })}
-                    placeholder="Delivery timeline, payment milestones, validity terms..."
-                  />
-                </div>
-                <div className="field">
-                  <label>Internal Memo / Client Instructions</label>
-                  <textarea
-                    rows={2}
-                    value={form.notes}
-                    onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                    placeholder="Special discounts agreed upon, client preferences..."
-                  />
-                </div>
+            {/* Bottom Row inside Items card */}
+            <div style={{
+              background: 'var(--bg)',
+              padding: '10px 16px',
+              borderTop: '1px solid var(--border)',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 10
+            }}>
+              <button
+                type="button"
+                onClick={addItem}
+                className="btn btn-ghost btn-sm"
+                style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', borderColor: 'var(--accent)' }}
+              >
+                + Add Another Row
+              </button>
+
+              <div style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', gap: 16 }}>
+                <span>Total Items: <b style={{ color: 'var(--text)' }}>{form.items.length}</b></span>
+                <span>Total Pieces: <b style={{ color: 'var(--text)' }}>{form.items.reduce((s, it) => s + (parseFloat(it.quantity) || 0), 0)}</b></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* ── SECTION 3: BOTTOM SPLIT (TERMS ON LEFT, SUMMARY ON RIGHT) ── */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
+          gap: 20,
+          alignItems: 'start'
+        }}>
+          {/* Card 3: Terms & Internal Notes */}
+          <div className="card" style={{ padding: '22px 24px' }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ color: 'var(--accent)' }}>3.</span> Commercial Terms &amp; Notes
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div className="field" style={{ margin: 0 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                  Terms &amp; Conditions (Printed on Quotation PDF)
+                </label>
+                <textarea
+                  rows={4}
+                  value={form.terms_conditions}
+                  onChange={(e) => setForm({ ...form, terms_conditions: e.target.value })}
+                  placeholder="Delivery timeline, payment milestones, validity terms..."
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: 8, fontSize: 13, lineHeight: 1.45 }}
+                />
+              </div>
+
+              <div className="field" style={{ margin: 0 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                  Internal Memo / Client Instructions
+                </label>
+                <textarea
+                  rows={3}
+                  value={form.notes}
+                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                  placeholder="Special discounts agreed upon, client preferences, internal tracking..."
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: 8, fontSize: 13, lineHeight: 1.45 }}
+                />
               </div>
             </div>
           </div>
 
-          {/* Right Summary Column */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            {/* Economics & Tax Card */}
-            <div className="card" style={{ padding: '20px 24px', position: 'sticky', top: 20 }}>
-              <h2 style={{ fontSize: 14, fontWeight: 700, margin: '0 0 16px', color: 'var(--text)' }}>
-                Estimate Summary
-              </h2>
+          {/* Card 4: Estimate Summary & Economics */}
+          <div className="card" style={{ padding: '22px 24px' }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ color: 'var(--accent)' }}>4.</span> Estimate Financial Summary
+            </div>
 
-              <div className="field">
-                <label>Discount (%)</label>
+            {/* Discount & Tax controls in 2 columns */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+              <div className="field" style={{ margin: 0 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                  Discount (%)
+                </label>
                 <input
                   type="number"
                   step="0.1"
@@ -534,12 +739,15 @@ export default function QuotationsPage() {
                   max="100"
                   value={form.discount_percent}
                   onChange={(e) => setForm({ ...form, discount_percent: e.target.value, discount: 0 })}
-                  placeholder="e.g. 5"
+                  placeholder="0.0%"
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, fontSize: 13 }}
                 />
               </div>
 
-              <div className="field">
-                <label>Fixed Discount Amount ({currency})</label>
+              <div className="field" style={{ margin: 0 }}>
+                <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                  Fixed Discount ({currency})
+                </label>
                 <input
                   type="number"
                   step="0.01"
@@ -547,73 +755,87 @@ export default function QuotationsPage() {
                   value={form.discount}
                   onChange={(e) => setForm({ ...form, discount: e.target.value, discount_percent: 0 })}
                   placeholder="0.00"
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 8, fontSize: 13 }}
                 />
               </div>
+            </div>
 
-              <div className="field">
-                <label>VAT / GST Rate (%)</label>
-                <select
-                  value={form.gst_percent}
-                  onChange={(e) => setForm({ ...form, gst_percent: e.target.value })}
-                >
-                  <option value="0">0% (Tax Exempt / Nil)</option>
-                  <option value="5">5% VAT</option>
-                  <option value="15">15% VAT (Standard KSA)</option>
-                  <option value="18">18% GST (Standard India)</option>
-                </select>
+            <div className="field" style={{ marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                VAT / GST Rate (%)
+              </label>
+              <select
+                value={form.gst_percent}
+                onChange={(e) => setForm({ ...form, gst_percent: e.target.value })}
+                style={{ width: '100%', padding: '8px 10px', borderRadius: 8, fontSize: 13 }}
+              >
+                <option value="0">0% (Tax Exempt / Nil Rate)</option>
+                <option value="5">5% VAT</option>
+                <option value="15">15% VAT (Standard KSA)</option>
+                <option value="18">18% GST (Standard India)</option>
+              </select>
+            </div>
+
+            {/* Calculations Breakdown Card */}
+            <div style={{
+              background: 'var(--bg)',
+              borderRadius: 10,
+              padding: '16px 18px',
+              border: '1px solid var(--border)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                <span style={{ color: 'var(--muted)' }}>Subtotal:</span>
+                <span style={{ fontWeight: 600 }}>{currency} {subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
+
+              {discAmt > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: 'var(--red)' }}>
+                  <span>Discount:</span>
+                  <span style={{ fontWeight: 600 }}>- {currency} {discAmt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                </div>
+              )}
+
+              {taxAmt > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                  <span style={{ color: 'var(--muted)' }}>VAT / GST ({form.gst_percent}%):</span>
+                  <span style={{ fontWeight: 600, color: 'var(--text)' }}>+{currency} {taxAmt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                </div>
+              )}
 
               <div style={{
-                background: 'var(--bg)',
-                borderRadius: 8,
-                padding: '14px 16px',
-                marginTop: 16,
                 display: 'flex',
-                flexDirection: 'column',
-                gap: 8,
-                border: '1px solid var(--border)'
+                justifyContent: 'space-between',
+                fontSize: 17,
+                fontWeight: 900,
+                color: 'var(--text)',
+                borderTop: '1.5px solid var(--border)',
+                paddingTop: 12,
+                marginTop: 4
               }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                  <span style={{ color: 'var(--muted)' }}>Subtotal:</span>
-                  <span style={{ fontWeight: 600 }}>{currency} {subtotal.toFixed(2)}</span>
-                </div>
-                {discAmt > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, color: 'var(--red)' }}>
-                    <span>Discount:</span>
-                    <span>- {currency} {discAmt.toFixed(2)}</span>
-                  </div>
-                )}
-                {taxAmt > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                    <span style={{ color: 'var(--muted)' }}>Tax ({form.gst_percent}%):</span>
-                    <span style={{ fontWeight: 600 }}>+{currency} {taxAmt.toFixed(2)}</span>
-                  </div>
-                )}
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  fontSize: 16,
-                  fontWeight: 800,
-                  color: 'var(--text)',
-                  borderTop: '1.5px solid var(--border)',
-                  paddingTop: 10,
-                  marginTop: 4
-                }}>
-                  <span>Total Quote:</span>
-                  <span style={{ color: 'var(--accent)' }}>{currency} {grandTotal.toFixed(2)}</span>
-                </div>
+                <span>Total Quotation:</span>
+                <span style={{ color: 'var(--accent)' }}>{currency} {grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
-
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={saving}
-                className="btn btn-primary"
-                style={{ width: '100%', marginTop: 20, padding: '12px 16px', fontSize: 14 }}
-              >
-                {saving ? 'Saving…' : (viewMode === 'edit' ? 'Update Quotation' : 'Create Quotation')}
-              </button>
             </div>
+
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving}
+              className="btn btn-primary"
+              style={{
+                width: '100%',
+                marginTop: 18,
+                padding: '12px 18px',
+                fontSize: 14,
+                fontWeight: 700,
+                boxShadow: '0 2px 8px rgba(79, 70, 229, 0.25)'
+              }}
+            >
+              {saving ? 'Saving…' : (viewMode === 'edit' ? '✓ Save Changes to Quote' : '✓ Issue & Save Quotation')}
+            </button>
           </div>
         </div>
       </div>
@@ -720,36 +942,49 @@ export default function QuotationsPage() {
           )}
         </div>
 
-        {/* Status Segment Filter Pills */}
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {[
-            { id: 'all', label: 'All' },
-            { id: 'draft', label: 'Draft' },
-            { id: 'sent', label: 'Sent' },
-            { id: 'accepted', label: 'Accepted' },
-            { id: 'converted', label: 'Invoiced' },
-            { id: 'rejected', label: 'Rejected' }
-          ].map(p => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => setStatusFilter(p.id)}
-              style={{
-                background: statusFilter === p.id ? 'var(--accent)' : 'var(--bg)',
-                color: statusFilter === p.id ? '#fff' : 'var(--muted)',
-                border: '1px solid',
-                borderColor: statusFilter === p.id ? 'var(--accent)' : 'var(--border)',
-                borderRadius: 20,
-                padding: '5px 12px',
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: 'pointer',
-                transition: 'all 0.12s'
-              }}
-            >
-              {p.label}
-            </button>
-          ))}
+        {/* Status Segment Filter Pills & Actions */}
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {[
+              { id: 'all', label: 'All' },
+              { id: 'draft', label: 'Draft' },
+              { id: 'sent', label: 'Sent' },
+              { id: 'accepted', label: 'Accepted' },
+              { id: 'converted', label: 'Invoiced' },
+              { id: 'rejected', label: 'Rejected' }
+            ].map(p => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setStatusFilter(p.id)}
+                style={{
+                  background: statusFilter === p.id ? 'var(--accent)' : 'var(--bg)',
+                  color: statusFilter === p.id ? '#fff' : 'var(--muted)',
+                  border: '1px solid',
+                  borderColor: statusFilter === p.id ? 'var(--accent)' : 'var(--border)',
+                  borderRadius: 20,
+                  padding: '5px 12px',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  transition: 'all 0.12s'
+                }}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={handleExportCSV}
+            className="btn btn-ghost btn-sm"
+            style={{ fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}
+            disabled={filtered.length === 0}
+            title="Download CSV spreadsheet of quotations"
+          >
+            📥 Export CSV
+          </button>
         </div>
       </div>
 

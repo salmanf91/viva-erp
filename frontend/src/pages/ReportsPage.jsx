@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import api from '../api/client';
+import { exportToCSV } from '../utils/csvExport';
 
 const fmt = n => '₹' + Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtInt = n => Number(n || 0).toLocaleString('en-IN');
@@ -111,30 +112,30 @@ export default function ReportsPage() {
 
   // CSV Export utility
   const exportCSV = () => {
-    let filename = `viva_report_${activeTab}_${fromDate}_to_${toDate}.csv`;
+    let filename = `viva_report_${activeTab}_${fromDate}_to_${toDate}`;
     let headers = [];
     let rows = [];
 
     if (activeTab === 'sales' && salesData?.orders) {
       headers = ['Order Date', 'Invoice No', 'Client Name', 'City', 'Pieces', 'Total (₹)', 'Paid (₹)', 'Balance (₹)', 'Status'];
       rows = salesData.orders.map(o => [
-        o.order_date, o.invoice_number, `"${o.client_name}"`, `"${o.client_city || ''}"`,
+        o.order_date, o.invoice_number, o.client_name, o.client_city || '',
         o.total_pieces, o.total, o.amount_paid, o.balance_due, o.status
       ]);
     } else if (activeTab === 'purchases' && purchaseData?.purchases) {
       headers = ['Invoice Date', 'Vendor Name', 'Quantity', 'Freight', 'Coolie', 'Tax', 'Advance Paid', 'Total (₹)', 'Status'];
       rows = purchaseData.purchases.map(p => [
-        p.invoice_date, `"${p.vendor_name}"`, p.total_quantity, p.freight, p.coolie, p.tax_amount, p.advance_paid, p.total, p.status
+        p.invoice_date, p.vendor_name, p.total_quantity, p.freight, p.coolie, p.tax_amount, p.advance_paid, p.total, p.status
       ]);
     } else if (activeTab === 'staff' && staffData?.staff_summary) {
       headers = ['Staff Name', 'Role', 'Total Allocated', 'Total Completed', 'Cut Pcs', 'Stitch Pcs', 'Total Earned (₹)', 'Settled (₹)', 'Pending (₹)'];
       rows = staffData.staff_summary.map(s => [
-        `"${s.staff_name}"`, s.staff_role, s.total_allocated, s.total_completed, s.cut_pieces, s.stitch_pieces, s.total_earned, s.settled_amount, s.pending_amount
+        s.staff_name, s.staff_role, s.total_allocated, s.total_completed, s.cut_pieces, s.stitch_pieces, s.total_earned, s.settled_amount, s.pending_amount
       ]);
     } else if (activeTab === 'expenses' && expenseData?.expenses) {
       headers = ['Expense Date', 'Reason', 'Category', 'Paid By', 'Amount (₹)', 'Reimbursed'];
       rows = expenseData.expenses.map(e => [
-        e.expense_date, `"${e.reason_name}"`, e.reason_category, e.paid_by || 'Company', e.amount, e.reimbursed_at ? 'Yes' : 'No'
+        e.expense_date, e.reason_name, e.reason_category, e.paid_by || 'Company', e.amount, e.reimbursed_at ? 'Yes' : 'No'
       ]);
     } else if (activeTab === 'production' && productionData?.batches) {
       headers = ['Batch Date', 'Batch No', 'Category', 'Quantity', 'Cut Rate', 'Stitch Rate', 'Status'];
@@ -151,14 +152,7 @@ export default function ReportsPage() {
       return;
     }
 
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', filename);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    exportToCSV(filename, headers, rows);
   };
 
   const printReport = () => {
