@@ -60,8 +60,10 @@ function getNavItems(user) {
 
   // Operations / Sales / Production
   const opItems = [];
-  if (m.feature_garment_production) opItems.push({ to: '/production', label: 'Production Log', icon: '✂️' });
+  if (m.feature_quotations) opItems.push({ to: '/quotations', label: 'Quotations', icon: '📄' });
   if (m.feature_sales_invoicing) opItems.push({ to: '/sales', label: 'Sales', icon: '🚚' });
+  if (m.feature_delivery_notes) opItems.push({ to: '/delivery-notes', label: 'Delivery Notes', icon: '📦' });
+  if (m.feature_garment_production) opItems.push({ to: '/production', label: 'Production Log', icon: '✂️' });
   if (m.feature_payroll) opItems.push({ to: '/staff', label: 'Staff & Payroll', icon: '👷' });
   if (m.feature_staff_piece_log && !m.feature_garment_production) opItems.push({ to: '/staff-log', label: 'Staff Piece Log', icon: '📋' });
   if (opItems.length > 0) {

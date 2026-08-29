@@ -100,6 +100,70 @@ export async function ensureTenantSchema(pool: mysql.Pool, _dbName?: string): Pr
       electricity DECIMAL(10,2) NOT NULL DEFAULT 0,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
+    `CREATE TABLE IF NOT EXISTS quotations (
+      id INT PRIMARY KEY AUTO_INCREMENT,
+      tenant_id INT NOT NULL DEFAULT 1,
+      client_id INT NOT NULL,
+      quotation_number VARCHAR(50) NOT NULL,
+      quote_date DATE NOT NULL,
+      expiry_date DATE DEFAULT NULL,
+      status ENUM('draft','sent','accepted','rejected','expired','converted') DEFAULT 'draft',
+      subtotal DECIMAL(12,2) DEFAULT 0.00,
+      discount_percent DECIMAL(5,2) DEFAULT 0.00,
+      discount DECIMAL(12,2) DEFAULT 0.00,
+      gst_percent DECIMAL(5,2) DEFAULT 0.00,
+      gst_amount DECIMAL(12,2) DEFAULT 0.00,
+      total DECIMAL(12,2) DEFAULT 0.00,
+      notes TEXT DEFAULT NULL,
+      terms_conditions TEXT DEFAULT NULL,
+      converted_order_id INT DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_tenant_quote (tenant_id, quote_date),
+      INDEX idx_tenant_client (tenant_id, client_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS quotation_items (
+      id INT PRIMARY KEY AUTO_INCREMENT,
+      quotation_id INT NOT NULL,
+      tenant_id INT NOT NULL DEFAULT 1,
+      category VARCHAR(100) NOT NULL,
+      description VARCHAR(255) DEFAULT NULL,
+      uom VARCHAR(20) DEFAULT 'pcs',
+      quantity INT NOT NULL DEFAULT 1,
+      rate_per_pc DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+      amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      INDEX idx_quote_id (quotation_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS delivery_notes (
+      id INT PRIMARY KEY AUTO_INCREMENT,
+      tenant_id INT NOT NULL DEFAULT 1,
+      client_id INT NOT NULL,
+      order_id INT DEFAULT NULL,
+      delivery_note_number VARCHAR(50) NOT NULL,
+      delivery_date DATE NOT NULL,
+      status ENUM('draft','dispatched','delivered','cancelled') DEFAULT 'dispatched',
+      shipping_address TEXT DEFAULT NULL,
+      transporter_name VARCHAR(100) DEFAULT NULL,
+      vehicle_number VARCHAR(50) DEFAULT NULL,
+      tracking_lr_number VARCHAR(100) DEFAULT NULL,
+      total_pieces INT DEFAULT 0,
+      notes TEXT DEFAULT NULL,
+      received_by VARCHAR(100) DEFAULT NULL,
+      received_at TIMESTAMP NULL DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_tenant_dn (tenant_id, delivery_date),
+      INDEX idx_tenant_dn_client (tenant_id, client_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS delivery_note_items (
+      id INT PRIMARY KEY AUTO_INCREMENT,
+      delivery_note_id INT NOT NULL,
+      tenant_id INT NOT NULL DEFAULT 1,
+      category VARCHAR(100) NOT NULL,
+      description VARCHAR(255) DEFAULT NULL,
+      uom VARCHAR(20) DEFAULT 'pcs',
+      quantity INT NOT NULL DEFAULT 1,
+      remarks VARCHAR(255) DEFAULT NULL,
+      INDEX idx_dn_id (delivery_note_id)
+    )`,
   ];
 
   for (const sql of coreTables) {
@@ -149,6 +213,8 @@ export async function ensureTenantSchema(pool: mysql.Pool, _dbName?: string): Pr
     { table: 'product_config', column: 'is_active', def: 'BOOLEAN DEFAULT TRUE' },
     { table: 'sales_order_items', column: 'uom', def: "VARCHAR(20) DEFAULT 'pcs'" },
     { table: 'purchase_items', column: 'uom', def: "VARCHAR(20) DEFAULT 'pcs'" },
+    { table: 'quotation_items', column: 'uom', def: "VARCHAR(20) DEFAULT 'pcs'" },
+    { table: 'delivery_note_items', column: 'uom', def: "VARCHAR(20) DEFAULT 'pcs'" },
   ];
 
   for (const item of tableColumns) {
@@ -176,7 +242,7 @@ export async function resolveTenantBySlug(slug: string): Promise<any | null> {
     `SELECT t.*, m.feature_accounting, m.feature_expenses, m.feature_party_ledger,
             m.feature_sales_invoicing, m.feature_purchases, m.feature_inventory_stock,
             m.feature_garment_production, m.feature_staff_piece_log, m.feature_payroll,
-            m.feature_zatca_einvoicing
+            m.feature_zatca_einvoicing, m.feature_quotations, m.feature_delivery_notes
      FROM master_tenants t
      LEFT JOIN master_tenant_modules m ON m.tenant_id = t.id
      WHERE t.slug = ? LIMIT 1`,
@@ -190,7 +256,7 @@ export async function resolveTenantById(id: number): Promise<any | null> {
     `SELECT t.*, m.feature_accounting, m.feature_expenses, m.feature_party_ledger,
             m.feature_sales_invoicing, m.feature_purchases, m.feature_inventory_stock,
             m.feature_garment_production, m.feature_staff_piece_log, m.feature_payroll,
-            m.feature_zatca_einvoicing
+            m.feature_zatca_einvoicing, m.feature_quotations, m.feature_delivery_notes
      FROM master_tenants t
      LEFT JOIN master_tenant_modules m ON m.tenant_id = t.id
      WHERE t.id = ? LIMIT 1`,

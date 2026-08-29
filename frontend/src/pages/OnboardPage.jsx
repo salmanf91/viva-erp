@@ -4,9 +4,9 @@ import api from '../api/client';
 
 const PRESETS = {
   trading: {
-    label: '🏢 Trading & Wholesale',
-    desc: 'Accounting, Sales & Invoicing, Purchases, Stock Inventory, Party Ledger, Payroll (Non-manufacturing)',
-    icon: '🏢',
+    label: '📦 General Trading / Wholesale',
+    desc: 'B2B purchases, sales invoicing, party ledgers, quotations, delivery notes, and stock movements',
+    icon: '📦',
     features: {
       feature_accounting: true,
       feature_expenses: true,
@@ -17,12 +17,14 @@ const PRESETS = {
       feature_garment_production: false,
       feature_staff_piece_log: false,
       feature_payroll: true,
-      feature_zatca_einvoicing: true,
+      feature_zatca_einvoicing: false,
+      feature_quotations: true,
+      feature_delivery_notes: true,
     }
   },
   services: {
-    label: '💼 Services & Agency',
-    desc: 'Accounting & Finance, Expense Tracking, Client Invoicing, Staff Payroll',
+    label: '💼 Professional Services',
+    desc: 'Client billings, quotations, expense reimbursements, staff salaries, and cash ledger',
     icon: '💼',
     features: {
       feature_accounting: true,
@@ -35,6 +37,8 @@ const PRESETS = {
       feature_staff_piece_log: false,
       feature_payroll: true,
       feature_zatca_einvoicing: true,
+      feature_quotations: true,
+      feature_delivery_notes: false,
     }
   },
   garment_mfg: {
@@ -52,6 +56,8 @@ const PRESETS = {
       feature_staff_piece_log: true,
       feature_payroll: true,
       feature_zatca_einvoicing: false,
+      feature_quotations: false,
+      feature_delivery_notes: false,
     }
   },
   custom: {
@@ -69,6 +75,8 @@ const PRESETS = {
       feature_staff_piece_log: false,
       feature_payroll: true,
       feature_zatca_einvoicing: false,
+      feature_quotations: false,
+      feature_delivery_notes: false,
     }
   }
 };
@@ -392,7 +400,9 @@ export default function OnboardPage() {
                       ['feature_accounting', '📈 Accounting & Finance (Cash Ledger)'],
                       ['feature_expenses', '🧾 Expense Tracking & Capital Accounts'],
                       ['feature_party_ledger', '📒 Party Ledger (Customer & Supplier Statements)'],
+                      ['feature_quotations', '📄 Quotations & Commercial Estimates'],
                       ['feature_sales_invoicing', '🚚 Sales Orders & Tax Invoicing'],
+                      ['feature_delivery_notes', '🚚 Delivery Notes & Logistics Challans'],
                       ['feature_purchases', '📦 Purchases & Supplier Invoices'],
                       ['feature_inventory_stock', '🏭 Raw Materials & Stock Inventory'],
                       ['feature_garment_production', '✂️ Garment Cutting & Stitching Batches'],

@@ -71,11 +71,33 @@ export async function initMasterDb(): Promise<void> {
         feature_staff_piece_log BOOLEAN DEFAULT FALSE,
         feature_payroll BOOLEAN DEFAULT TRUE,
         feature_zatca_einvoicing BOOLEAN DEFAULT FALSE,
+        feature_quotations BOOLEAN DEFAULT FALSE,
+        feature_delivery_notes BOOLEAN DEFAULT FALSE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
         FOREIGN KEY (tenant_id) REFERENCES master_tenants(id) ON DELETE CASCADE
       )
     `);
+
+    // Ensure columns exist on master_tenant_modules
+    try {
+      const [qCol] = await masterPool.query<any[]>(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+         WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'master_tenant_modules' AND COLUMN_NAME = 'feature_quotations'`,
+        [MASTER_DB_NAME]
+      );
+      if (!qCol || qCol.length === 0) {
+        await masterPool.query('ALTER TABLE master_tenant_modules ADD COLUMN feature_quotations BOOLEAN DEFAULT FALSE AFTER feature_zatca_einvoicing');
+      }
+      const [dnCol] = await masterPool.query<any[]>(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS 
+         WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'master_tenant_modules' AND COLUMN_NAME = 'feature_delivery_notes'`,
+        [MASTER_DB_NAME]
+      );
+      if (!dnCol || dnCol.length === 0) {
+        await masterPool.query('ALTER TABLE master_tenant_modules ADD COLUMN feature_delivery_notes BOOLEAN DEFAULT FALSE AFTER feature_quotations');
+      }
+    } catch {}
 
     await masterPool.query(`
       CREATE TABLE IF NOT EXISTS master_users (
