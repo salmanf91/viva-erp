@@ -244,7 +244,7 @@ function getDatabaseSql(filename: string): string {
         settled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (staff_id) REFERENCES staff(id) ON DELETE CASCADE
       );
-      CREATE TABLE IF NOT EXISTS product_configs (
+      CREATE TABLE IF NOT EXISTS product_config (
         id INT PRIMARY KEY AUTO_INCREMENT,
         tenant_id INT NOT NULL DEFAULT 1,
         category VARCHAR(100) NOT NULL UNIQUE,
@@ -267,7 +267,7 @@ function getDatabaseSql(filename: string): string {
         size_label VARCHAR(50) NOT NULL,
         selling_rate DECIMAL(10,2) NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (product_config_id) REFERENCES product_configs(id) ON DELETE CASCADE
+        FOREIGN KEY (product_config_id) REFERENCES product_config(id) ON DELETE CASCADE
       );
       CREATE TABLE IF NOT EXISTS stock_movements (
         id INT PRIMARY KEY AUTO_INCREMENT,
