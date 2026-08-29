@@ -40,32 +40,49 @@ export async function getItems(req: AuthRequest, res: Response): Promise<void> {
       }
     }
 
-    // Fetch size rates safely
-    let sizeRates: any[] = [];
+    // Fetch size rates safely from both product_size_rates and product_size_selling_rates
+    let sizeRatesByCategory = new Map<string, any[]>();
+    let sizeRatesByConfigId = new Map<number, any[]>();
+
     try {
-      sizeRates = await query<any[]>(
+      const psr = await query<any[]>(
+        `SELECT * FROM product_size_rates WHERE tenant_id = ? ORDER BY id ASC`,
+        [tenantId]
+      );
+      for (const sr of psr) {
+        const cat = (sr.category || '').toLowerCase().trim();
+        if (!sizeRatesByCategory.has(cat)) sizeRatesByCategory.set(cat, []);
+        sizeRatesByCategory.get(cat)!.push(sr);
+      }
+    } catch {}
+
+    try {
+      const pssr = await query<any[]>(
         `SELECT * FROM product_size_selling_rates WHERE tenant_id = ? ORDER BY id ASC`,
         [tenantId]
       );
+      for (const sr of pssr) {
+        if (!sizeRatesByConfigId.has(sr.product_config_id)) sizeRatesByConfigId.set(sr.product_config_id, []);
+        sizeRatesByConfigId.get(sr.product_config_id)!.push(sr);
+      }
     } catch {}
 
-    const sizeRatesByConfigId = new Map<number, any[]>();
-    for (const sr of sizeRates) {
-      if (!sizeRatesByConfigId.has(sr.product_config_id)) {
-        sizeRatesByConfigId.set(sr.product_config_id, []);
-      }
-      sizeRatesByConfigId.get(sr.product_config_id)!.push(sr);
-    }
+    const result = items.map(item => {
+      const catKey = (item.category || '').toLowerCase().trim();
+      const ratesFromCategory = sizeRatesByCategory.get(catKey) || [];
+      const ratesFromConfigId = sizeRatesByConfigId.get(item.id) || [];
+      const combinedRates = ratesFromCategory.length ? ratesFromCategory : ratesFromConfigId;
 
-    const result = items.map(item => ({
-      ...item,
-      name: item.name || formatCategoryName(item.category),
-      display_name: item.name || formatCategoryName(item.category),
-      item_type: item.item_type || 'product',
-      uom: item.uom || 'pcs',
-      is_active: item.is_active !== undefined ? (item.is_active === 1 || item.is_active === true) : true,
-      size_rates: sizeRatesByConfigId.get(item.id) || [],
-    }));
+      return {
+        ...item,
+        name: item.name || formatCategoryName(item.category),
+        display_name: item.name || formatCategoryName(item.category),
+        item_type: item.item_type || 'product',
+        uom: item.uom || 'pcs',
+        is_active: item.is_active !== undefined ? (item.is_active === 1 || item.is_active === true) : true,
+        size_rates: combinedRates,
+      };
+    });
 
     res.json(result);
   } catch (error) {
@@ -91,12 +108,23 @@ export async function getItemById(req: AuthRequest, res: Response): Promise<void
 
     const item = rows[0];
     let sizeRates: any[] = [];
+    
+    // Check product_size_rates first by category
     try {
       sizeRates = await query<any[]>(
-        'SELECT * FROM product_size_selling_rates WHERE product_config_id = ? AND tenant_id = ?',
-        [item.id, tenantId]
+        'SELECT * FROM product_size_rates WHERE category = ? AND tenant_id = ? ORDER BY id ASC',
+        [item.category, tenantId]
       );
     } catch {}
+
+    if (!sizeRates || sizeRates.length === 0) {
+      try {
+        sizeRates = await query<any[]>(
+          'SELECT * FROM product_size_selling_rates WHERE product_config_id = ? AND tenant_id = ? ORDER BY id ASC',
+          [item.id, tenantId]
+        );
+      } catch {}
+    }
 
     res.json({
       ...item,
@@ -149,15 +177,24 @@ export async function createItem(req: AuthRequest, res: Response): Promise<void>
 
     const itemId = insertRes.insertId;
 
-    // Save size rates if provided
+    // Save size rates if provided into both tables
     if (Array.isArray(size_rates) && size_rates.length > 0) {
       for (const sr of size_rates) {
         if (sr.size_label && sr.selling_rate) {
-          await query(
-            `INSERT INTO product_size_selling_rates (tenant_id, product_config_id, size_label, selling_rate)
-             VALUES (?, ?, ?, ?)`,
-            [tenantId, itemId, sr.size_label.trim(), Number(sr.selling_rate)]
-          );
+          try {
+            await query(
+              `INSERT INTO product_size_selling_rates (tenant_id, product_config_id, size_label, selling_rate)
+               VALUES (?, ?, ?, ?)`,
+              [tenantId, itemId, String(sr.size_label).trim(), Number(sr.selling_rate)]
+            );
+          } catch {}
+          try {
+            await query(
+              `INSERT INTO product_size_rates (tenant_id, category, size_label, selling_rate)
+               VALUES (?, ?, ?, ?)`,
+              [tenantId, cleanCategory, String(sr.size_label).trim(), Number(sr.selling_rate)]
+            );
+          } catch {}
         }
       }
     }
@@ -186,7 +223,7 @@ export async function updateItem(req: AuthRequest, res: Response): Promise<void>
 
   try {
     const existing = await query<any[]>(
-      'SELECT id FROM product_config WHERE id = ? AND tenant_id = ? LIMIT 1',
+      'SELECT id, category FROM product_config WHERE id = ? AND tenant_id = ? LIMIT 1',
       [id, tenantId]
     );
 
@@ -194,6 +231,8 @@ export async function updateItem(req: AuthRequest, res: Response): Promise<void>
       res.status(404).json({ message: 'Item not found' });
       return;
     }
+
+    const itemCat = existing[0].category;
 
     await query(
       `UPDATE product_config SET
@@ -241,16 +280,31 @@ export async function updateItem(req: AuthRequest, res: Response): Promise<void>
       ]
     );
 
-    // Update size rates if explicitly provided
+    // Update size rates in both tables if explicitly provided
     if (Array.isArray(size_rates)) {
-      await query('DELETE FROM product_size_selling_rates WHERE product_config_id = ? AND tenant_id = ?', [id, tenantId]);
+      try {
+        await query('DELETE FROM product_size_selling_rates WHERE product_config_id = ? AND tenant_id = ?', [id, tenantId]);
+      } catch {}
+      try {
+        await query('DELETE FROM product_size_rates WHERE category = ? AND tenant_id = ?', [itemCat, tenantId]);
+      } catch {}
+
       for (const sr of size_rates) {
         if (sr.size_label && sr.selling_rate) {
-          await query(
-            `INSERT INTO product_size_selling_rates (tenant_id, product_config_id, size_label, selling_rate)
-             VALUES (?, ?, ?, ?)`,
-            [tenantId, id, sr.size_label.trim(), Number(sr.selling_rate)]
-          );
+          try {
+            await query(
+              `INSERT INTO product_size_selling_rates (tenant_id, product_config_id, size_label, selling_rate)
+               VALUES (?, ?, ?, ?)`,
+              [tenantId, id, String(sr.size_label).trim(), Number(sr.selling_rate)]
+            );
+          } catch {}
+          try {
+            await query(
+              `INSERT INTO product_size_rates (tenant_id, category, size_label, selling_rate)
+               VALUES (?, ?, ?, ?)`,
+              [tenantId, itemCat, String(sr.size_label).trim(), Number(sr.selling_rate)]
+            );
+          } catch {}
         }
       }
     }
@@ -280,8 +334,13 @@ export async function deleteItem(req: AuthRequest, res: Response): Promise<void>
 
     const item = rows[0];
 
-    // Delete size rates and item config
-    await query('DELETE FROM product_size_selling_rates WHERE product_config_id = ? AND tenant_id = ?', [id, tenantId]);
+    // Delete size rates from both tables and item config
+    try {
+      await query('DELETE FROM product_size_selling_rates WHERE product_config_id = ? AND tenant_id = ?', [id, tenantId]);
+    } catch {}
+    try {
+      await query('DELETE FROM product_size_rates WHERE category = ? AND tenant_id = ?', [item.category, tenantId]);
+    } catch {}
     await query('DELETE FROM product_config WHERE id = ? AND tenant_id = ?', [id, tenantId]);
 
     res.json({ message: `Item '${item.name || item.category}' deleted successfully` });
