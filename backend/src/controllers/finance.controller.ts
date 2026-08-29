@@ -22,11 +22,16 @@ export async function getPnL(req: AuthRequest, res: Response): Promise<void> {
       [tenantId, month, year]
     );
 
-    // Fabric purchases (paid)
+    // Fabric purchases (paid or advance paid)
     const [fabric] = await query<any[]>(
-      `SELECT COALESCE(SUM(total), 0) AS total
+      `SELECT COALESCE(SUM(
+        CASE
+          WHEN status='paid' THEN (CASE WHEN total > 0 THEN total ELSE advance_paid END)
+          ELSE COALESCE(advance_paid, 0)
+        END
+      ), 0) AS total
        FROM purchases
-       WHERE tenant_id=? AND status='paid'
+       WHERE tenant_id=?
          AND MONTH(invoice_date)=? AND YEAR(invoice_date)=?`,
       [tenantId, month, year]
     );
@@ -215,15 +220,22 @@ export async function getCashLedger(req: AuthRequest, res: Response): Promise<vo
       [tenantId, from, to]
     );
 
-    // 6. Purchases paid
+    // 6. Purchases paid & advance payments
     const purchases = await query<any[]>(
       `SELECT p.invoice_date AS date, 'purchase' AS type,
-              CONCAT('📦 Purchase — ', v.name) AS description,
-              p.total AS amount, 'out' AS direction,
-              p.id AS ref, NULL AS note, v.name AS party
+              CONCAT('📦 Purchase ', CASE WHEN p.status = 'partial' THEN 'Advance ' ELSE '' END, '— ', v.name) AS description,
+              CASE
+                WHEN p.status = 'paid' THEN (CASE WHEN p.total > 0 THEN p.total ELSE p.advance_paid END)
+                ELSE COALESCE(p.advance_paid, 0)
+              END AS amount, 'out' AS direction,
+              p.id AS ref, p.note, v.name AS party
        FROM purchases p
        JOIN vendors v ON v.id = p.vendor_id
-       WHERE p.tenant_id=? AND p.status='paid'
+       WHERE p.tenant_id=?
+         AND (
+           (p.status = 'paid' AND (p.total > 0 OR p.advance_paid > 0))
+           OR (COALESCE(p.advance_paid, 0) > 0)
+         )
          AND p.invoice_date BETWEEN ? AND ?`,
       [tenantId, from, to]
     );
@@ -396,7 +408,12 @@ export async function getVendorLedger(req: AuthRequest, res: Response): Promise<
       const totalBilled = billedRows?.total_billed || 0;
 
       const [paidRows] = await query<any[]>(
-        `SELECT COALESCE(SUM(advance_paid), 0) AS total_paid
+        `SELECT COALESCE(SUM(
+           CASE
+             WHEN status = 'paid' THEN (CASE WHEN total > 0 THEN total ELSE advance_paid END)
+             ELSE COALESCE(advance_paid, 0)
+           END
+         ), 0) AS total_paid
          FROM purchases
          WHERE tenant_id = ? AND vendor_id = ? AND invoice_date < ?`,
         [tenantId, id, from]
@@ -425,14 +442,22 @@ export async function getVendorLedger(req: AuthRequest, res: Response): Promise<
       pParams
     );
 
-    let payCond = 'p.tenant_id = ? AND p.vendor_id = ? AND p.advance_paid > 0';
+    let payCond = 'p.tenant_id = ? AND p.vendor_id = ? AND ((p.status = "paid" AND (p.total > 0 OR p.advance_paid > 0)) OR (COALESCE(p.advance_paid, 0) > 0))';
     const payParams: any[] = [tenantId, id];
     if (from) { payCond += ' AND p.invoice_date >= ?'; payParams.push(from); }
     if (to)   { payCond += ' AND p.invoice_date <= ?'; payParams.push(to); }
 
     const payments = await query<any[]>(
       `SELECT p.id, CONCAT('PUR-', p.id) AS ref, p.invoice_date AS date, 'payment' AS type, 
-              p.advance_paid AS amount, 'Advance payment' AS description, NULL AS items_detail
+              CASE
+                WHEN p.status = 'paid' THEN (CASE WHEN p.total > 0 THEN p.total ELSE p.advance_paid END)
+                ELSE COALESCE(p.advance_paid, 0)
+              END AS amount,
+              CASE
+                WHEN p.status = 'partial' THEN 'Advance payment'
+                ELSE 'Bill payment'
+              END AS description,
+              NULL AS items_detail
        FROM purchases p
        WHERE ${payCond}`,
       payParams

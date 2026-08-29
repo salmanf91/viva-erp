@@ -92,8 +92,13 @@ export async function getDashboardStats(req: AuthRequest, res: Response): Promis
         SELECT COALESCE(SUM(amount_paid),0) AS total
         FROM sales_orders WHERE tenant_id=?`, [tenantId])),
       safe(query<any[]>(`
-        SELECT COALESCE(SUM(total),0) AS total FROM purchases
-        WHERE tenant_id=? AND status='paid'`, [tenantId])),
+        SELECT COALESCE(SUM(
+          CASE
+            WHEN status='paid' THEN (CASE WHEN total > 0 THEN total ELSE advance_paid END)
+            ELSE COALESCE(advance_paid, 0)
+          END
+        ), 0) AS total FROM purchases
+        WHERE tenant_id=?`, [tenantId])),
       safe(query<any[]>(`
         SELECT COALESCE(SUM(amount),0) AS total FROM expenses
         WHERE tenant_id=? AND (paid_by IS NULL OR paid_by='')`, [tenantId])),
