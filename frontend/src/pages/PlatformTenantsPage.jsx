@@ -10,6 +10,40 @@ export default function PlatformTenantsPage() {
   const [search, setSearch] = useState('');
   const [msg, setMsg] = useState(null);
 
+  // Module Modal State
+  const [modTenant, setModTenant] = useState(null);
+  const [modulesState, setModulesState] = useState({});
+  const [loadingModules, setLoadingModules] = useState(false);
+  const [savingModules, setSavingModules] = useState(false);
+
+  const openModuleModal = async (tenant) => {
+    setModTenant(tenant);
+    setLoadingModules(true);
+    try {
+      const res = await api.get(`/tenants/${tenant.id}/modules`);
+      setModulesState(res.data || {});
+    } catch (err) {
+      alert('Failed to load module configuration');
+    } finally {
+      setLoadingModules(false);
+    }
+  };
+
+  const handleSaveModules = async () => {
+    if (!modTenant) return;
+    setSavingModules(true);
+    try {
+      await api.put(`/tenants/${modTenant.id}/modules`, modulesState);
+      setMsg({ type: 'success', text: `Modules updated for workspace '${modTenant.name}'.` });
+      setModTenant(null);
+      setTimeout(() => setMsg(null), 3500);
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to save module configuration');
+    } finally {
+      setSavingModules(false);
+    }
+  };
+
   const loadTenants = () => {
     setLoading(true);
     api.get('/tenants')
@@ -204,6 +238,14 @@ export default function PlatformTenantsPage() {
                       </td>
                       <td>
                         <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-sm"
+                            style={{ fontSize: 11, color: 'var(--accent)', borderColor: 'var(--accent)' }}
+                            onClick={() => openModuleModal(t)}
+                          >
+                            ⚙️ Modules
+                          </button>
                           {!isPrimary && (
                             <button
                               type="button"
@@ -226,7 +268,7 @@ export default function PlatformTenantsPage() {
                           )}
                           {isPrimary && (
                             <span className="badge" style={{ fontSize: 10, background: 'rgba(200,134,10,0.1)', borderColor: 'rgba(200,134,10,0.3)', color: 'var(--accent)' }}>
-                              👑 Master Workspace
+                              👑 Master
                             </span>
                           )}
                         </div>
@@ -239,6 +281,86 @@ export default function PlatformTenantsPage() {
           </div>
         )}
       </div>
+
+      {/* Module Configuration Modal */}
+      {modTenant && (
+        <div className="modal-overlay" onClick={() => setModTenant(null)}>
+          <div
+            className="modal"
+            style={{ width: 560, maxHeight: '90vh', overflowY: 'auto' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <div>
+                <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>Workspace Modules & Features</h2>
+                <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--muted)' }}>
+                  Configuring modules for <b>{modTenant.name}</b> (<code>{modTenant.slug}</code>)
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => setModTenant(null)}
+              >
+                ✕
+              </button>
+            </div>
+
+            {loadingModules ? (
+              <div className="spinner" style={{ padding: 30 }}>Loading module settings…</div>
+            ) : (
+              <div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', margin: '16px 0' }}>
+                  {[
+                    ['feature_accounting', '📈 Accounting & Finance'],
+                    ['feature_expenses', '🧾 Expense Tracking'],
+                    ['feature_party_ledger', '📒 Party Ledger'],
+                    ['feature_quotations', '📄 Quotations & Estimates'],
+                    ['feature_sales_invoicing', '🚚 Sales Invoicing'],
+                    ['feature_delivery_notes', '🚚 Delivery Notes & Challans'],
+                    ['feature_purchases', '📦 Purchases Master'],
+                    ['feature_inventory_stock', '🏭 Raw Stock Inventory'],
+                    ['feature_garment_production', '✂️ Garment Manufacturing'],
+                    ['feature_staff_piece_log', '📋 Staff Piece Log'],
+                    ['feature_payroll', '👷 Monthly Payroll'],
+                    ['feature_zatca_einvoicing', '🇸🇦 Saudi ZATCA E-Invoicing'],
+                  ].map(([k, label]) => (
+                    <label key={k} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer', padding: '6px 0' }}>
+                      <input
+                        type="checkbox"
+                        checked={!!modulesState[k]}
+                        onChange={() => setModulesState(prev => ({ ...prev, [k]: !prev[k] }))}
+                        style={{ accentColor: 'var(--accent)', width: 16, height: 16 }}
+                      />
+                      <span style={{ fontWeight: modulesState[k] ? 700 : 400, color: modulesState[k] ? 'var(--text)' : 'var(--muted)' }}>
+                        {label}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+
+                <div className="modal-actions" style={{ marginTop: 20 }}>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => setModTenant(null)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={savingModules}
+                    onClick={handleSaveModules}
+                  >
+                    {savingModules ? 'Saving…' : 'Save Module Settings'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
