@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
 
@@ -19,6 +19,7 @@ export default function PurchasesPage() {
   const [pages, setPages]             = useState(1);
   const [search, setSearch]           = useState('');
   const [searchInput, setSearchInput] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
 
   const [vendors, setVendors]         = useState([]);
   const [products, setProducts]       = useState([]);
@@ -265,6 +266,20 @@ export default function PurchasesPage() {
     setDetail(r.data);
   };
 
+  // Filtered rows by status
+  const filteredRows = useMemo(() => {
+    if (statusFilter === 'all') return rows;
+    if (statusFilter === 'paid') return rows.filter(r => r.status === 'paid' && Number(r.total) <= Number(r.advance_paid || r.total));
+    if (statusFilter === 'partial') return rows.filter(r => r.status === 'partial' || (Number(r.advance_paid) > 0 && Number(r.advance_paid) < Number(r.total)));
+    if (statusFilter === 'pending') return rows.filter(r => r.status !== 'paid' && Number(r.advance_paid || 0) === 0);
+    return rows;
+  }, [rows, statusFilter]);
+
+  // Aggregate stats
+  const totalPurchasesSum = rows.reduce((acc, r) => acc + Number(r.total || 0), 0);
+  const totalPaidSum = rows.reduce((acc, r) => acc + (r.status === 'paid' ? Number(r.total || r.advance_paid || 0) : Number(r.advance_paid || 0)), 0);
+  const totalOutstanding = Math.max(0, totalPurchasesSum - totalPaidSum);
+
   const labelStyle = {
     display: 'block',
     fontSize: '12px',
@@ -279,7 +294,7 @@ export default function PurchasesPage() {
   // ═══════════════════════════════════════════════════════════════
   if (viewMode === 'new' || viewMode === 'edit') {
     return (
-      <div style={{ maxWidth: 1040, margin: '0 auto', paddingBottom: 50 }}>
+      <div style={{ maxWidth: 1060, margin: '0 auto', paddingBottom: 50 }}>
         {/* Top Header Command Bar */}
         <div style={{
           background: 'var(--white)',
@@ -383,9 +398,9 @@ export default function PurchasesPage() {
                   1. Vendor &amp; Invoice Metadata
                 </div>
 
-                <div className="g2 mb14">
+                <div className="g2 mb16">
                   {/* Vendor Selector with Quick Add */}
-                  <div className="field">
+                  <div className="field" style={{ margin: 0 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                       <label style={{ ...labelStyle, margin: 0 }}>
                         Vendor / Supplier <span style={{ color: 'var(--red)' }}>*</span>
@@ -414,7 +429,7 @@ export default function PurchasesPage() {
                           placeholder="Vendor Name"
                           value={newVendor}
                           onChange={e => setNewVendor(e.target.value)}
-                          style={{ flex: 1, padding: '8px 10px', borderRadius: 6 }}
+                          style={{ flex: 1, padding: '9px 12px', borderRadius: 8 }}
                           autoFocus
                         />
                         <button
@@ -424,8 +439,8 @@ export default function PurchasesPage() {
                             background: 'var(--accent)',
                             color: '#fff',
                             border: 'none',
-                            borderRadius: 6,
-                            padding: '0 12px',
+                            borderRadius: 8,
+                            padding: '0 14px',
                             fontWeight: 700,
                             fontSize: 12,
                             cursor: 'pointer'
@@ -439,7 +454,7 @@ export default function PurchasesPage() {
                         value={form.vendor_id}
                         onChange={e => setForm({ ...form, vendor_id: e.target.value })}
                         required
-                        style={{ padding: '8px 10px', borderRadius: 8, fontSize: 13, fontWeight: 600 }}
+                        style={{ padding: '9px 12px', borderRadius: 8, fontSize: 13, fontWeight: 600 }}
                       >
                         <option value="">— Select Vendor —</option>
                         {vendors.map(v => (
@@ -450,32 +465,32 @@ export default function PurchasesPage() {
                   </div>
 
                   {/* Purchase Date */}
-                  <div className="field">
+                  <div className="field" style={{ margin: 0 }}>
                     <label style={labelStyle}>Invoice / Payment Date</label>
                     <input
                       type="date"
                       value={form.purchase_date}
                       onChange={e => setForm({ ...form, purchase_date: e.target.value })}
                       required
-                      style={{ padding: '8px 10px', borderRadius: 8 }}
+                      style={{ padding: '9px 12px', borderRadius: 8 }}
                     />
                   </div>
                 </div>
 
                 <div className="g2">
-                  <div className="field">
+                  <div className="field" style={{ margin: 0 }}>
                     <label style={labelStyle}>Invoice Notes / Memo</label>
                     <input
                       type="text"
                       placeholder="e.g. Bill #1042, Fabric deposit, Advance payment"
                       value={form.notes}
                       onChange={e => setForm({ ...form, notes: e.target.value })}
-                      style={{ padding: '8px 10px', borderRadius: 8 }}
+                      style={{ padding: '9px 12px', borderRadius: 8 }}
                     />
                   </div>
 
-                  <div className="field" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', margin: 0, marginTop: 14 }}>
+                  <div className="field" style={{ margin: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', margin: 0, marginTop: 18 }}>
                       <input
                         type="checkbox"
                         checked={form.tax_inclusive}
@@ -525,15 +540,15 @@ export default function PurchasesPage() {
                   <table style={{ margin: 0, width: '100%' }}>
                     <thead>
                       <tr style={{ background: 'var(--bg)' }}>
-                        <th style={{ padding: '8px 12px', fontSize: 11, color: '#475569', textAlign: 'left' }}>CATEGORY / ITEM</th>
-                        <th style={{ padding: '8px 10px', fontSize: 11, color: '#475569', textAlign: 'right', width: 110 }}>
+                        <th style={{ padding: '9px 12px', fontSize: 11, color: '#475569', textAlign: 'left' }}>CATEGORY / ITEM</th>
+                        <th style={{ padding: '9px 10px', fontSize: 11, color: '#475569', textAlign: 'right', width: 110 }}>
                           QTY {isAdvanceEntry ? '(Opt)' : '*'}
                         </th>
-                        <th style={{ padding: '8px 10px', fontSize: 11, color: '#475569', textAlign: 'right', width: 130 }}>
+                        <th style={{ padding: '9px 10px', fontSize: 11, color: '#475569', textAlign: 'right', width: 130 }}>
                           RATE/PC ({currency}) {isAdvanceEntry ? '(Opt)' : '*'}
                         </th>
-                        <th style={{ padding: '8px 12px', fontSize: 11, color: '#475569', textAlign: 'right', width: 120 }}>AMOUNT</th>
-                        <th style={{ padding: '8px 8px', width: 40 }}></th>
+                        <th style={{ padding: '9px 12px', fontSize: 11, color: '#475569', textAlign: 'right', width: 120 }}>AMOUNT</th>
+                        <th style={{ padding: '9px 8px', width: 40 }}></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -548,7 +563,7 @@ export default function PurchasesPage() {
                               <select
                                 value={it.category}
                                 onChange={e => setItem(idx, 'category', e.target.value)}
-                                style={{ width: '100%', padding: '6px 8px', borderRadius: 6, fontSize: 12 }}
+                                style={{ width: '100%', padding: '7px 9px', borderRadius: 6, fontSize: 12 }}
                               >
                                 <option value="mixed">Mixed / Fabric Goods</option>
                                 {products.map(p => (
@@ -565,7 +580,7 @@ export default function PurchasesPage() {
                                 placeholder={isAdvanceEntry ? 'Optional' : '0'}
                                 value={it.quantity}
                                 onChange={e => setItem(idx, 'quantity', e.target.value)}
-                                style={{ width: '100%', padding: '6px 8px', textAlign: 'right', borderRadius: 6, fontSize: 12 }}
+                                style={{ width: '100%', padding: '7px 9px', textAlign: 'right', borderRadius: 6, fontSize: 12 }}
                               />
                             </td>
 
@@ -576,7 +591,7 @@ export default function PurchasesPage() {
                                 placeholder={isAdvanceEntry ? 'Optional' : '0.00'}
                                 value={it.price_per_piece}
                                 onChange={e => setItem(idx, 'price_per_piece', e.target.value)}
-                                style={{ width: '100%', padding: '6px 8px', textAlign: 'right', borderRadius: 6, fontSize: 12 }}
+                                style={{ width: '100%', padding: '7px 9px', textAlign: 'right', borderRadius: 6, fontSize: 12 }}
                               />
                             </td>
 
@@ -614,7 +629,7 @@ export default function PurchasesPage() {
                     background: 'var(--bg)',
                     border: '1px solid var(--border)',
                     borderRadius: 6,
-                    padding: '6px 14px',
+                    padding: '7px 14px',
                     fontSize: 12,
                     fontWeight: 600,
                     cursor: 'pointer',
@@ -645,13 +660,13 @@ export default function PurchasesPage() {
                 </div>
 
                 {/* Advance Paid Prominent Input */}
-                <div className="field mb14" style={{
+                <div className="field mb16" style={{
                   background: 'linear-gradient(135deg, rgba(79, 70, 229, 0.05), rgba(79, 70, 229, 0.01))',
                   padding: 12,
                   borderRadius: 8,
                   border: '1.5px solid var(--accent)'
                 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                     <label style={{ ...labelStyle, color: 'var(--accent)', margin: 0, fontWeight: 800 }}>
                       Advance Paid ({currency})
                     </label>
@@ -678,8 +693,8 @@ export default function PurchasesPage() {
                 </div>
 
                 {/* Commercials: Discount & Tax */}
-                <div className="g2 mb12">
-                  <div className="field">
+                <div className="g2 mb14">
+                  <div className="field" style={{ margin: 0 }}>
                     <label style={labelStyle}>Discount ({currency})</label>
                     <input
                       type="number"
@@ -687,10 +702,10 @@ export default function PurchasesPage() {
                       placeholder="0.00"
                       value={form.discount}
                       onChange={e => setForm({ ...form, discount: e.target.value })}
-                      style={{ padding: '7px 10px', borderRadius: 6 }}
+                      style={{ padding: '8px 10px', borderRadius: 6 }}
                     />
                   </div>
-                  <div className="field">
+                  <div className="field" style={{ margin: 0 }}>
                     <label style={labelStyle}>Tax / VAT %</label>
                     <input
                       type="number"
@@ -698,14 +713,14 @@ export default function PurchasesPage() {
                       placeholder="0"
                       value={form.tax_percent}
                       onChange={e => setForm({ ...form, tax_percent: e.target.value })}
-                      style={{ padding: '7px 10px', borderRadius: 6 }}
+                      style={{ padding: '8px 10px', borderRadius: 6 }}
                     />
                   </div>
                 </div>
 
                 {/* Freight & Coolie */}
-                <div className="g2 mb10">
-                  <div className="field">
+                <div className="g2">
+                  <div className="field" style={{ margin: 0 }}>
                     <label style={labelStyle}>Freight ({currency})</label>
                     <input
                       type="number"
@@ -713,10 +728,10 @@ export default function PurchasesPage() {
                       placeholder="0.00"
                       value={form.freight}
                       onChange={e => setForm({ ...form, freight: e.target.value })}
-                      style={{ padding: '7px 10px', borderRadius: 6 }}
+                      style={{ padding: '8px 10px', borderRadius: 6 }}
                     />
                   </div>
-                  <div className="field">
+                  <div className="field" style={{ margin: 0 }}>
                     <label style={labelStyle}>Coolie / Labour ({currency})</label>
                     <input
                       type="number"
@@ -724,7 +739,7 @@ export default function PurchasesPage() {
                       placeholder="0.00"
                       value={form.coolie}
                       onChange={e => setForm({ ...form, coolie: e.target.value })}
-                      style={{ padding: '7px 10px', borderRadius: 6 }}
+                      style={{ padding: '8px 10px', borderRadius: 6 }}
                     />
                   </div>
                 </div>
@@ -829,19 +844,101 @@ export default function PurchasesPage() {
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // VIEW 2: PURCHASES LIST VIEW
+  // VIEW 2: PREMIUM PURCHASES LIST VIEW
   // ═══════════════════════════════════════════════════════════════
   return (
-    <>
-      {/* Header */}
-      <div className="sec-hd mb16" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <div className="sec-title" style={{ fontSize: 18, fontWeight: 800 }}>Vendor Purchases</div>
-          <div className="sec-sub">{total} invoice{total !== 1 ? 's' : ''} total recorded</div>
+    <div style={{ maxWidth: 1200, margin: '0 auto' }}>
+      {/* Top Banner KPI Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginBottom: 18 }}>
+        <div style={{
+          background: 'var(--white)',
+          padding: '16px 18px',
+          borderRadius: 12,
+          border: '1px solid var(--border)',
+          boxShadow: '0 1px 4px rgba(0,0,0,0.02)'
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
+            Total Invoices Recorded
+          </div>
+          <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--text)', marginTop: 4 }}>
+            {total}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+            Cumulative: {fmtRound(totalPurchasesSum)}
+          </div>
         </div>
-        <button className="btn btn-primary" onClick={openNewPurchase} style={{ padding: '8px 16px', fontWeight: 700 }}>
-          ➕ New Purchase
-        </button>
+
+        <div style={{
+          background: 'var(--white)',
+          padding: '16px 18px',
+          borderRadius: 12,
+          border: '1px solid var(--border)',
+          boxShadow: '0 1px 4px rgba(0,0,0,0.02)'
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
+            Paid &amp; Advance Settled
+          </div>
+          <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--green)', marginTop: 4 }}>
+            {fmtRound(totalPaidSum)}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+            Paid out of cash &amp; bank
+          </div>
+        </div>
+
+        <div style={{
+          background: 'var(--white)',
+          padding: '16px 18px',
+          borderRadius: 12,
+          border: '1px solid var(--border)',
+          boxShadow: '0 1px 4px rgba(0,0,0,0.02)'
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
+            Outstanding Payables
+          </div>
+          <div style={{ fontSize: 24, fontWeight: 800, color: totalOutstanding > 0 ? 'var(--red)' : 'var(--text)', marginTop: 4 }}>
+            {fmtRound(totalOutstanding)}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+            Pending vendor balances
+          </div>
+        </div>
+
+        {/* Quick Action Card */}
+        <div style={{
+          background: 'var(--white)',
+          padding: '16px 18px',
+          borderRadius: 12,
+          border: '1.5px dashed var(--accent)',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          alignItems: 'flex-start'
+        }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase' }}>
+            Quick Action
+          </div>
+          <button
+            type="button"
+            onClick={openNewPurchase}
+            style={{
+              background: 'var(--accent)',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 8,
+              padding: '7px 14px',
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: 'pointer',
+              marginTop: 6,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 5
+            }}
+          >
+            <span style={{ color: '#fff', fontWeight: 800 }}>+</span> New Purchase / Advance
+          </button>
+        </div>
       </div>
 
       {msg && (
@@ -851,106 +948,279 @@ export default function PurchasesPage() {
         </div>
       )}
 
-      {/* Search bar */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 14, alignItems: 'center' }}>
-        <div className="search-wrap" style={{ width: 340 }}>
-          <span className="sw-icon">⌕</span>
-          <input
-            placeholder="Search by vendor name…"
-            value={searchInput}
-            onChange={e => { setSearchInput(e.target.value); if (e.target.value === '') clearSearch(); }}
-            onKeyDown={e => e.key === 'Enter' && doSearch()}
-          />
-          {searchInput && (
-            <button className="sw-clear" onClick={clearSearch}>✕</button>
-          )}
-        </div>
-        <button className="btn btn-primary btn-sm" onClick={doSearch} style={{ height: 38, padding: '0 18px' }}>Search</button>
-        {search && (
-          <span className="search-tag">
-            {search}
-            <button onClick={clearSearch}>✕</button>
-          </span>
-        )}
-      </div>
+      {/* Main Catalog Card */}
+      <div style={{
+        background: 'var(--white)',
+        borderRadius: 12,
+        border: '1px solid var(--border)',
+        boxShadow: '0 1px 4px rgba(0,0,0,0.02)',
+        overflow: 'hidden'
+      }}>
+        {/* Controls Bar */}
+        <div style={{
+          padding: '14px 18px',
+          borderBottom: '1px solid var(--border)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 12
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <input
+              type="text"
+              placeholder="🔍 Search vendor name…"
+              value={searchInput}
+              onChange={e => { setSearchInput(e.target.value); if (e.target.value === '') clearSearch(); }}
+              onKeyDown={e => e.key === 'Enter' && doSearch()}
+              style={{
+                width: 220,
+                padding: '7px 12px',
+                borderRadius: 8,
+                border: '1px solid var(--border)',
+                fontSize: 12
+              }}
+            />
 
-      {/* Table */}
-      <div className="card">
-        {loading ? (
-          <div className="spinner">Loading purchases…</div>
-        ) : rows.length === 0 ? (
-          <div className="empty-state">{search ? `No purchases matching "${search}".` : 'No purchases yet. Click "+ New Purchase" to record one.'}</div>
-        ) : (
-          <table>
-            <thead>
-              <tr>
-                <th>Vendor</th>
-                <th>Date</th>
-                <th style={{ textAlign: 'right' }}>Pieces</th>
-                <th style={{ textAlign: 'right' }}>Subtotal</th>
-                <th style={{ textAlign: 'right' }}>Advance / Paid</th>
-                <th style={{ textAlign: 'right' }}>Total</th>
-                <th>Tax</th>
-                <th>Dispute</th>
-                <th style={{ textAlign: 'right' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(p => (
-                <tr key={p.id}>
-                  <td>
-                    <span
-                      style={{ fontWeight: 700, color: 'var(--accent)', cursor: 'pointer' }}
-                      onClick={() => openDetail(p.id)}
-                    >
-                      {p.vendor_name}
-                    </span>
-                    {p.note && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{p.note}</div>}
-                  </td>
-                  <td style={{ fontSize: 12, color: 'var(--muted)' }}>{fmtDate(p.invoice_date)}</td>
-                  <td style={{ textAlign: 'right' }}>{Number(p.total_pieces) > 0 ? `${p.total_pieces} pcs` : '—'}</td>
-                  <td style={{ textAlign: 'right', fontSize: 12 }}>{fmt(p.subtotal)}</td>
-                  <td style={{ textAlign: 'right', fontSize: 12, color: 'var(--blue, #2563eb)' }}>
-                    {Number(p.advance_paid) > 0 ? fmt(p.advance_paid) : '—'}
-                  </td>
-                  <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text)' }}>{fmt(p.total)}</td>
-                  <td>
-                    <span className="badge" style={{ fontSize: 10 }}>
-                      {Number(p.tax_rate) > 0 ? `${p.tax_rate}%` : '0%'}
-                    </span>
-                  </td>
-                  <td>
-                    {p.has_dispute ? (
-                      <span className="badge badge-warn" style={{ fontSize: 10 }}>Dispute {fmt(p.dispute_amount)}</span>
-                    ) : (
-                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>—</span>
-                    )}
-                  </td>
-                  <td style={{ textAlign: 'right' }}>
-                    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                      <button className="btn btn-ghost btn-sm" onClick={() => openDetail(p.id)}>View</button>
-                      <button className="btn btn-ghost btn-sm" onClick={() => openEditPurchase(p)}>✏️ Edit</button>
-                      <button
-                        className="btn btn-ghost btn-sm"
-                        style={{ color: 'var(--red)', borderColor: '#fca5a5' }}
-                        onClick={() => deletePurchase(p.id)}
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+            {/* Status Filter Buttons */}
+            <div style={{ display: 'flex', background: 'var(--bg)', padding: 3, borderRadius: 8, border: '1px solid var(--border)' }}>
+              {[
+                { id: 'all', label: 'All' },
+                { id: 'paid', label: '✓ Paid' },
+                { id: 'partial', label: '⏳ Advance / Partial' },
+                { id: 'pending', label: '⚠️ Unpaid' },
+              ].map(t => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => setStatusFilter(t.id)}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: 6,
+                    border: 'none',
+                    fontSize: 11,
+                    fontWeight: statusFilter === t.id ? 700 : 500,
+                    background: statusFilter === t.id ? 'var(--white)' : 'transparent',
+                    color: statusFilter === t.id ? 'var(--accent)' : 'var(--muted)',
+                    cursor: 'pointer',
+                    boxShadow: statusFilter === t.id ? '0 1px 2px rgba(0,0,0,0.08)' : 'none'
+                  }}
+                >
+                  {t.label}
+                </button>
               ))}
-            </tbody>
-          </table>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+              Showing <strong>{filteredRows.length}</strong> of {total} records
+            </span>
+            <button
+              type="button"
+              onClick={openNewPurchase}
+              style={{
+                background: 'var(--accent)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 8,
+                padding: '6px 14px',
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4
+              }}
+            >
+              <span style={{ color: '#fff', fontWeight: 800 }}>+</span> New Entry
+            </button>
+          </div>
+        </div>
+
+        {/* Content Table */}
+        {loading ? (
+          <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>
+            <div style={{ fontSize: 20, marginBottom: 6 }}>⏳</div>
+            <div style={{ fontWeight: 600, fontSize: 13 }}>Loading purchase invoices…</div>
+          </div>
+        ) : filteredRows.length === 0 ? (
+          <div style={{ padding: 50, textAlign: 'center' }}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>📦</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>No purchases found</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, marginBottom: 14 }}>
+              {search ? `No records matching "${search}".` : 'Start by recording your first vendor purchase or advance payment.'}
+            </div>
+            <button
+              type="button"
+              onClick={openNewPurchase}
+              style={{
+                background: 'var(--accent)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 8,
+                padding: '8px 16px',
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: 'pointer'
+              }}
+            >
+              ➕ Add First Purchase
+            </button>
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', margin: 0 }}>
+              <thead>
+                <tr style={{ background: 'var(--bg)', borderBottom: '1px solid var(--border)' }}>
+                  <th style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#475569' }}>VENDOR / SUPPLIER</th>
+                  <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#475569' }}>DATE</th>
+                  <th style={{ padding: '10px 12px', textAlign: 'right', fontSize: 11, fontWeight: 700, color: '#475569' }}>PIECES</th>
+                  <th style={{ padding: '10px 14px', textAlign: 'right', fontSize: 11, fontWeight: 700, color: '#475569' }}>SUBTOTAL</th>
+                  <th style={{ padding: '10px 14px', textAlign: 'right', fontSize: 11, fontWeight: 700, color: '#475569' }}>PAID / ADVANCE</th>
+                  <th style={{ padding: '10px 14px', textAlign: 'right', fontSize: 11, fontWeight: 700, color: '#475569' }}>TOTAL</th>
+                  <th style={{ padding: '10px 12px', textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#475569' }}>STATUS</th>
+                  <th style={{ padding: '10px 16px', textAlign: 'right', fontSize: 11, fontWeight: 700, color: '#475569' }}>ACTIONS</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredRows.map(p => {
+                  const isPaid = p.status === 'paid' || (Number(p.advance_paid) >= Number(p.total) && Number(p.total) > 0);
+                  const isPartial = p.status === 'partial' || (Number(p.advance_paid) > 0 && Number(p.advance_paid) < Number(p.total));
+
+                  return (
+                    <tr
+                      key={p.id}
+                      style={{
+                        borderBottom: '1px solid var(--border)',
+                        transition: 'background 0.12s ease'
+                      }}
+                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(244, 246, 251, 0.6)'}
+                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                    >
+                      {/* Vendor */}
+                      <td style={{ padding: '12px 16px' }}>
+                        <div
+                          style={{ fontWeight: 700, fontSize: 13, color: 'var(--accent)', cursor: 'pointer' }}
+                          onClick={() => openDetail(p.id)}
+                        >
+                          {p.vendor_name}
+                        </div>
+                        {p.note && (
+                          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{p.note}</div>
+                        )}
+                      </td>
+
+                      {/* Date */}
+                      <td style={{ padding: '12px 12px', fontSize: 12, color: 'var(--muted)' }}>
+                        {fmtDate(p.invoice_date)}
+                      </td>
+
+                      {/* Pieces */}
+                      <td style={{ padding: '12px 12px', textAlign: 'right', fontSize: 12 }}>
+                        {Number(p.total_pieces) > 0 ? `${p.total_pieces} pcs` : '—'}
+                      </td>
+
+                      {/* Subtotal */}
+                      <td style={{ padding: '12px 14px', textAlign: 'right', fontSize: 12, color: 'var(--muted)' }}>
+                        {fmt(p.subtotal)}
+                      </td>
+
+                      {/* Advance / Paid */}
+                      <td style={{ padding: '12px 14px', textAlign: 'right', fontSize: 12, fontWeight: 700, color: 'var(--green)' }}>
+                        {Number(p.advance_paid) > 0 ? fmt(p.advance_paid) : (isPaid ? fmt(p.total) : '—')}
+                      </td>
+
+                      {/* Total */}
+                      <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, fontSize: 13, color: 'var(--text)' }}>
+                        {fmt(p.total)}
+                      </td>
+
+                      {/* Status */}
+                      <td style={{ padding: '12px 12px', textAlign: 'center' }}>
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 3,
+                          fontSize: 10,
+                          fontWeight: 700,
+                          padding: '2px 7px',
+                          borderRadius: 6,
+                          background: isPaid ? 'var(--green-l)' : (isPartial ? 'var(--accent-l)' : 'var(--red-l)'),
+                          color: isPaid ? 'var(--green)' : (isPartial ? 'var(--accent)' : 'var(--red)')
+                        }}>
+                          {isPaid ? '✓ Paid' : (isPartial ? '⏳ Partial' : '⚠️ Unpaid')}
+                        </span>
+                      </td>
+
+                      {/* Actions */}
+                      <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                        <div style={{ display: 'flex', gap: 5, justifyContent: 'flex-end' }}>
+                          <button
+                            type="button"
+                            onClick={() => openDetail(p.id)}
+                            style={{
+                              background: 'var(--bg)',
+                              border: '1px solid var(--border)',
+                              borderRadius: 6,
+                              padding: '4px 9px',
+                              fontSize: 11,
+                              fontWeight: 600,
+                              color: 'var(--text)',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            View
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openEditPurchase(p)}
+                            style={{
+                              background: 'var(--bg)',
+                              border: '1px solid var(--border)',
+                              borderRadius: 6,
+                              padding: '4px 9px',
+                              fontSize: 11,
+                              fontWeight: 600,
+                              color: 'var(--text)',
+                              cursor: 'pointer'
+                            }}
+                          >
+                            ✏️ Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deletePurchase(p.id)}
+                            style={{
+                              background: 'none',
+                              border: '1px solid #fee2e2',
+                              borderRadius: 6,
+                              padding: '4px 7px',
+                              fontSize: 11,
+                              color: 'var(--red)',
+                              cursor: 'pointer'
+                            }}
+                            title="Delete purchase"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
 
         {/* Pagination */}
         {pages > 1 && (
-          <div className="pagination" style={{ padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: 12, color: 'var(--muted)' }}>Page {page} of {pages}</span>
             <div style={{ display: 'flex', gap: 6 }}>
               <button
+                type="button"
                 className="btn btn-ghost btn-sm"
                 disabled={page <= 1}
                 onClick={() => loadPurchases(page - 1)}
@@ -958,6 +1228,7 @@ export default function PurchasesPage() {
                 ← Prev
               </button>
               <button
+                type="button"
                 className="btn btn-ghost btn-sm"
                 disabled={page >= pages}
                 onClick={() => loadPurchases(page + 1)}
@@ -969,17 +1240,17 @@ export default function PurchasesPage() {
         )}
       </div>
 
-      {/* ── Detail Modal (For Quick Viewing) ── */}
+      {/* ── Detail Modal ── */}
       {detail && (
         <div className="modal-overlay" onClick={() => setDetail(null)}>
           <div className="modal" style={{ width: 620 }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <h2 style={{ margin: 0 }}>Purchase #{detail.purchase?.id} — {detail.purchase?.vendor_name}</h2>
+              <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800 }}>Purchase #{detail.purchase?.id} — {detail.purchase?.vendor_name}</h2>
               <span className={`badge ${detail.purchase?.status === 'paid' ? 'b-green' : 'badge-warn'}`}>
                 {detail.purchase?.status?.toUpperCase()}
               </span>
             </div>
-            <div style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 16 }}>
+            <div style={{ color: 'var(--muted)', fontSize: 12, marginBottom: 16 }}>
               {fmtDate(detail.purchase?.invoice_date)}
               {detail.purchase?.note ? ` · ${detail.purchase.note}` : ''}
             </div>
@@ -1077,13 +1348,13 @@ export default function PurchasesPage() {
               </>
             )}
 
-            <div className="modal-actions">
+            <div className="modal-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               <button className="btn btn-ghost" onClick={() => openEditPurchase(detail.purchase)}>✏️ Edit</button>
-              <button className="btn btn-ghost" onClick={() => setDetail(null)}>Close</button>
+              <button className="btn btn-primary" onClick={() => setDetail(null)}>Close</button>
             </div>
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }
