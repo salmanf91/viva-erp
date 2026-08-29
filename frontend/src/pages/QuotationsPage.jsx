@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
 import { exportToCSV } from '../utils/csvExport';
+import { useDebounce } from '../hooks/useDebounce';
+import Pagination from '../components/Pagination';
 
 export default function QuotationsPage() {
   const { user } = useAuth();
@@ -15,6 +17,12 @@ export default function QuotationsPage() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
 
+  // Pagination state
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
+  const [total, setTotal] = useState(0);
+  const [pages, setPages] = useState(1);
+
   // View modes: 'list' | 'new' | 'edit'
   const [viewMode, setViewMode] = useState('list');
   const [editingQuote, setEditingQuote] = useState(null);
@@ -22,6 +30,7 @@ export default function QuotationsPage() {
   // Filters
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const debouncedSearch = useDebounce(search, 300);
 
   // Preview & Print Modal
   const [previewQuote, setPreviewQuote] = useState(null);
@@ -43,18 +52,32 @@ export default function QuotationsPage() {
   };
   const [form, setForm] = useState(emptyForm);
 
-  // Load Data
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const [qRes, cRes, iRes] = await Promise.all([
-        api.get('/quotations?limit=100'),
-        api.get('/sales/clients'),
-        api.get('/items'),
-      ]);
-      setQuotations(qRes.data?.data || []);
+  // Load Auxiliary Master Data
+  useEffect(() => {
+    Promise.all([
+      api.get('/sales/clients'),
+      api.get('/items'),
+    ]).then(([cRes, iRes]) => {
       setClients(cRes.data || []);
       setCatalogItems(iRes.data || []);
+    }).catch(err => console.error('Failed to load masters:', err));
+  }, []);
+
+  // Load Paginated Quotations Data
+  const loadQuotations = async (targetPage = page, targetLimit = limit) => {
+    setLoading(true);
+    try {
+      const qRes = await api.get('/quotations', {
+        params: {
+          page: targetPage,
+          limit: targetLimit,
+          search: debouncedSearch,
+          status: statusFilter !== 'all' ? statusFilter : undefined
+        }
+      });
+      setQuotations(qRes.data?.data || []);
+      setTotal(qRes.data?.total || 0);
+      setPages(qRes.data?.pages || 1);
     } catch (err) {
       console.error('Failed to load quotations:', err);
     } finally {
@@ -62,9 +85,15 @@ export default function QuotationsPage() {
     }
   };
 
+  // Reset page to 1 when search or filter changes
   useEffect(() => {
-    loadData();
-  }, []);
+    setPage(1);
+  }, [debouncedSearch, statusFilter]);
+
+  // Load when page, limit, or filters change
+  useEffect(() => {
+    loadQuotations(page, limit);
+  }, [page, limit, debouncedSearch, statusFilter]);
 
   // Form Handlers
   const openNew = () => {
@@ -199,7 +228,7 @@ export default function QuotationsPage() {
         setMsg({ type: 'success', text: `Quotation #${res.data?.quotation_number} created successfully.` });
       }
       setViewMode('list');
-      loadData();
+      loadQuotations(page, limit);
       setTimeout(() => setMsg(null), 3500);
     } catch (err) {
       alert(err.response?.data?.message || 'Failed to save quotation.');
@@ -214,7 +243,7 @@ export default function QuotationsPage() {
     try {
       const res = await api.post(`/quotations/${quote.id}/convert`);
       setMsg({ type: 'success', text: res.data?.message || 'Converted to Sales Order successfully!' });
-      loadData();
+      loadQuotations(page, limit);
       setTimeout(() => setMsg(null), 4000);
     } catch (err) {
       alert(err.response?.data?.message || 'Failed to convert quotation.');
@@ -227,30 +256,16 @@ export default function QuotationsPage() {
     try {
       await api.delete(`/quotations/${quote.id}`);
       setMsg({ type: 'success', text: `Quotation #${quote.quotation_number} deleted.` });
-      loadData();
+      loadQuotations(page, limit);
       setTimeout(() => setMsg(null), 3000);
     } catch (err) {
       alert(err.response?.data?.message || 'Failed to delete quotation.');
     }
   };
 
-  // Filtering
-  const filtered = useMemo(() => {
-    return quotations.filter(q => {
-      if (statusFilter !== 'all' && q.status !== statusFilter) return false;
-      if (!search) return true;
-      const term = search.toLowerCase();
-      return (
-        (q.quotation_number && q.quotation_number.toLowerCase().includes(term)) ||
-        (q.client_name && q.client_name.toLowerCase().includes(term)) ||
-        (q.notes && q.notes.toLowerCase().includes(term))
-      );
-    });
-  }, [quotations, search, statusFilter]);
-
   // CSV Export
   const handleExportCSV = () => {
-    if (!filtered.length) {
+    if (!quotations.length) {
       alert('No quotations available to export.');
       return;
     }
@@ -274,7 +289,7 @@ export default function QuotationsPage() {
       'Internal Notes'
     ];
 
-    const rows = filtered.map(q => [
+    const rows = quotations.map(q => [
       q.quotation_number || '',
       q.quote_date?.slice(0, 10) || '',
       q.expiry_date?.slice(0, 10) || '',
@@ -980,7 +995,7 @@ export default function QuotationsPage() {
             onClick={handleExportCSV}
             className="btn btn-ghost btn-sm"
             style={{ fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}
-            disabled={filtered.length === 0}
+            disabled={quotations.length === 0}
             title="Download CSV spreadsheet of quotations"
           >
             📥 Export CSV
@@ -992,7 +1007,7 @@ export default function QuotationsPage() {
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         {loading ? (
           <div className="spinner" style={{ padding: 40 }}>Loading quotations…</div>
-        ) : filtered.length === 0 ? (
+        ) : quotations.length === 0 ? (
           <div className="empty-state" style={{ padding: 48, textAlign: 'center' }}>
             <p style={{ fontSize: 14, color: 'var(--muted)', margin: 0 }}>No quotations found matching your criteria.</p>
             <button
@@ -1005,97 +1020,112 @@ export default function QuotationsPage() {
             </button>
           </div>
         ) : (
-          <div className="tbl-wrap">
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ background: 'var(--bg)', borderBottom: '2px solid var(--border)' }}>
-                  <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'left', color: '#475569' }}>QUOTE #</th>
-                  <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'left', color: '#475569' }}>DATE</th>
-                  <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'left', color: '#475569' }}>CLIENT</th>
-                  <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'center', color: '#475569' }}>ITEMS / PCS</th>
-                  <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'right', color: '#475569' }}>TOTAL AMOUNT</th>
-                  <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'center', color: '#475569' }}>STATUS</th>
-                  <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'center', color: '#475569' }}>ACTIONS</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map(q => (
-                  <tr key={q.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--accent)' }}>
-                      <span
-                        onClick={() => openPreview(q)}
-                        style={{ cursor: 'pointer', textDecoration: 'underline' }}
-                        title="Click to view quotation"
-                      >
-                        {q.quotation_number}
-                      </span>
-                    </td>
-                    <td style={{ padding: '12px 14px', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                      {q.quote_date?.slice(0, 10)}
-                    </td>
-                    <td style={{ padding: '12px 14px' }}>
-                      <div style={{ fontWeight: 600, fontSize: 13 }}>{q.client_name}</div>
-                      {q.client_city && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{q.client_city}</div>}
-                    </td>
-                    <td style={{ padding: '12px 14px', textAlign: 'center', fontSize: 12 }}>
-                      <span style={{ fontWeight: 600 }}>{q.total_quantity}</span> pcs <span style={{ color: 'var(--muted)' }}>({q.items_count} items)</span>
-                    </td>
-                    <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, fontSize: 13, color: 'var(--text)' }}>
-                      {currency} {(parseFloat(q.total) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </td>
-                    <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                      {getBadge(q.status)}
-                    </td>
-                    <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                      <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-                        {/* Preview / Print */}
-                        <button
-                          type="button"
+          <div>
+            <div className="tbl-wrap">
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg)', borderBottom: '2px solid var(--border)' }}>
+                    <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'left', color: '#475569' }}>QUOTE #</th>
+                    <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'left', color: '#475569' }}>DATE</th>
+                    <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'left', color: '#475569' }}>CLIENT</th>
+                    <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'center', color: '#475569' }}>ITEMS / PCS</th>
+                    <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'right', color: '#475569' }}>TOTAL AMOUNT</th>
+                    <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'center', color: '#475569' }}>STATUS</th>
+                    <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'center', color: '#475569' }}>ACTIONS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {quotations.map(q => (
+                    <tr key={q.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <td style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--accent)' }}>
+                        <span
                           onClick={() => openPreview(q)}
-                          className="btn btn-ghost btn-sm"
-                          title="Print / Preview Quotation"
+                          style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                          title="Click to view quotation"
                         >
-                          📄 View
-                        </button>
-
-                        {/* Convert to Sales Order */}
-                        {q.status !== 'converted' && (
+                          {q.quotation_number}
+                        </span>
+                      </td>
+                      <td style={{ padding: '12px 14px', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                        {q.quote_date?.slice(0, 10)}
+                      </td>
+                      <td style={{ padding: '12px 14px' }}>
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>{q.client_name}</div>
+                        {q.client_city && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{q.client_city}</div>}
+                      </td>
+                      <td style={{ padding: '12px 14px', textAlign: 'center', fontSize: 12 }}>
+                        <span style={{ fontWeight: 600 }}>{q.total_quantity}</span> pcs <span style={{ color: 'var(--muted)' }}>({q.items_count} items)</span>
+                      </td>
+                      <td style={{ padding: '12px 14px', textAlign: 'right', fontWeight: 800, fontSize: 13, color: 'var(--text)' }}>
+                        {currency} {(parseFloat(q.total) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                        {getBadge(q.status)}
+                      </td>
+                      <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                        <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                          {/* Preview / Print */}
                           <button
                             type="button"
-                            onClick={() => handleConvert(q)}
-                            className="btn btn-sm"
-                            style={{ background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0' }}
-                            title="Convert to Confirmed Sales Order"
+                            onClick={() => openPreview(q)}
+                            className="btn btn-ghost btn-sm"
+                            title="Print / Preview Quotation"
                           >
-                            ⚡ Convert
+                            📄 View
                           </button>
-                        )}
 
-                        {/* Edit */}
-                        <button
-                          type="button"
-                          onClick={() => openEdit(q)}
-                          className="btn btn-ghost btn-sm"
-                          title="Edit Quote"
-                        >
-                          ✏️
-                        </button>
+                          {/* Convert to Sales Order */}
+                          {q.status !== 'converted' && (
+                            <button
+                              type="button"
+                              onClick={() => handleConvert(q)}
+                              className="btn btn-sm"
+                              style={{ background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0' }}
+                              title="Convert to Confirmed Sales Order"
+                            >
+                              ⚡ Convert
+                            </button>
+                          )}
 
-                        {/* Delete */}
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(q)}
-                          className="btn btn-red btn-sm"
-                          title="Delete Quote"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                          {/* Edit */}
+                          <button
+                            type="button"
+                            onClick={() => openEdit(q)}
+                            className="btn btn-ghost btn-sm"
+                            title="Edit Quote"
+                          >
+                            ✏️
+                          </button>
+
+                          {/* Delete */}
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(q)}
+                            className="btn btn-red btn-sm"
+                            title="Delete Quote"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination Controls */}
+            <Pagination
+              page={page}
+              pages={pages}
+              total={total}
+              limit={limit}
+              onPageChange={setPage}
+              onLimitChange={(newLimit) => {
+                setLimit(newLimit);
+                setPage(1);
+              }}
+            />
           </div>
         )}
       </div>

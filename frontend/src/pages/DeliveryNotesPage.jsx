@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
 import { exportToCSV } from '../utils/csvExport';
+import { useDebounce } from '../hooks/useDebounce';
+import Pagination from '../components/Pagination';
 
 export default function DeliveryNotesPage() {
   const { user } = useAuth();
@@ -16,6 +18,12 @@ export default function DeliveryNotesPage() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
 
+  // Pagination state
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(20);
+  const [total, setTotal] = useState(0);
+  const [pages, setPages] = useState(1);
+
   // View modes: 'list' | 'new' | 'edit'
   const [viewMode, setViewMode] = useState('list');
   const [editingNote, setEditingNote] = useState(null);
@@ -23,6 +31,7 @@ export default function DeliveryNotesPage() {
   // Filters
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const debouncedSearch = useDebounce(search, 300);
 
   // Preview / Print Modal
   const [previewNote, setPreviewNote] = useState(null);
@@ -44,20 +53,34 @@ export default function DeliveryNotesPage() {
   };
   const [form, setForm] = useState(emptyForm);
 
-  // Load Data
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      const [dnRes, cRes, oRes, iRes] = await Promise.all([
-        api.get('/delivery-notes?limit=100'),
-        api.get('/sales/clients'),
-        api.get('/sales?limit=100'),
-        api.get('/items'),
-      ]);
-      setDeliveryNotes(dnRes.data?.data || []);
+  // Load Masters Data
+  useEffect(() => {
+    Promise.all([
+      api.get('/sales/clients'),
+      api.get('/sales?limit=100'),
+      api.get('/items'),
+    ]).then(([cRes, oRes, iRes]) => {
       setClients(cRes.data || []);
       setSalesOrders(oRes.data?.data || oRes.data || []);
       setCatalogItems(iRes.data || []);
+    }).catch(err => console.error('Failed to load masters:', err));
+  }, []);
+
+  // Load Paginated Delivery Notes
+  const loadDeliveryNotes = async (targetPage = page, targetLimit = limit) => {
+    setLoading(true);
+    try {
+      const dnRes = await api.get('/delivery-notes', {
+        params: {
+          page: targetPage,
+          limit: targetLimit,
+          search: debouncedSearch,
+          status: statusFilter !== 'all' ? statusFilter : undefined
+        }
+      });
+      setDeliveryNotes(dnRes.data?.data || []);
+      setTotal(dnRes.data?.total || 0);
+      setPages(dnRes.data?.pages || 1);
     } catch (err) {
       console.error('Failed to load delivery notes:', err);
     } finally {
@@ -65,9 +88,15 @@ export default function DeliveryNotesPage() {
     }
   };
 
+  // Reset page to 1 when search or filter changes
   useEffect(() => {
-    loadData();
-  }, []);
+    setPage(1);
+  }, [debouncedSearch, statusFilter]);
+
+  // Reload when page, limit, search, or status changes
+  useEffect(() => {
+    loadDeliveryNotes(page, limit);
+  }, [page, limit, debouncedSearch, statusFilter]);
 
   // Form Handlers
   const openNew = () => {
@@ -200,7 +229,7 @@ export default function DeliveryNotesPage() {
         setMsg({ type: 'success', text: `Delivery Note #${res.data?.delivery_note_number} created successfully.` });
       }
       setViewMode('list');
-      loadData();
+      loadDeliveryNotes(page, limit);
       setTimeout(() => setMsg(null), 3500);
     } catch (err) {
       alert(err.response?.data?.message || 'Failed to save delivery note.');
@@ -214,7 +243,7 @@ export default function DeliveryNotesPage() {
     try {
       await api.put(`/delivery-notes/${note.id}/status`, { status: newStatus });
       setMsg({ type: 'success', text: `Note #${note.delivery_note_number} marked as ${newStatus}.` });
-      loadData();
+      loadDeliveryNotes(page, limit);
       setTimeout(() => setMsg(null), 3000);
     } catch (err) {
       alert('Failed to update status');
@@ -227,31 +256,16 @@ export default function DeliveryNotesPage() {
     try {
       await api.delete(`/delivery-notes/${note.id}`);
       setMsg({ type: 'success', text: `Delivery Note #${note.delivery_note_number} deleted.` });
-      loadData();
+      loadDeliveryNotes(page, limit);
       setTimeout(() => setMsg(null), 3000);
     } catch (err) {
       alert(err.response?.data?.message || 'Failed to delete delivery note.');
     }
   };
 
-  // Filtered List
-  const filtered = useMemo(() => {
-    return deliveryNotes.filter(dn => {
-      if (statusFilter !== 'all' && dn.status !== statusFilter) return false;
-      if (!search) return true;
-      const term = search.toLowerCase();
-      return (
-        (dn.delivery_note_number && dn.delivery_note_number.toLowerCase().includes(term)) ||
-        (dn.client_name && dn.client_name.toLowerCase().includes(term)) ||
-        (dn.transporter_name && dn.transporter_name.toLowerCase().includes(term)) ||
-        (dn.vehicle_number && dn.vehicle_number.toLowerCase().includes(term))
-      );
-    });
-  }, [deliveryNotes, search, statusFilter]);
-
   // CSV Export
   const handleExportCSV = () => {
-    if (!filtered.length) {
+    if (!deliveryNotes.length) {
       alert('No delivery notes available to export.');
       return;
     }
@@ -274,7 +288,7 @@ export default function DeliveryNotesPage() {
       'Driver Notes'
     ];
 
-    const rows = filtered.map(dn => [
+    const rows = deliveryNotes.map(dn => [
       dn.delivery_note_number || '',
       dn.delivery_date?.slice(0, 10) || '',
       dn.client_name || '',
@@ -866,7 +880,7 @@ export default function DeliveryNotesPage() {
             onClick={handleExportCSV}
             className="btn btn-ghost btn-sm"
             style={{ fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5 }}
-            disabled={filtered.length === 0}
+            disabled={deliveryNotes.length === 0}
             title="Download CSV spreadsheet of delivery notes"
           >
             📥 Export CSV
@@ -878,7 +892,7 @@ export default function DeliveryNotesPage() {
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         {loading ? (
           <div className="spinner" style={{ padding: 40 }}>Loading delivery notes…</div>
-        ) : filtered.length === 0 ? (
+        ) : deliveryNotes.length === 0 ? (
           <div className="empty-state" style={{ padding: 48, textAlign: 'center' }}>
             <p style={{ fontSize: 14, color: 'var(--muted)', margin: 0 }}>No delivery notes found matching your criteria.</p>
             <button
@@ -891,105 +905,120 @@ export default function DeliveryNotesPage() {
             </button>
           </div>
         ) : (
-          <div className="tbl-wrap">
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ background: 'var(--bg)', borderBottom: '2px solid var(--border)' }}>
-                  <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'left', color: '#475569' }}>NOTE #</th>
-                  <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'left', color: '#475569' }}>DATE</th>
-                  <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'left', color: '#475569' }}>CLIENT & DESTINATION</th>
-                  <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'left', color: '#475569' }}>ORDER REF</th>
-                  <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'center', color: '#475569' }}>PIECES</th>
-                  <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'left', color: '#475569' }}>CARRIER / VEHICLE</th>
-                  <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'center', color: '#475569' }}>STATUS</th>
-                  <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'center', color: '#475569' }}>ACTIONS</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map(dn => (
-                  <tr key={dn.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                    <td style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--accent)' }}>
-                      <span
-                        onClick={() => openPreview(dn)}
-                        style={{ cursor: 'pointer', textDecoration: 'underline' }}
-                        title="Click to view gate pass"
-                      >
-                        {dn.delivery_note_number}
-                      </span>
-                    </td>
-                    <td style={{ padding: '12px 14px', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                      {dn.delivery_date?.slice(0, 10)}
-                    </td>
-                    <td style={{ padding: '12px 14px' }}>
-                      <div style={{ fontWeight: 600, fontSize: 13 }}>{dn.client_name}</div>
-                      {dn.client_city && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{dn.client_city}</div>}
-                    </td>
-                    <td style={{ padding: '12px 14px', fontSize: 12 }}>
-                      {dn.order_invoice_number ? (
-                        <span style={{ fontWeight: 600, color: 'var(--text)' }}>
-                          {dn.order_invoice_number}
-                        </span>
-                      ) : (
-                        <span style={{ color: 'var(--muted)' }}>Direct</span>
-                      )}
-                    </td>
-                    <td style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 700, fontSize: 13 }}>
-                      {dn.total_pieces || dn.total_items_count || 0} pcs
-                    </td>
-                    <td style={{ padding: '12px 14px', fontSize: 12 }}>
-                      {dn.transporter_name && <div style={{ fontWeight: 600 }}>{dn.transporter_name}</div>}
-                      {dn.vehicle_number && <div style={{ fontSize: 11, color: 'var(--muted)' }}>🚛 {dn.vehicle_number}</div>}
-                      {!dn.transporter_name && !dn.vehicle_number && <span style={{ color: 'var(--muted)' }}>—</span>}
-                    </td>
-                    <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                      {getBadge(dn.status)}
-                    </td>
-                    <td style={{ padding: '12px 14px', textAlign: 'center' }}>
-                      <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
-                        <button
-                          type="button"
+          <div>
+            <div className="tbl-wrap">
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg)', borderBottom: '2px solid var(--border)' }}>
+                    <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'left', color: '#475569' }}>NOTE #</th>
+                    <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'left', color: '#475569' }}>DATE</th>
+                    <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'left', color: '#475569' }}>CLIENT & DESTINATION</th>
+                    <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'left', color: '#475569' }}>ORDER REF</th>
+                    <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'center', color: '#475569' }}>PIECES</th>
+                    <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'left', color: '#475569' }}>CARRIER / VEHICLE</th>
+                    <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'center', color: '#475569' }}>STATUS</th>
+                    <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'center', color: '#475569' }}>ACTIONS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {deliveryNotes.map(dn => (
+                    <tr key={dn.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <td style={{ padding: '12px 14px', fontWeight: 700, color: 'var(--accent)' }}>
+                        <span
                           onClick={() => openPreview(dn)}
-                          className="btn btn-ghost btn-sm"
-                          title="Print Gate Pass"
+                          style={{ cursor: 'pointer', textDecoration: 'underline' }}
+                          title="Click to view gate pass"
                         >
-                          📄 Gate Pass
-                        </button>
-
-                        {dn.status === 'dispatched' && (
+                          {dn.delivery_note_number}
+                        </span>
+                      </td>
+                      <td style={{ padding: '12px 14px', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                        {dn.delivery_date?.slice(0, 10)}
+                      </td>
+                      <td style={{ padding: '12px 14px' }}>
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>{dn.client_name}</div>
+                        {dn.client_city && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{dn.client_city}</div>}
+                      </td>
+                      <td style={{ padding: '12px 14px', fontSize: 12 }}>
+                        {dn.order_invoice_number ? (
+                          <span style={{ fontWeight: 600, color: 'var(--text)' }}>
+                            {dn.order_invoice_number}
+                          </span>
+                        ) : (
+                          <span style={{ color: 'var(--muted)' }}>Direct</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '12px 14px', textAlign: 'center', fontWeight: 700, fontSize: 13 }}>
+                        {dn.total_pieces || dn.total_items_count || 0} pcs
+                      </td>
+                      <td style={{ padding: '12px 14px', fontSize: 12 }}>
+                        {dn.transporter_name && <div style={{ fontWeight: 600 }}>{dn.transporter_name}</div>}
+                        {dn.vehicle_number && <div style={{ fontSize: 11, color: 'var(--muted)' }}>🚛 {dn.vehicle_number}</div>}
+                        {!dn.transporter_name && !dn.vehicle_number && <span style={{ color: 'var(--muted)' }}>—</span>}
+                      </td>
+                      <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                        {getBadge(dn.status)}
+                      </td>
+                      <td style={{ padding: '12px 14px', textAlign: 'center' }}>
+                        <div style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}>
                           <button
                             type="button"
-                            onClick={() => handleQuickStatus(dn, 'delivered')}
-                            className="btn btn-sm"
-                            style={{ background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0' }}
-                            title="Mark as Delivered"
+                            onClick={() => openPreview(dn)}
+                            className="btn btn-ghost btn-sm"
+                            title="Print Gate Pass"
                           >
-                            ✓ Received
+                            📄 Gate Pass
                           </button>
-                        )}
 
-                        <button
-                          type="button"
-                          onClick={() => openEdit(dn)}
-                          className="btn btn-ghost btn-sm"
-                          title="Edit Note"
-                        >
-                          ✏️
-                        </button>
+                          {dn.status === 'dispatched' && (
+                            <button
+                              type="button"
+                              onClick={() => handleQuickStatus(dn, 'delivered')}
+                              className="btn btn-sm"
+                              style={{ background: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0' }}
+                              title="Mark as Delivered"
+                            >
+                              ✓ Received
+                            </button>
+                          )}
 
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(dn)}
-                          className="btn btn-red btn-sm"
-                          title="Delete Note"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                          <button
+                            type="button"
+                            onClick={() => openEdit(dn)}
+                            className="btn btn-ghost btn-sm"
+                            title="Edit Note"
+                          >
+                            ✏️
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(dn)}
+                            className="btn btn-red btn-sm"
+                            title="Delete Note"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination Controls */}
+            <Pagination
+              page={page}
+              pages={pages}
+              total={total}
+              limit={limit}
+              onPageChange={setPage}
+              onLimitChange={(newLimit) => {
+                setLimit(newLimit);
+                setPage(1);
+              }}
+            />
           </div>
         )}
       </div>

@@ -4,3 +4,5 @@ node_modules/
 dist/
 *.log
 super_admin.md
+dev-guidelines.md
+dev_guidelines.md
