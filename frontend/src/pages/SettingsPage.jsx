@@ -20,12 +20,17 @@ const CORE_FIELDS = [
 ];
 
 export default function SettingsPage() {
-  const { user }                            = useAuth();
+  const { user, updateUser }               = useAuth();
   const [current, setCurrent]              = useState('');
   const [next, setNext]                    = useState('');
   const [confirm, setConfirm]              = useState('');
   const [msg, setMsg]                      = useState(null);
   const [saving, setSaving]                = useState(false);
+
+  // Module toggles
+  const [userModules, setUserModules]      = useState(user?.modules || {});
+  const [moduleMsg, setModuleMsg]          = useState(null);
+  const [savingModules, setSavingModules]  = useState(false);
 
   const [configs, setConfigs]              = useState([]);
   const [editCat, setEditCat]              = useState(null);
@@ -66,7 +71,39 @@ export default function SettingsPage() {
 
   useEffect(() => {
     loadConfigs();
+    loadModules();
   }, []);
+
+  const loadModules = () => {
+    if (user?.tenant_id) {
+      api.get(`/tenants/${user.tenant_id}/modules`)
+        .then(r => {
+          if (r.data) setUserModules(r.data);
+        })
+        .catch(() => {});
+    }
+  };
+
+  const toggleModule = (key) => {
+    setUserModules(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const saveModules = async () => {
+    setSavingModules(true);
+    setModuleMsg(null);
+    try {
+      const res = await api.put(`/tenants/${user?.tenant_id || 'current'}/modules`, userModules);
+      if (updateUser) {
+        updateUser({ modules: userModules });
+      }
+      setModuleMsg({ type: 'success', text: 'Workspace modular features updated successfully.' });
+      setTimeout(() => setModuleMsg(null), 4000);
+    } catch (err) {
+      setModuleMsg({ type: 'error', text: err.response?.data?.message || 'Failed to save module settings.' });
+    } finally {
+      setSavingModules(false);
+    }
+  };
 
   const loadConfigs = () => {
     api.get('/production/configs').then(r => setConfigs(r.data)).catch(() => {});
@@ -202,7 +239,7 @@ export default function SettingsPage() {
           <div style={{ display: 'flex', gap: 14, alignItems: 'center', marginBottom: 16 }}>
             <div style={{
               width: 52, height: 52, borderRadius: '50%', background: 'var(--accent)', color: '#fff',
-              fontSize: 18, fontWeight: 800, display: 'flex', alignItems: 'center', justifycontent: 'center',
+              fontSize: 18, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}>
               {initials}
             </div>
@@ -253,6 +290,80 @@ export default function SettingsPage() {
               {saving ? 'Saving…' : 'Update Password'}
             </button>
           </form>
+        </div>
+      </div>
+
+      {/* ── WORKSPACE OPERATIONAL MODULES & ADD-ONS ── */}
+      <div className="card" style={{ marginTop: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+          <div>
+            <div className="card-hd" style={{ margin: 0 }}>🧩 Workspace Modular Features & Add-ons</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+              Enable or disable business modules for <b>{user?.tenant_name}</b>. Changes reflect in your navigation in real time.
+            </div>
+          </div>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={saveModules}
+            disabled={savingModules}
+          >
+            {savingModules ? 'Saving…' : 'Save Module Preferences'}
+          </button>
+        </div>
+
+        {moduleMsg && (
+          <div className={`alert ${moduleMsg.type === 'error' ? 'alert-red' : 'alert-green'} mb12`}>
+            <div className="a-icon">{moduleMsg.type === 'error' ? '⚠️' : '✓'}</div>
+            <div><div className="a-title">{moduleMsg.text}</div></div>
+          </div>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '10px 20px' }}>
+          {[
+            ['feature_accounting', '📈 Accounting & Cash Ledger', 'Track capital contributions, drawings, and operating cash in hand'],
+            ['feature_expenses', '🧾 Expense Tracking', 'Record daily company operating expenses and partner receipts'],
+            ['feature_party_ledger', '📒 Party Ledgers', 'Manage customer balances and vendor credit statements'],
+            ['feature_quotations', '📄 Quotations & Estimates', 'Generate pre-sales commercial proposals and 1-click convert to orders'],
+            ['feature_sales_invoicing', '🚚 Sales Orders & Invoicing', 'B2B billing, GST/VAT invoices, and client payment tracking'],
+            ['feature_delivery_notes', '🚚 Delivery Notes & Gate Passes', 'Dispatch notes, transporter details, vehicle LR numbers, and delivery receipts'],
+            ['feature_purchases', '📦 Purchases Master', 'Log fabric, raw materials, and goods received from vendors'],
+            ['feature_inventory_stock', '🏭 Raw Stock Inventory', 'Monitor meterage, rolls, and raw fabric inventory levels'],
+            ['feature_garment_production', '✂️ Garment Manufacturing', 'Cutting and stitching batch logs with production flow tracking'],
+            ['feature_staff_piece_log', '📋 Staff Daily Piece Log', 'Log daily completed pieces per tailor/worker'],
+            ['feature_payroll', '👷 Monthly Staff Payroll', 'Calculate piece-rate earnings and settle monthly wages'],
+            ['feature_zatca_einvoicing', '🇸🇦 Saudi ZATCA E-Invoicing', 'Saudi ZATCA Fatoora Phase 1 & 2 compliance'],
+          ].map(([k, title, desc]) => (
+            <label
+              key={k}
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 12,
+                background: userModules[k] ? 'rgba(79, 70, 229, 0.04)' : 'var(--bg)',
+                border: userModules[k] ? '1.5px solid var(--accent)' : '1px solid var(--border)',
+                borderRadius: 10,
+                padding: '12px 14px',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={!!userModules[k]}
+                onChange={() => toggleModule(k)}
+                style={{ accentColor: 'var(--accent)', width: 18, height: 18, marginTop: 2 }}
+              />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 700, fontSize: 13, color: userModules[k] ? 'var(--accent)' : 'var(--text)' }}>
+                  {title}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, lineHeight: 1.4 }}>
+                  {desc}
+                </div>
+              </div>
+            </label>
+          ))}
         </div>
       </div>
 

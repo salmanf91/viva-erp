@@ -39,8 +39,16 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
+  const updateUser = (updater) => {
+    setUser(prev => {
+      const nextUser = typeof updater === 'function' ? updater(prev) : { ...prev, ...updater };
+      localStorage.setItem('erp_user', JSON.stringify(nextUser));
+      return nextUser;
+    });
+  };
+
   return (
-    <AuthContext.Provider value={{ user, login, superAdminLogin, logout, loading }}>
+    <AuthContext.Provider value={{ user, login, superAdminLogin, logout, updateUser, loading }}>
       {children}
     </AuthContext.Provider>
   );
