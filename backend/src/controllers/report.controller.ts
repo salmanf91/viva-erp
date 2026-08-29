@@ -75,7 +75,7 @@ export async function getOverviewReport(req: AuthRequest, res: Response): Promis
            COUNT(*) AS total_purchases,
            COALESCE(SUM(total), 0) AS total_purchased,
            COALESCE(SUM(advance_paid), 0) AS total_advance_paid,
-           COALESCE(SUM(CASE WHEN status='paid' THEN total ELSE advance_paid END), 0) AS total_purchase_paid
+           COALESCE(SUM(CASE WHEN status='paid' THEN (CASE WHEN total > 0 THEN total ELSE advance_paid END) ELSE COALESCE(advance_paid, 0) END), 0) AS total_purchase_paid
          FROM purchases
          WHERE tenant_id=? AND invoice_date BETWEEN ? AND ?`,
         [tenantId, from, to]
@@ -133,7 +133,7 @@ export async function getOverviewReport(req: AuthRequest, res: Response): Promis
       ),
       // All-time unpaid purchases (payables)
       query<any[]>(
-        `SELECT COALESCE(SUM(total - advance_paid), 0) AS outstanding_payables
+        `SELECT COALESCE(SUM(GREATEST(0, total - advance_paid)), 0) AS outstanding_payables
          FROM purchases WHERE tenant_id=? AND status != 'paid'`,
         [tenantId]
       ),
@@ -386,8 +386,8 @@ export async function getPurchaseReport(req: AuthRequest, res: Response): Promis
                 COUNT(p.id) AS bills_count,
                 COALESCE(SUM(p.total), 0) AS total_purchased,
                 COALESCE(SUM(p.advance_paid), 0) AS total_advance,
-                COALESCE(SUM(CASE WHEN p.status='paid' THEN p.total ELSE p.advance_paid END), 0) AS total_paid,
-                COALESCE(SUM(CASE WHEN p.status!='paid' THEN (p.total - p.advance_paid) ELSE 0 END), 0) AS balance_payable
+                COALESCE(SUM(CASE WHEN p.status='paid' THEN (CASE WHEN p.total > 0 THEN p.total ELSE p.advance_paid END) ELSE COALESCE(p.advance_paid, 0) END), 0) AS total_paid,
+                COALESCE(SUM(CASE WHEN p.status!='paid' THEN GREATEST(0, p.total - p.advance_paid) ELSE 0 END), 0) AS balance_payable
          FROM vendors v
          JOIN purchases p ON p.vendor_id = v.id
          WHERE p.tenant_id=? AND p.invoice_date BETWEEN ? AND ?
@@ -652,9 +652,14 @@ export async function getPnLReport(req: AuthRequest, res: Response): Promise<voi
          GROUP BY o.id`,
         [tenantId, from, to]
       ),
-      // Fabric purchases in range
+      // Fabric purchases in range (including advances & full settlements)
       query<any[]>(
-        `SELECT COALESCE(SUM(total), 0) AS total_fabric
+        `SELECT COALESCE(SUM(
+          CASE
+            WHEN status='paid' THEN (CASE WHEN total > 0 THEN total ELSE advance_paid END)
+            ELSE COALESCE(advance_paid, 0)
+          END
+        ), 0) AS total_fabric
          FROM purchases
          WHERE tenant_id=? AND invoice_date BETWEEN ? AND ?`,
         [tenantId, from, to]
