@@ -261,7 +261,14 @@ export default function StaffReportTab() {
                       <td style={{ padding: '9px 14px', fontSize: 12, fontWeight: 600 }}>{r.staff_name}</td>
                     )}
                     <td style={{ padding: '9px 14px', fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
-                      {getProductLabel(r.category)}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <span>{getProductLabel(r.category)}</span>
+                        {r.size && (
+                          <span className="badge" style={{ fontSize: 10, background: '#ede9fe', color: '#6d28d9', border: '1px solid #ddd6fe', fontWeight: 700, padding: '1px 6px', borderRadius: 4 }}>
+                            📏 {r.size}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td style={{ padding: '9px 14px', fontSize: 12 }}>
                       <span className={`badge ${r.work_type === 'cutting' ? 'b-accent' : 'b-cyan'}`} style={{ fontSize: 10, padding: '2px 8px' }}>

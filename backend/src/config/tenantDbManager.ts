@@ -266,6 +266,8 @@ export async function ensureTenantSchema(pool: mysql.Pool, _dbName?: string): Pr
     { table: 'staff', column: 'is_active', def: 'BOOLEAN DEFAULT TRUE' },
     { table: 'staff', column: 'can_stitch', def: 'BOOLEAN DEFAULT FALSE' },
     { table: 'staff_work_entries', column: 'tenant_id', def: 'INT NOT NULL DEFAULT 1' },
+    { table: 'staff_work_entries', column: 'size', def: 'VARCHAR(50) DEFAULT NULL' },
+    { table: 'staff_work_entries', column: 'completion_date', def: 'DATE DEFAULT NULL' },
     { table: 'payroll_settlements', column: 'tenant_id', def: 'INT NOT NULL DEFAULT 1' },
     { table: 'stock_movements', column: 'tenant_id', def: 'INT NOT NULL DEFAULT 1' },
     { table: 'production_batches', column: 'tenant_id', def: 'INT NOT NULL DEFAULT 1' },

@@ -68,9 +68,11 @@ function DailyLogTab() {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    api.get('/production/configs')
-      .then(r => setProducts(r.data))
-      .catch(() => {});
+    api.get('/items?all=1')
+      .then(r => setProducts(r.data || []))
+      .catch(() => {
+        api.get('/production/configs').then(r => setProducts(r.data || [])).catch(() => {});
+      });
   }, []);
 
   const changeDate = delta => {
@@ -79,7 +81,7 @@ function DailyLogTab() {
     setDate(toDateStr(d));
   };
 
-  const saveEntry = async (staffId, category, work_type, allocated, completed, allocDate, compDate) => {
+  const saveEntry = async (staffId, category, work_type, allocated, completed, allocDate, compDate, size) => {
     const allocNum = +allocated || 0;
     const doneNum  = +completed || 0;
     if (allocNum === 0 && doneNum === 0) return;
@@ -91,6 +93,7 @@ function DailyLogTab() {
         entry_date: allocDate || date,
         completion_date: doneNum > 0 ? (compDate || date) : null,
         category,
+        size: size ? String(size).trim() : null,
         work_type,
         allocated_pcs: allocNum,
         completed_pcs: doneNum,
@@ -131,6 +134,7 @@ function DailyLogTab() {
       ...p,
       [staffId]: {
         category,
+        size: '',
         work_type: wt,
         allocDate: date,
         compDate: date,
@@ -165,6 +169,7 @@ function DailyLogTab() {
     setEditEntry(p => ({
       ...p,
       [key]: {
+        size: entry.size || '',
         allocated: String(entry.allocated_pcs),
         completed: String(entry.completed_pcs),
         allocDate: entry.entry_date || date,
@@ -220,7 +225,7 @@ function DailyLogTab() {
               onSetNew={v => setNewEntry(p => ({ ...p, [s.id]: v }))}
               onOpenAdd={cat => openAddEntry(s.id, cat)}
               onCloseAdd={() => closeAddEntry(s.id)}
-              onSave={(cat, wt, alloc, done, allocD, compD) => saveEntry(s.id, cat, wt, alloc, done, allocD, compD)}
+              onSave={(cat, wt, alloc, done, allocD, compD, sz) => saveEntry(s.id, cat, wt, alloc, done, allocD, compD, sz)}
               onStartEdit={startEdit} onCancelEdit={cancelEdit}
               onSetEdit={(key, v) => setEditEntry(p => ({ ...p, [key]: v }))}
               onDelete={deleteEntry}
@@ -240,7 +245,7 @@ function DailyLogTab() {
               onSetNew={v => setNewEntry(p => ({ ...p, [s.id]: v }))}
               onOpenAdd={cat => openAddEntry(s.id, cat)}
               onCloseAdd={() => closeAddEntry(s.id)}
-              onSave={(cat, wt, alloc, done, allocD, compD) => saveEntry(s.id, cat, wt, alloc, done, allocD, compD)}
+              onSave={(cat, wt, alloc, done, allocD, compD, sz) => saveEntry(s.id, cat, wt, alloc, done, allocD, compD, sz)}
               onStartEdit={startEdit} onCancelEdit={cancelEdit}
               onSetEdit={(key, v) => setEditEntry(p => ({ ...p, [key]: v }))}
               onDelete={deleteEntry}
@@ -268,6 +273,7 @@ function HistoryTab() {
     entry_date: '',
     completion_date: '',
     category: '',
+    size: '',
     work_type: '',
     allocated_pcs: '',
     completed_pcs: '',
@@ -302,6 +308,7 @@ function HistoryTab() {
       entry_date: r.entry_date || '',
       completion_date: r.completion_date || r.entry_date || '',
       category: r.category || 'shawl_nighty',
+      size: r.size || '',
       work_type: r.work_type || 'stitching',
       allocated_pcs: String(r.allocated_pcs || 0),
       completed_pcs: String(r.completed_pcs || 0),
@@ -315,6 +322,7 @@ function HistoryTab() {
         entry_date: editForm.entry_date,
         completion_date: editForm.completed_pcs > 0 ? (editForm.completion_date || editForm.entry_date) : null,
         category: editForm.category,
+        size: editForm.size ? editForm.size.trim() : null,
         work_type: editForm.work_type,
         allocated_pcs: +editForm.allocated_pcs || 0,
         completed_pcs: +editForm.completed_pcs || 0,
@@ -407,6 +415,7 @@ function HistoryTab() {
                     <th>Alloc Date</th>
                     <th>Comp Date</th>
                     <th>Category</th>
+                    <th>Size</th>
                     <th>Type</th>
                     <th style={{ textAlign: 'right' }}>Allocated</th>
                     <th style={{ textAlign: 'right' }}>Completed</th>
@@ -421,6 +430,15 @@ function HistoryTab() {
                       <td style={{ fontSize: 12, color: 'var(--text)', whiteSpace: 'nowrap' }}>{fmtShort(r.entry_date)}</td>
                       <td style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{r.completion_date ? fmtShort(r.completion_date) : '—'}</td>
                       <td style={{ fontWeight: 600 }}>{CAT_LABEL[r.category] || r.category}</td>
+                      <td>
+                        {r.size ? (
+                          <span className="badge" style={{ fontSize: 10, background: '#ede9fe', color: '#6d28d9', border: '1px solid #ddd6fe', fontWeight: 600 }}>
+                            {r.size}
+                          </span>
+                        ) : (
+                          <span style={{ color: 'var(--muted)', fontSize: 11 }}>—</span>
+                        )}
+                      </td>
                       <td>
                         <span className={`badge ${r.work_type === 'stitching' ? 'b-cyan' : 'b-accent'}`} style={{ fontSize: 10 }}>
                           {r.work_type === 'stitching' ? '🧵' : '✂️'} {r.work_type}
@@ -489,6 +507,15 @@ function HistoryTab() {
                 <select value={editForm.category} onChange={e => setEditForm(f => ({ ...f, category: e.target.value }))}>
                   {CATEGORIES.map(c => <option key={c} value={c}>{getProductLabel(c)}</option>)}
                 </select>
+              </div>
+              <div className="field">
+                <label>Item Size</label>
+                <input
+                  type="text"
+                  placeholder="e.g. XL, 38, Free Size"
+                  value={editForm.size}
+                  onChange={e => setEditForm(f => ({ ...f, size: e.target.value }))}
+                />
               </div>
               <div className="field">
                 <label>Work Type</label>
@@ -903,6 +930,10 @@ function StaffCard({ staff, workType, activeDate, saving, editEntry, newEntry, s
               // Add form for this category
               const allocated = newEntry?.allocated ? +newEntry.allocated : 0;
               const savingKey = `${staff.id}-${cat}-${newEntry?.work_type || workType}`;
+              const currentProd = products.find(p => (p.category || '').toLowerCase() === cat.toLowerCase() || (p.name || '').toLowerCase() === cat.toLowerCase());
+              const configuredSizes = (currentProd?.size_rates || []).map(s => s.size_label).filter(Boolean);
+              const allSizeOptions = configuredSizes.length > 0 ? configuredSizes : ['Free Size', 'S', 'M', 'L', 'XL', 'XXL', '38', '40', '42', '44'];
+
               return (
                 <div key={cat} style={{ background: '#f8fafc', borderRadius: 10, padding: 14, border: '1px solid #e2e8f0' }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '.05em' }}>
@@ -927,6 +958,48 @@ function StaffCard({ staff, workType, activeDate, saving, editEntry, newEntry, s
                           value={newEntry?.compDate || activeDate}
                           onChange={e => onSetNew({ ...newEntry, compDate: e.target.value })}
                           style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', fontSize: 12 }}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Size Selector */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Item Size / Variation</span>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                        {allSizeOptions.map(sz => (
+                          <button
+                            key={sz}
+                            type="button"
+                            onClick={() => onSetNew({ ...newEntry, size: (newEntry?.size || '') === sz ? '' : sz })}
+                            style={{
+                              padding: '4px 10px',
+                              borderRadius: 6,
+                              fontSize: 11,
+                              fontWeight: 600,
+                              border: '1px solid',
+                              borderColor: (newEntry?.size || '') === sz ? 'var(--accent)' : '#cbd5e1',
+                              background: (newEntry?.size || '') === sz ? '#ede9fe' : '#ffffff',
+                              color: (newEntry?.size || '') === sz ? '#6d28d9' : '#334155',
+                              cursor: 'pointer',
+                              transition: 'all 0.15s'
+                            }}
+                          >
+                            {sz}
+                          </button>
+                        ))}
+                        <input
+                          type="text"
+                          placeholder="Or custom size (e.g. 46, Free)"
+                          value={newEntry?.size || ''}
+                          onChange={e => onSetNew({ ...newEntry, size: e.target.value })}
+                          style={{
+                            padding: '5px 10px',
+                            borderRadius: 6,
+                            border: '1px solid #cbd5e1',
+                            outline: 'none',
+                            fontSize: 12,
+                            minWidth: 160
+                          }}
                         />
                       </div>
                     </div>
@@ -998,7 +1071,8 @@ function StaffCard({ staff, workType, activeDate, saving, editEntry, newEntry, s
                           newEntry?.allocated,
                           newEntry?.completed,
                           newEntry?.allocDate || activeDate,
-                          newEntry?.compDate || activeDate
+                          newEntry?.compDate || activeDate,
+                          newEntry?.size
                         )}
                       >
                         {saving === savingKey ? 'Saving…' : 'Save Entry'}
@@ -1019,6 +1093,9 @@ function StaffCard({ staff, workType, activeDate, saving, editEntry, newEntry, s
             if (entry) {
               const ed = editEntry[eKey] || {};
               const remaining = (entry.allocated_pcs || 0) - (entry.completed_pcs || 0);
+              const currentProd = products.find(p => (p.category || '').toLowerCase() === cat.toLowerCase() || (p.name || '').toLowerCase() === cat.toLowerCase());
+              const configuredSizes = (currentProd?.size_rates || []).map(s => s.size_label).filter(Boolean);
+              const allSizeOptions = configuredSizes.length > 0 ? configuredSizes : ['Free Size', 'S', 'M', 'L', 'XL', 'XXL', '38', '40', '42', '44'];
 
               if (isEditingThisCat) {
                 // Edit form for this entry
@@ -1045,6 +1122,48 @@ function StaffCard({ staff, workType, activeDate, saving, editEntry, newEntry, s
                             value={ed.compDate || entry.completion_date || activeDate}
                             onChange={ev => onSetEdit(eKey, { ...ed, compDate: ev.target.value })}
                             style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', fontSize: 12 }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Size Selector in Edit */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Item Size / Variation</span>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                          {allSizeOptions.map(sz => (
+                            <button
+                              key={sz}
+                              type="button"
+                              onClick={() => onSetEdit(eKey, { ...ed, size: (ed?.size || '') === sz ? '' : sz })}
+                              style={{
+                                padding: '4px 10px',
+                                borderRadius: 6,
+                                fontSize: 11,
+                                fontWeight: 600,
+                                border: '1px solid',
+                                borderColor: (ed?.size || '') === sz ? 'var(--accent)' : '#cbd5e1',
+                                background: (ed?.size || '') === sz ? '#ede9fe' : '#ffffff',
+                                color: (ed?.size || '') === sz ? '#6d28d9' : '#334155',
+                                cursor: 'pointer',
+                                transition: 'all 0.15s'
+                              }}
+                            >
+                              {sz}
+                            </button>
+                          ))}
+                          <input
+                            type="text"
+                            placeholder="Or custom size"
+                            value={ed?.size !== undefined ? ed.size : (entry.size || '')}
+                            onChange={ev => onSetEdit(eKey, { ...ed, size: ev.target.value })}
+                            style={{
+                              padding: '5px 10px',
+                              borderRadius: 6,
+                              border: '1px solid #cbd5e1',
+                              outline: 'none',
+                              fontSize: 12,
+                              minWidth: 160
+                            }}
                           />
                         </div>
                       </div>
@@ -1076,7 +1195,7 @@ function StaffCard({ staff, workType, activeDate, saving, editEntry, newEntry, s
                           className="btn btn-primary btn-sm"
                           style={{ height: 32, padding: '0 16px', borderRadius: 6, fontSize: 12 }}
                           disabled={saving === eKey}
-                          onClick={() => onSave(entry.category, entry.work_type, ed.allocated, ed.completed, ed.allocDate, ed.compDate)}
+                          onClick={() => onSave(entry.category, entry.work_type, ed.allocated, ed.completed, ed.allocDate, ed.compDate, ed.size !== undefined ? ed.size : entry.size)}
                         >
                           {saving === eKey ? 'Saving…' : 'Save Changes'}
                         </button>
@@ -1099,11 +1218,18 @@ function StaffCard({ staff, workType, activeDate, saving, editEntry, newEntry, s
 
               return (
                 <div key={entry.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 12px', background: '#f8fafc', borderRadius: 10, border: '1px solid #f1f5f9' }}>
-                  {/* Category Label */}
-                  <div style={{ minWidth: 120, display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    <span style={{ fontWeight: 700, fontSize: 13, color: '#334155' }}>
-                      {cat === 'shawl_nighty' ? '🧵' : cat === 'ordinary_nighty' ? '👗' : '✨'} {getProductLabel(cat)}
-                    </span>
+                  {/* Category Label & Size Badge */}
+                  <div style={{ minWidth: 140, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <span style={{ fontWeight: 700, fontSize: 13, color: '#334155' }}>
+                        {cat === 'shawl_nighty' ? '🧵' : cat === 'ordinary_nighty' ? '👗' : '✨'} {getProductLabel(cat)}
+                      </span>
+                      {entry.size && (
+                        <span className="badge" style={{ fontSize: 10, background: '#ede9fe', color: '#6d28d9', border: '1px solid #ddd6fe', fontWeight: 700, padding: '1px 6px', borderRadius: 4 }}>
+                          📏 {entry.size}
+                        </span>
+                      )}
+                    </div>
                     {isCutter && (
                       <span style={{ fontSize: 10, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
                         {entry.work_type === 'stitching' ? 'Stitching' : 'Cutting'}

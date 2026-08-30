@@ -226,6 +226,7 @@ function getDatabaseSql(filename: string): string {
         entry_date DATE NOT NULL,
         completion_date DATE,
         category VARCHAR(100) NOT NULL,
+        size VARCHAR(50) DEFAULT NULL,
         work_type VARCHAR(50) NOT NULL,
         allocated_pcs INT NOT NULL DEFAULT 0,
         completed_pcs INT NOT NULL DEFAULT 0,
