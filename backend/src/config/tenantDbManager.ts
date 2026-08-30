@@ -56,6 +56,15 @@ async function addColumnIfMissing(pool: mysql.Pool, table: string, column: strin
 }
 
 export async function ensureTenantSchema(pool: mysql.Pool, _dbName?: string): Promise<void> {
+  // 0. Auto-fix plural table name if provisioned with product_configs
+  try {
+    const [hasOld] = await pool.query<any[]>("SHOW TABLES LIKE 'product_configs'");
+    const [hasNew] = await pool.query<any[]>("SHOW TABLES LIKE 'product_config'");
+    if (hasOld && hasOld.length > 0 && (!hasNew || hasNew.length === 0)) {
+      await pool.query('RENAME TABLE product_configs TO product_config');
+    }
+  } catch {}
+
   // 1. Ensure Essential Missing Tables
   const coreTables = [
     `CREATE TABLE IF NOT EXISTS users (
@@ -90,6 +99,44 @@ export async function ensureTenantSchema(pool: mysql.Pool, _dbName?: string): Pr
       size_label VARCHAR(50) NOT NULL,
       selling_rate DECIMAL(10,2) NOT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS production_batches (
+      id INT PRIMARY KEY AUTO_INCREMENT,
+      tenant_id INT NOT NULL DEFAULT 1,
+      batch_number VARCHAR(100) NOT NULL,
+      category VARCHAR(100) NOT NULL,
+      quantity INT NOT NULL DEFAULT 0,
+      cut_rate DECIMAL(10,2) DEFAULT 0.00,
+      stitch_rate DECIMAL(10,2) DEFAULT 0.00,
+      status ENUM('allocated','cutting','stitching','finished') DEFAULT 'allocated',
+      batch_date DATE NOT NULL,
+      notes TEXT DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_tenant_batch (tenant_id, batch_date)
+    )`,
+    `CREATE TABLE IF NOT EXISTS production_batch_items (
+      id INT PRIMARY KEY AUTO_INCREMENT,
+      tenant_id INT NOT NULL DEFAULT 1,
+      batch_id INT NOT NULL,
+      category VARCHAR(100) NOT NULL,
+      size VARCHAR(50) DEFAULT NULL,
+      quantity INT NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_batch_id (batch_id)
+    )`,
+    `CREATE TABLE IF NOT EXISTS staff_work_logs (
+      id INT PRIMARY KEY AUTO_INCREMENT,
+      tenant_id INT NOT NULL DEFAULT 1,
+      staff_id INT NOT NULL,
+      work_date DATE NOT NULL,
+      category VARCHAR(100) NOT NULL,
+      operation ENUM('cutting','stitching','ironing','packing') NOT NULL,
+      pieces_completed INT NOT NULL DEFAULT 0,
+      rate_applied DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+      total_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      is_paid BOOLEAN DEFAULT FALSE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_tenant_work (tenant_id, work_date)
     )`,
     `CREATE TABLE IF NOT EXISTS monthly_overhead (
       id INT PRIMARY KEY AUTO_INCREMENT,
@@ -164,6 +211,31 @@ export async function ensureTenantSchema(pool: mysql.Pool, _dbName?: string): Pr
       remarks VARCHAR(255) DEFAULT NULL,
       INDEX idx_dn_id (delivery_note_id)
     )`,
+    `CREATE TABLE IF NOT EXISTS zatca_config (
+      id INT PRIMARY KEY AUTO_INCREMENT,
+      tenant_id INT NOT NULL DEFAULT 1,
+      seller_name VARCHAR(255) NOT NULL,
+      vat_number VARCHAR(50) NOT NULL,
+      building_number VARCHAR(10) DEFAULT NULL,
+      street_name VARCHAR(255) DEFAULT NULL,
+      district VARCHAR(100) DEFAULT NULL,
+      city VARCHAR(100) DEFAULT NULL,
+      postal_code VARCHAR(10) DEFAULT NULL,
+      is_production BOOLEAN DEFAULT FALSE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )`,
+    `CREATE TABLE IF NOT EXISTS zatca_invoices (
+      id INT PRIMARY KEY AUTO_INCREMENT,
+      tenant_id INT NOT NULL DEFAULT 1,
+      order_id INT NOT NULL,
+      uuid VARCHAR(100) NOT NULL,
+      invoice_hash TEXT NOT NULL,
+      qr_code TEXT NOT NULL,
+      signed_xml LONGTEXT,
+      zatca_status ENUM('PENDING','REPORTED','ACCEPTED','REJECTED') DEFAULT 'REPORTED',
+      reported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_order_id (order_id)
+    )`,
   ];
 
   for (const sql of coreTables) {
@@ -194,6 +266,8 @@ export async function ensureTenantSchema(pool: mysql.Pool, _dbName?: string): Pr
     { table: 'staff', column: 'is_active', def: 'BOOLEAN DEFAULT TRUE' },
     { table: 'staff', column: 'can_stitch', def: 'BOOLEAN DEFAULT FALSE' },
     { table: 'staff_work_entries', column: 'tenant_id', def: 'INT NOT NULL DEFAULT 1' },
+    { table: 'staff_work_entries', column: 'size', def: 'VARCHAR(50) DEFAULT NULL' },
+    { table: 'staff_work_entries', column: 'completion_date', def: 'DATE DEFAULT NULL' },
     { table: 'payroll_settlements', column: 'tenant_id', def: 'INT NOT NULL DEFAULT 1' },
     { table: 'stock_movements', column: 'tenant_id', def: 'INT NOT NULL DEFAULT 1' },
     { table: 'production_batches', column: 'tenant_id', def: 'INT NOT NULL DEFAULT 1' },
