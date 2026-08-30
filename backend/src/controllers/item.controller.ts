@@ -152,47 +152,95 @@ export async function createItem(req: AuthRequest, res: Response): Promise<void>
   } = req.body;
 
   const displayName = name ? name.trim() : '';
-  const cleanCategory = category ? category.trim().toLowerCase().replace(/\s+/g, '_') : (displayName.toLowerCase().replace(/[^a-z0-9_]/g, '_') || 'item_' + Date.now());
+  const baseCategory = category ? category.trim().toLowerCase().replace(/\s+/g, '_') : (displayName.toLowerCase().replace(/[^a-z0-9_]/g, '_') || 'item_' + Date.now());
 
-  if (!displayName && !cleanCategory) {
+  if (!displayName && !baseCategory) {
     res.status(400).json({ message: 'Item name is required' });
     return;
   }
 
   try {
-    const [insertRes] = await query<any>(
-      `INSERT INTO product_config (
-        tenant_id, category, name, item_code, item_type, uom,
-        selling_rate, purchase_cost, tax_rate, hsn_code, description,
-        fabric_cost, lace_cost, zip_cost, thread_cost,
-        canvas_cost, plastic_cost, logistics_cost, cut_rate, stitch_rate, is_active
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-      [
-        tenantId, cleanCategory, displayName || cleanCategory, item_code || null, item_type, uom || 'pcs',
-        Number(selling_rate) || 0, Number(purchase_cost) || 0, Number(tax_rate) || 0, hsn_code || null, description || null,
-        Number(fabric_cost) || 0, Number(lace_cost) || 0, Number(zip_cost) || 0, Number(thread_cost) || 0,
-        Number(canvas_cost) || 0, Number(plastic_cost) || 0, Number(logistics_cost) || 0, Number(cut_rate) || 0, Number(stitch_rate) || 0
-      ]
+    let finalCategory = baseCategory;
+    let itemId: number | null = null;
+
+    // Check if category already exists for this tenant
+    const existing = await query<any[]>(
+      'SELECT id, is_active FROM product_config WHERE category = ? AND tenant_id = ? LIMIT 1',
+      [baseCategory, tenantId]
     );
 
-    const itemId = insertRes.insertId;
+    if (existing && existing.length > 0) {
+      if (existing[0].is_active === 0) {
+        // Re-activate and update the archived record
+        itemId = existing[0].id;
+        await query(
+          `UPDATE product_config SET
+            name = ?, item_code = ?, item_type = ?, uom = ?,
+            selling_rate = ?, purchase_cost = ?, tax_rate = ?, hsn_code = ?, description = ?,
+            fabric_cost = ?, lace_cost = ?, zip_cost = ?, thread_cost = ?,
+            canvas_cost = ?, plastic_cost = ?, logistics_cost = ?, cut_rate = ?, stitch_rate = ?,
+            is_active = 1
+          WHERE id = ? AND tenant_id = ?`,
+          [
+            displayName || baseCategory, item_code || null, item_type, uom || 'pcs',
+            Number(selling_rate) || 0, Number(purchase_cost) || 0, Number(tax_rate) || 0, hsn_code || null, description || null,
+            Number(fabric_cost) || 0, Number(lace_cost) || 0, Number(zip_cost) || 0, Number(thread_cost) || 0,
+            Number(canvas_cost) || 0, Number(plastic_cost) || 0, Number(logistics_cost) || 0, Number(cut_rate) || 0, Number(stitch_rate) || 0,
+            itemId, tenantId
+          ]
+        );
+      } else {
+        // Active item already exists with this exact category: generate unique slug suffix
+        finalCategory = `${baseCategory}_${Date.now().toString().slice(-4)}`;
+      }
+    }
+
+    if (!itemId) {
+      const insertRes: any = await query<any>(
+        `INSERT INTO product_config (
+          tenant_id, category, name, item_code, item_type, uom,
+          selling_rate, purchase_cost, tax_rate, hsn_code, description,
+          fabric_cost, lace_cost, zip_cost, thread_cost,
+          canvas_cost, plastic_cost, logistics_cost, cut_rate, stitch_rate, is_active
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+        [
+          tenantId, finalCategory, displayName || finalCategory, item_code || null, item_type, uom || 'pcs',
+          Number(selling_rate) || 0, Number(purchase_cost) || 0, Number(tax_rate) || 0, hsn_code || null, description || null,
+          Number(fabric_cost) || 0, Number(lace_cost) || 0, Number(zip_cost) || 0, Number(thread_cost) || 0,
+          Number(canvas_cost) || 0, Number(plastic_cost) || 0, Number(logistics_cost) || 0, Number(cut_rate) || 0, Number(stitch_rate) || 0
+        ]
+      );
+
+      itemId = insertRes?.insertId || (await query<any[]>('SELECT id FROM product_config WHERE category=? AND tenant_id=? LIMIT 1', [finalCategory, tenantId]))[0]?.id;
+    }
 
     // Save size rates if provided into both tables
-    if (Array.isArray(size_rates) && size_rates.length > 0) {
+    if (Array.isArray(size_rates) && size_rates.length > 0 && itemId) {
+      // Clear any previous size rates for this item
+      try {
+        await query('DELETE FROM product_size_selling_rates WHERE product_config_id = ? AND tenant_id = ?', [itemId, tenantId]);
+      } catch {}
+      try {
+        await query('DELETE FROM product_size_rates WHERE category = ? AND tenant_id = ?', [finalCategory, tenantId]);
+      } catch {}
+
       for (const sr of size_rates) {
-        if (sr.size_label && sr.selling_rate) {
+        if (sr.size_label && String(sr.size_label).trim()) {
+          const sRate = sr.selling_rate !== undefined && sr.selling_rate !== '' ? Number(sr.selling_rate) : (Number(selling_rate) || 0);
           try {
             await query(
               `INSERT INTO product_size_selling_rates (tenant_id, product_config_id, size_label, selling_rate)
                VALUES (?, ?, ?, ?)`,
-              [tenantId, itemId, String(sr.size_label).trim(), Number(sr.selling_rate)]
+              [tenantId, itemId, String(sr.size_label).trim(), sRate]
             );
-          } catch {}
+          } catch (e) {
+            console.error('Error inserting product_size_selling_rate:', e);
+          }
           try {
             await query(
               `INSERT INTO product_size_rates (tenant_id, category, size_label, selling_rate)
                VALUES (?, ?, ?, ?)`,
-              [tenantId, cleanCategory, String(sr.size_label).trim(), Number(sr.selling_rate)]
+              [tenantId, finalCategory, String(sr.size_label).trim(), sRate]
             );
           } catch {}
         }
@@ -203,7 +251,7 @@ export async function createItem(req: AuthRequest, res: Response): Promise<void>
   } catch (error: any) {
     console.error('Error creating item:', error);
     if (error.code === 'ER_DUP_ENTRY') {
-      res.status(400).json({ message: `An item with identifier '${cleanCategory}' already exists.` });
+      res.status(400).json({ message: `An item with the name '${displayName || baseCategory}' already exists in your catalog.` });
       return;
     }
     res.status(500).json({ message: 'Failed to create item', error: String(error) });
@@ -290,19 +338,20 @@ export async function updateItem(req: AuthRequest, res: Response): Promise<void>
       } catch {}
 
       for (const sr of size_rates) {
-        if (sr.size_label && sr.selling_rate) {
+        if (sr.size_label && String(sr.size_label).trim()) {
+          const sRate = sr.selling_rate !== undefined && sr.selling_rate !== '' ? Number(sr.selling_rate) : (Number(selling_rate) || 0);
           try {
             await query(
               `INSERT INTO product_size_selling_rates (tenant_id, product_config_id, size_label, selling_rate)
                VALUES (?, ?, ?, ?)`,
-              [tenantId, id, String(sr.size_label).trim(), Number(sr.selling_rate)]
+              [tenantId, id, String(sr.size_label).trim(), sRate]
             );
           } catch {}
           try {
             await query(
               `INSERT INTO product_size_rates (tenant_id, category, size_label, selling_rate)
                VALUES (?, ?, ?, ?)`,
-              [tenantId, itemCat, String(sr.size_label).trim(), Number(sr.selling_rate)]
+              [tenantId, itemCat, String(sr.size_label).trim(), sRate]
             );
           } catch {}
         }

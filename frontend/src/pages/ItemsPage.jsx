@@ -47,6 +47,7 @@ export default function ItemsPage() {
   };
 
   const [form, setForm] = useState(initialForm);
+  const [itemError, setItemError] = useState(null);
   const [newSizeLabel, setNewSizeLabel] = useState('');
   const [newSizeRate, setNewSizeRate] = useState('');
 
@@ -83,6 +84,7 @@ export default function ItemsPage() {
 
   const openNewItem = () => {
     setIsEditing(false);
+    setItemError(null);
     setActiveTab('basic');
     setForm({ ...initialForm, tax_rate: user?.country === 'SA' ? '15' : '0' });
     setNewSizeLabel('');
@@ -93,6 +95,7 @@ export default function ItemsPage() {
 
   const openEditItem = (item) => {
     setIsEditing(true);
+    setItemError(null);
     setActiveTab('basic');
     setForm({
       id: item.id,
@@ -126,9 +129,9 @@ export default function ItemsPage() {
 
   const handleAddSizeRate = () => {
     const label = newSizeLabel.trim();
-    const rate = parseFloat(newSizeRate);
+    const rate = newSizeRate !== '' ? parseFloat(newSizeRate) : (parseFloat(form.selling_rate) || 0);
     if (!label) return;
-    if (isNaN(rate) || rate <= 0) return;
+    if (isNaN(rate) || rate < 0) return;
 
     if (form.size_rates.some(r => r.size_label.toLowerCase() === label.toLowerCase())) {
       alert(`Size variation '${label}' already exists.`);
@@ -170,8 +173,9 @@ export default function ItemsPage() {
 
   const handleSaveItem = async (e) => {
     if (e) e.preventDefault();
+    setItemError(null);
     if (!form.name.trim()) {
-      alert('Please enter an item name.');
+      setItemError('Please enter an item name.');
       return;
     }
 
@@ -188,7 +192,9 @@ export default function ItemsPage() {
       loadData();
       setTimeout(() => setMsg(null), 3500);
     } catch (err) {
-      alert(err.response?.data?.message || 'Failed to save item.');
+      const errMsg = err.response?.data?.message || err.message || 'Failed to save item.';
+      setItemError(errMsg);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     } finally {
       setSaving(false);
     }
@@ -379,6 +385,43 @@ export default function ItemsPage() {
             </button>
           </div>
         </div>
+
+        {/* Inline Error Alert */}
+        {itemError && (
+          <div style={{
+            background: 'var(--red-light, #fee2e2)',
+            border: '1px solid var(--red, #ef4444)',
+            color: '#991b1b',
+            borderRadius: 10,
+            padding: '12px 16px',
+            marginBottom: 16,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 12
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 18 }}>⚠️</span>
+              <div style={{ fontSize: 13, fontWeight: 500 }}>
+                <strong style={{ fontWeight: 700 }}>Cannot save item:</strong> {itemError}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setItemError(null)}
+              style={{
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                fontSize: 16,
+                fontWeight: 700,
+                color: '#991b1b'
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* Tab Navigation Pill Bar */}
         <div style={{
