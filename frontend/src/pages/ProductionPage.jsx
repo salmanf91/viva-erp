@@ -6,18 +6,16 @@ const fmt     = n => '₹' + Number(n || 0).toLocaleString('en-IN');
 const fmtDate = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
 
 const DEFAULT_CAT_LABEL = { shawl_nighty: 'Shawl Nighty', shawl_nighty_lace: 'Shawl Nighty + Lace', ordinary_nighty: 'Ordinary Nighty' };
-const getProductLabel = cat => DEFAULT_CAT_LABEL[cat] || cat.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+const getProductLabel = (cat, cfgs = []) => {
+  const match = (cfgs || []).find(c => (c.category || '').toLowerCase() === (cat || '').toLowerCase() || (c.name || '').toLowerCase() === (cat || '').toLowerCase());
+  if (match?.display_name || match?.name) return match.display_name || match.name;
+  return DEFAULT_CAT_LABEL[cat] || (cat ? cat.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') : '—');
+};
 
 const getProductColor = cat => {
   const colors = { shawl_nighty: 'var(--accent)', shawl_nighty_lace: 'var(--cyan)', ordinary_nighty: 'var(--green)' };
   return colors[cat] || 'var(--orange)';
 };
-
-// Yield: how many nighties one purchased unit covers
-const ACC_YIELD = { zip: 1, thread: 20, canvas: 40, plastic: 1, lace: 1 };
-const CANVAS_DEFAULT = 15 / 40; // ₹15/canvas ÷ 40 nighties = ₹0.375/nighty
-// cost_per_nighty = (amount / qty_purchased) / yield
-const accPerNighty = (row) => row ? (row.amount / row.qty_purchased) / (ACC_YIELD[row.accessory_type] || 1) : null;
 
 const STATUS_STEPS = ['allocated', 'cutting', 'stitching', 'finished'];
 const STATUS_LABEL = { allocated: 'Allocated', cutting: 'Cutting', stitching: 'Stitching', finished: 'Finished' };
@@ -48,32 +46,21 @@ function BatchFlow({ status, quantity }) {
   );
 }
 
-function CostCard({ cfg, cardQty, totalPcs, rent, electricity, onQtyChange, accLatest, fabricRate, onFabricRateChange, onSaveFabric, isSavingFabric, sellingRate, onSellingRateChange, onSaveSelling, isSavingSelling }) {
+function CostCard({ cfg, cardQty, totalPcs, rent, electricity, onQtyChange, fabricRate, onFabricRateChange, onSaveFabric, isSavingFabric, sellingRate, onSellingRateChange, onSaveSelling, isSavingSelling, configs }) {
   const ohPerPc  = totalPcs > 0 ? (rent + electricity) / totalPcs : 0;
   const fabric   = Number(fabricRate !== undefined ? fabricRate : cfg.fabric_cost || 0);
   const cut      = Number(cfg.cut_rate       || 0);
   const stitch   = Number(cfg.stitch_rate    || 0);
+  const zip      = Number(cfg.zip_cost       || 0);
+  const thread   = Number(cfg.thread_cost    || 0);
+  const canvas   = Number(cfg.canvas_cost    || 0);
+  const plastic  = Number(cfg.plastic_cost   || 0);
   const lace     = Number(cfg.lace_cost      || 0);
   const logistics= Number(cfg.logistics_cost || 0);
   const sell     = Number(sellingRate !== undefined ? sellingRate : cfg.selling_rate || 0);
-  const isLace    = cfg.category === 'shawl_nighty_lace';
-  const isPlastic = cfg.category !== 'ordinary_nighty';
 
-  // Live accessory prices from purchase log (amount / qty / yield = cost per nighty)
-  const accPrice = key => {
-    const a = accLatest?.find(x => x.accessory_type === key);
-    return a ? accPerNighty(a) : null;
-  };
-  const accDate = key => {
-    const a = accLatest?.find(x => x.accessory_type === key);
-    return a ? new Date(a.expense_date).toLocaleDateString('en-IN', { day:'numeric', month:'short' }) : null;
-  };
-  const zip     = accPrice('zip')     ?? Number(cfg.zip_cost     || 0);
-  const thread  = accPrice('thread')  ?? Number(cfg.thread_cost  || 0);
-  const canvas  = accPrice('canvas')  ?? CANVAS_DEFAULT;
-  const plastic = accPrice('plastic') ?? Number(cfg.plastic_cost || 0);
-
-  const total    = fabric + cut + stitch + zip + thread + canvas + (isPlastic ? plastic : 0) + (isLace ? lace : 0) + logistics + ohPerPc;
+  const accTotal = zip + thread + canvas + plastic + lace + logistics;
+  const total    = fabric + cut + stitch + accTotal + ohPerPc;
   const profit   = sell - total;
   const profitColor = profit >= 10 ? 'var(--green)' : profit >= 0 ? 'var(--yellow)' : 'var(--red)';
   const profitBg    = profit >= 10 ? 'var(--green-l)' : profit >= 0 ? 'var(--yellow-l)' : 'var(--red-l)';
@@ -84,7 +71,7 @@ function CostCard({ cfg, cardQty, totalPcs, rent, electricity, onQtyChange, accL
   return (
     <div className="card" style={{ borderTop: `3px solid ${getProductColor(cfg.category)}` }}>
       <div style={{ fontSize: 13, fontWeight: 800, color: getProductColor(cfg.category), marginBottom: 12 }}>
-        {getProductLabel(cfg.category)}
+        {cfg.display_name || cfg.name || getProductLabel(cfg.category, configs)}
       </div>
 
       <div className="cost-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -140,32 +127,13 @@ function CostCard({ cfg, cardQty, totalPcs, rent, electricity, onQtyChange, accL
 
       <div style={{ height: 1, background: 'var(--border)', margin: '6px 0' }} />
       <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 4 }}>🧰 Accessories</div>
-      <div className="cost-row">
-        <span>Zip {accDate('zip') ? <span style={{fontSize:10,color:'var(--green)'}}>📌 {accDate('zip')}</span> : <span style={{fontSize:10,color:'var(--muted)'}}>est.</span>}</span>
-        <span>₹{f2(zip)}</span>
-      </div>
-      <div className="cost-row">
-        <span>Thread {accDate('thread') ? <span style={{fontSize:10,color:'var(--green)'}}>📌 {accDate('thread')}</span> : <span style={{fontSize:10,color:'var(--muted)'}}>est.</span>}</span>
-        <span>₹{f2(thread)}</span>
-      </div>
-      <div className="cost-row">
-        <span>Canvas {accDate('canvas') ? <span style={{fontSize:10,color:'var(--green)'}}>📌 {accDate('canvas')}</span> : <span style={{fontSize:10,color:'var(--muted)'}}>est.</span>}</span>
-        <span>₹{f2(canvas)}</span>
-      </div>
-      {isPlastic
-        ? <div className="cost-row">
-            <span>Plastic Bag {accDate('plastic') ? <span style={{fontSize:10,color:'var(--green)'}}>📌 {accDate('plastic')}</span> : <span style={{fontSize:10,color:'var(--muted)'}}>est.</span>}</span>
-            <span>₹{f2(plastic)}</span>
-          </div>
-        : <div className="cost-row" style={{ color: 'var(--muted)', fontSize: 12 }}><span>No plastic bag</span><span>—</span></div>
-      }
-      {isLace
-        ? <div className="cost-row" style={{ color: 'var(--cyan)', fontWeight: 600 }}><span>Lace</span><span>₹{f2(lace)}</span></div>
-        : <div className="cost-row" style={{ color: 'var(--muted)', fontSize: 12 }}><span>No lace</span><span>—</span></div>
-      }
-
-      <div style={{ height: 1, background: 'var(--border)', margin: '6px 0' }} />
-      <div className="cost-row" style={{ color: 'var(--muted)', fontSize: 12 }}><span>Logistics</span><span>₹{f2(logistics)}</span></div>
+      {zip > 0 && <div className="cost-row"><span>Zip</span><span>₹{f2(zip)}</span></div>}
+      {thread > 0 && <div className="cost-row"><span>Thread</span><span>₹{f2(thread)}</span></div>}
+      {canvas > 0 && <div className="cost-row"><span>Canvas</span><span>₹{f2(canvas)}</span></div>}
+      {plastic > 0 && <div className="cost-row"><span>Packaging / Plastic</span><span>₹{f2(plastic)}</span></div>}
+      {lace > 0 && <div className="cost-row" style={{ color: 'var(--cyan)', fontWeight: 600 }}><span>Lace</span><span>₹{f2(lace)}</span></div>}
+      {logistics > 0 && <div className="cost-row" style={{ color: 'var(--muted)' }}><span>Logistics / Other</span><span>₹{f2(logistics)}</span></div>}
+      {accTotal === 0 && <div className="cost-row" style={{ color: 'var(--muted)', fontSize: 12 }}><span>No accessories set</span><span>₹0.00</span></div>}
 
       <div style={{ height: 1, background: 'var(--border)', margin: '6px 0' }} />
 
@@ -304,18 +272,30 @@ export default function ProductionPage() {
       setStatsActiveCount(stats.activeCount || 0);
       setStatsActivePcs(stats.activePcs || 0);
     }),
-    api.get('/production/configs').then(r => {
-      setConfigs(r.data);
+    api.get('/items?all=1').then(r => {
+      const itemsList = r.data || [];
+      setConfigs(itemsList);
       const rates = {};
       const sells = {};
-      r.data.forEach(c => {
+      itemsList.forEach(c => {
         rates[c.category] = Number(c.fabric_cost || 0);
         sells[c.category] = Number(c.selling_rate || 0);
       });
       setFabricRates(rates);
       setSellingRates(sells);
+    }).catch(() => {
+      api.get('/production/configs').then(r => {
+        setConfigs(r.data || []);
+        const rates = {};
+        const sells = {};
+        (r.data || []).forEach(c => {
+          rates[c.category] = Number(c.fabric_cost || 0);
+          sells[c.category] = Number(c.selling_rate || 0);
+        });
+        setFabricRates(rates);
+        setSellingRates(sells);
+      });
     }),
-    api.get('/expenses/accessory-prices').then(r => setAccLatest(r.data)).catch(() => {}),
     api.get(`/expenses/overhead?month=${new Date().getMonth()+1}&year=${new Date().getFullYear()}`).then(r => { setRent(Number(r.data.rent ?? 0)); setElectricity(Number(r.data.electricity ?? 0)); }).catch(() => {}),
     api.get('/staff').then(r => setStaff(r.data)),
   ]).finally(() => setLoading(false));
@@ -324,8 +304,8 @@ export default function ProductionPage() {
     setSavingFabric(prev => ({ ...prev, [cat]: true }));
     try {
       await api.put(`/production/configs/${cat}`, { fabric_cost: rate });
-      const r = await api.get('/production/configs');
-      setConfigs(r.data);
+      const r = await api.get('/items?all=1').catch(() => api.get('/production/configs'));
+      setConfigs(r.data || []);
     } catch (err) {
       alert('Failed to save fabric rate');
     } finally {
@@ -337,8 +317,8 @@ export default function ProductionPage() {
     setSavingSelling(prev => ({ ...prev, [cat]: true }));
     try {
       await api.put(`/production/configs/${cat}`, { selling_rate: rate });
-      const r = await api.get('/production/configs');
-      setConfigs(r.data);
+      const r = await api.get('/items?all=1').catch(() => api.get('/production/configs'));
+      setConfigs(r.data || []);
     } catch (err) {
       alert('Failed to save selling price');
     } finally {
@@ -398,26 +378,24 @@ export default function ProductionPage() {
   if (loading) return <div className="spinner">Loading…</div>;
 
   /* New batch modal cost preview */
-  const previewCfg  = configs.find(c => c.category === form.category);
+  const previewCfg  = configs.find(c => (c.category || '').toLowerCase() === (form.category || '').toLowerCase());
   const previewQty  = +form.quantity || 0;
   const cutAmt      = previewQty * Number(form.cut_rate || 0);
   const tailAmt     = previewQty * Number(form.stitch_rate || 0);
-  const isLaceForm = form.category === 'shawl_nighty_lace';
-  const _pvZ       = accLatest.find(x => x.accessory_type === 'zip');
-  const _pvT       = accLatest.find(x => x.accessory_type === 'thread');
-  const _pvC       = accLatest.find(x => x.accessory_type === 'canvas');
-  const _pvP       = accLatest.find(x => x.accessory_type === 'plastic');
-  const _pvZipPc   = _pvZ ? accPerNighty(_pvZ) : Number(previewCfg?.zip_cost     || 0);
-  const _pvThrPc   = _pvT ? accPerNighty(_pvT) : Number(previewCfg?.thread_cost  || 0);
-  const _pvCanPc   = _pvC ? accPerNighty(_pvC) : CANVAS_DEFAULT;
-  const _pvPlaPc   = _pvP ? accPerNighty(_pvP) : Number(previewCfg?.plastic_cost || 0);
-  const zipAmt     = previewQty * _pvZipPc;
-  const threadAmt  = previewQty * _pvThrPc;
-  const canvasAmt  = previewQty * _pvCanPc;
-  const plasticAmt = previewQty * _pvPlaPc;
-  const laceAmt    = isLaceForm ? previewQty * Number(previewCfg?.lace_cost || 8) : 0;
+  const _pvZipPc    = Number(previewCfg?.zip_cost       || 0);
+  const _pvThrPc    = Number(previewCfg?.thread_cost    || 0);
+  const _pvCanPc    = Number(previewCfg?.canvas_cost    || 0);
+  const _pvPlaPc    = Number(previewCfg?.plastic_cost   || 0);
+  const _pvLacPc    = Number(previewCfg?.lace_cost      || 0);
+  const _pvOthPc    = Number(previewCfg?.logistics_cost || 0);
+  const zipAmt      = previewQty * _pvZipPc;
+  const threadAmt   = previewQty * _pvThrPc;
+  const canvasAmt   = previewQty * _pvCanPc;
+  const plasticAmt  = previewQty * _pvPlaPc;
+  const laceAmt     = previewQty * _pvLacPc;
+  const otherAmt    = previewQty * _pvOthPc;
   const labourTotal = cutAmt + tailAmt;
-  const accTotal    = zipAmt + threadAmt + canvasAmt + plasticAmt + laceAmt;
+  const accTotal    = zipAmt + threadAmt + canvasAmt + plasticAmt + laceAmt + otherAmt;
 
   return (
     <>
@@ -531,12 +509,12 @@ export default function ProductionPage() {
                 <CostCard
                   key={cat}
                   cfg={cfg}
+                  configs={configs}
                   cardQty={cardQty[cat] || 0}
                   totalPcs={cardTotalPcs}
                   rent={rent}
                   electricity={electricity}
                   onQtyChange={v => setCardQty(q => ({ ...q, [cat]: v }))}
-                  accLatest={accLatest}
                   fabricRate={fabricRates[cat]}
                   onFabricRateChange={v => setFabricRates(r => ({ ...r, [cat]: v }))}
                   onSaveFabric={handleSaveFabric}
@@ -577,29 +555,28 @@ export default function ProductionPage() {
       )}
 
       {activeBatches.map(b => {
-        const bCfg  = configs.find(c => c.category === b.category) || {};
+        const bCfg  = configs.find(c => (c.category || '').toLowerCase() === (b.category || '').toLowerCase()) || {};
         const qty   = Number(b.quantity || 0);
-        const isL   = b.category === 'shawl_nighty_lace';
-        const isPla = b.category !== 'ordinary_nighty';
         const cutRate   = Number((b.cut_rate ?? bCfg.cut_rate) || 0);
         const stitchRate= Number((b.stitch_rate ?? bCfg.stitch_rate) || 0);
         const cutAmt    = qty * cutRate;
         const stitchAmt = qty * stitchRate;
         const labTotal  = cutAmt + stitchAmt;
-        const accZ   = accLatest.find(x => x.accessory_type === 'zip');
-        const accT   = accLatest.find(x => x.accessory_type === 'thread');
-        const accC   = accLatest.find(x => x.accessory_type === 'canvas');
-        const accP   = accLatest.find(x => x.accessory_type === 'plastic');
-        const zipPc  = accZ ? accPerNighty(accZ) : Number(bCfg.zip_cost     || 0);
-        const thrPc  = accT ? accPerNighty(accT) : Number(bCfg.thread_cost  || 0);
-        const canPc  = accC ? accPerNighty(accC) : CANVAS_DEFAULT;
-        const plaPc  = accP ? accPerNighty(accP) : Number(bCfg.plastic_cost || 0);
+
+        const zipPc  = Number(bCfg.zip_cost       || 0);
+        const thrPc  = Number(bCfg.thread_cost    || 0);
+        const canPc  = Number(bCfg.canvas_cost    || 0);
+        const plaPc  = Number(bCfg.plastic_cost   || 0);
+        const lacPc  = Number(bCfg.lace_cost      || 0);
+        const othPc  = Number(bCfg.logistics_cost || 0);
+
         const _zip  = qty * zipPc;
         const _thr  = qty * thrPc;
         const _can  = qty * canPc;
-        const _pla  = isPla ? qty * plaPc : 0;
-        const _lac  = isL ? qty * Number(bCfg.lace_cost || 8) : 0;
-        const accTotal = _zip + _thr + _can + _pla + _lac;
+        const _pla  = qty * plaPc;
+        const _lac  = qty * lacPc;
+        const _oth  = qty * othPc;
+        const accTotal = _zip + _thr + _can + _pla + _lac + _oth;
         return (
           <div key={b.id} className="card mb16" style={{ borderTop: `3px solid ${getProductColor(b.category)}` }}>
             {/* Header */}
@@ -607,7 +584,7 @@ export default function ProductionPage() {
               <div>
                 <div style={{ fontWeight: 800, fontSize: 15 }}>{b.batch_number}</div>
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                  {getProductLabel(b.category)} · {fmtDate(b.batch_date)}
+                  {bCfg.display_name || bCfg.name || getProductLabel(b.category, configs)} · {fmtDate(b.batch_date)}
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>
@@ -629,11 +606,13 @@ export default function ProductionPage() {
               </div>
               <div className="calc-box" style={{ margin: 0, background: '#f0fdf4', borderColor: '#86efac' }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 6 }}>🧰 Accessories</div>
-                <div className="calc-row"><span className="cl">Zip (₹{zipPc.toFixed(2)}/pc × {qty}{accZ ? ' 📌' : ' est.'})</span><span className="cv">{fmt(_zip)}</span></div>
-                <div className="calc-row"><span className="cl">Thread (₹{thrPc.toFixed(2)}/pc × {qty}{accT ? ' 📌' : ' est.'})</span><span className="cv">{fmt(_thr)}</span></div>
-                <div className="calc-row"><span className="cl">Canvas (₹{canPc.toFixed(2)}/pc × {qty}{accC ? ' 📌' : ' est.'})</span><span className="cv">{fmt(_can)}</span></div>
-                {isPla && <div className="calc-row"><span className="cl">Plastic Bag (₹{plaPc.toFixed(2)}/pc × {qty}{accP ? ' 📌' : ' est.'})</span><span className="cv">{fmt(_pla)}</span></div>}
-                {isL && <div className="calc-row" style={{ color: 'var(--cyan)', fontWeight: 600 }}><span className="cl">Lace (₹{bCfg.lace_cost||8} × {qty})</span><span className="cv">{fmt(_lac)}</span></div>}
+                {zipPc > 0 && <div className="calc-row"><span className="cl">Zip (₹{zipPc.toFixed(2)}/pc × {qty})</span><span className="cv">{fmt(_zip)}</span></div>}
+                {thrPc > 0 && <div className="calc-row"><span className="cl">Thread (₹{thrPc.toFixed(2)}/pc × {qty})</span><span className="cv">{fmt(_thr)}</span></div>}
+                {canPc > 0 && <div className="calc-row"><span className="cl">Canvas (₹{canPc.toFixed(2)}/pc × {qty})</span><span className="cv">{fmt(_can)}</span></div>}
+                {plaPc > 0 && <div className="calc-row"><span className="cl">Packaging (₹{plaPc.toFixed(2)}/pc × {qty})</span><span className="cv">{fmt(_pla)}</span></div>}
+                {lacPc > 0 && <div className="calc-row" style={{ color: 'var(--cyan)', fontWeight: 600 }}><span className="cl">Lace (₹{lacPc.toFixed(2)} × {qty})</span><span className="cv">{fmt(_lac)}</span></div>}
+                {othPc > 0 && <div className="calc-row"><span className="cl">Other (₹{othPc.toFixed(2)} × {qty})</span><span className="cv">{fmt(_oth)}</span></div>}
+                {accTotal === 0 && <div className="calc-row" style={{ color: 'var(--muted)', fontSize: 12 }}><span className="cl">No accessories</span><span className="cv">₹0.00</span></div>}
                 <hr className="calc-divider" />
                 <div className="calc-row"><span className="cl">Accessories Total</span><span className="cv" style={{ color: 'var(--green)' }}>{fmt(accTotal)}</span></div>
               </div>
@@ -688,7 +667,7 @@ export default function ProductionPage() {
                   <td style={{ fontWeight: 700 }}>{b.batch_number}</td>
                   <td>
                     <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: getProductColor(b.category), marginRight: 5 }} />
-                    {getProductLabel(b.category)}
+                    {getProductLabel(b.category, configs)}
                   </td>
                   <td style={{ textAlign: 'right', fontWeight: 700 }}>{b.quantity}</td>
                   <td style={{ color: 'var(--muted)', fontSize: 12 }}>{fmtDate(b.batch_date)}</td>
@@ -737,7 +716,7 @@ export default function ProductionPage() {
               </span>
             </div>
             <div style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 16 }}>
-              {getProductLabel(detail.batch?.category)}
+              {getProductLabel(detail.batch?.category, configs)}
               {' · '}{detail.batch?.quantity} pcs{' · '}{fmtDate(detail.batch?.batch_date)}
             </div>
 
@@ -758,28 +737,27 @@ export default function ProductionPage() {
             {(() => {
               const b      = detail.batch;
               const qty    = Number(b?.quantity || 0);
-              const bCfg   = configs.find(c => c.category === b?.category) || {};
-              const isL    = b?.category === 'shawl_nighty_lace';
-              const isPla  = b?.category !== 'ordinary_nighty';
+              const bCfg   = configs.find(c => (c.category || '').toLowerCase() === (b?.category || '').toLowerCase()) || {};
               const cutRate    = Number(b?.cut_rate ?? bCfg.cut_rate ?? 0);
               const stitchRate = Number(b?.stitch_rate ?? bCfg.stitch_rate ?? 0);
               const cutAmt     = qty * cutRate;
               const stitchAmt  = qty * stitchRate;
               const labTotal   = cutAmt + stitchAmt;
-              const _accZ  = accLatest.find(x => x.accessory_type === 'zip');
-              const _accT  = accLatest.find(x => x.accessory_type === 'thread');
-              const _accC  = accLatest.find(x => x.accessory_type === 'canvas');
-              const _accP  = accLatest.find(x => x.accessory_type === 'plastic');
-              const _zipPc = _accZ ? accPerNighty(_accZ) : Number(bCfg.zip_cost     || 0);
-              const _thrPc = _accT ? accPerNighty(_accT) : Number(bCfg.thread_cost  || 0);
-              const _canPc = _accC ? accPerNighty(_accC) : CANVAS_DEFAULT;
-              const _plaPc = _accP ? accPerNighty(_accP) : Number(bCfg.plastic_cost || 0);
+
+              const _zipPc = Number(bCfg.zip_cost       || 0);
+              const _thrPc = Number(bCfg.thread_cost    || 0);
+              const _canPc = Number(bCfg.canvas_cost    || 0);
+              const _plaPc = Number(bCfg.plastic_cost   || 0);
+              const _lacPc = Number(bCfg.lace_cost      || 0);
+              const _othPc = Number(bCfg.logistics_cost || 0);
+
               const _zip  = qty * _zipPc;
               const _thr  = qty * _thrPc;
               const _can  = qty * _canPc;
-              const _pla  = isPla ? qty * _plaPc : 0;
-              const _lac  = isL ? qty * Number(bCfg.lace_cost || 8) : 0;
-              const _acc  = _zip + _thr + _can + _pla + _lac;
+              const _pla  = qty * _plaPc;
+              const _lac  = qty * _lacPc;
+              const _oth  = qty * _othPc;
+              const _acc  = _zip + _thr + _can + _pla + _lac + _oth;
               return (
                 <>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
@@ -792,11 +770,13 @@ export default function ProductionPage() {
                     </div>
                     <div className="calc-box" style={{ margin: 0, background: '#f0fdf4', borderColor: '#86efac' }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 6 }}>🧰 Accessories</div>
-                      <div className="calc-row"><span className="cl">Zip (₹{_zipPc.toFixed(2)}/pc × {qty}{_accZ ? ' 📌' : ' est.'})</span><span className="cv">{fmt(_zip)}</span></div>
-                      <div className="calc-row"><span className="cl">Thread (₹{_thrPc.toFixed(2)}/pc × {qty}{_accT ? ' 📌' : ' est.'})</span><span className="cv">{fmt(_thr)}</span></div>
-                      <div className="calc-row"><span className="cl">Canvas (₹{_canPc.toFixed(2)}/pc × {qty}{_accC ? ' 📌' : ' est.'})</span><span className="cv">{fmt(_can)}</span></div>
-                      {isPla && <div className="calc-row"><span className="cl">Plastic Bag (₹{_plaPc.toFixed(2)}/pc × {qty}{_accP ? ' 📌' : ' est.'})</span><span className="cv">{fmt(_pla)}</span></div>}
-                      {isL && <div className="calc-row" style={{ color: 'var(--cyan)', fontWeight: 600 }}><span className="cl">Lace (₹{bCfg.lace_cost||8} × {qty})</span><span className="cv">{fmt(_lac)}</span></div>}
+                      {_zipPc > 0 && <div className="calc-row"><span className="cl">Zip (₹{_zipPc.toFixed(2)}/pc × {qty})</span><span className="cv">{fmt(_zip)}</span></div>}
+                      {_thrPc > 0 && <div className="calc-row"><span className="cl">Thread (₹{_thrPc.toFixed(2)}/pc × {qty})</span><span className="cv">{fmt(_thr)}</span></div>}
+                      {_canPc > 0 && <div className="calc-row"><span className="cl">Canvas (₹{_canPc.toFixed(2)}/pc × {qty})</span><span className="cv">{fmt(_can)}</span></div>}
+                      {_plaPc > 0 && <div className="calc-row"><span className="cl">Packaging (₹{_plaPc.toFixed(2)}/pc × {qty})</span><span className="cv">{fmt(_pla)}</span></div>}
+                      {_lacPc > 0 && <div className="calc-row" style={{ color: 'var(--cyan)', fontWeight: 600 }}><span className="cl">Lace (₹{_lacPc.toFixed(2)} × {qty})</span><span className="cv">{fmt(_lac)}</span></div>}
+                      {_othPc > 0 && <div className="calc-row"><span className="cl">Other (₹{_othPc.toFixed(2)} × {qty})</span><span className="cv">{fmt(_oth)}</span></div>}
+                      {_acc === 0 && <div className="calc-row" style={{ color: 'var(--muted)', fontSize: 12 }}><span className="cl">No accessories</span><span className="cv">₹0.00</span></div>}
                       <hr className="calc-divider" />
                       <div className="calc-row"><span className="cl">Accessories Total</span><span className="cv" style={{ color: 'var(--green)' }}>{fmt(_acc)}</span></div>
                     </div>
@@ -863,7 +843,7 @@ export default function ProductionPage() {
                 <label>Category</label>
                 <select value={form.category} onChange={e => {
                   const cat = e.target.value;
-                  const cfg = configs.find(c => c.category === cat) || {};
+                  const cfg = configs.find(c => (c.category || '').toLowerCase() === (cat || '').toLowerCase()) || {};
                   setForm(f => ({
                     ...f,
                     category: cat,
@@ -871,7 +851,7 @@ export default function ProductionPage() {
                     stitch_rate: cfg.stitch_rate ?? 15.00,
                   }));
                 }}>
-                  {configs.map(c => <option key={c.category} value={c.category}>{getProductLabel(c.category)}</option>)}
+                  {configs.map(c => <option key={c.category} value={c.category}>{c.display_name || c.name || getProductLabel(c.category, configs)}</option>)}
                 </select>
               </div>
               <div className="field">
