@@ -309,6 +309,18 @@ export async function ensureTenantSchema(pool: mysql.Pool, _dbName?: string): Pr
       `);
     }
   } catch {}
+
+  // 4. Auto-repair purchase totals if freight/coolie exists in purchase_transport but was omitted from purchases.total
+  try {
+    await pool.query(`
+      UPDATE purchases p
+      JOIN purchase_transport pt ON pt.purchase_id = p.id
+      SET p.total = ROUND(p.subtotal - COALESCE(p.discount, 0) + COALESCE(p.tax_amount, 0) + COALESCE(pt.freight, 0) + COALESCE(pt.coolie, 0), 2)
+      WHERE (COALESCE(pt.freight, 0) > 0 OR COALESCE(pt.coolie, 0) > 0)
+        AND p.subtotal > 0
+        AND p.total != ROUND(p.subtotal - COALESCE(p.discount, 0) + COALESCE(p.tax_amount, 0) + COALESCE(pt.freight, 0) + COALESCE(pt.coolie, 0), 2)
+    `);
+  } catch {}
 }
 
 export async function resolveTenantBySlug(slug: string): Promise<any | null> {

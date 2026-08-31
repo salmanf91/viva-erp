@@ -113,12 +113,17 @@ export default function PurchasesPage() {
 
   const openEditPurchase = async p => {
     let items = [];
+    let transport = null;
     try {
       const r = await api.get(`/purchases/${p.id}`);
       items = r.data.items || [];
+      transport = r.data.transport || null;
     } catch (err) {
       console.error('Failed to load purchase items', err);
     }
+
+    const freightVal = transport?.freight !== undefined && transport?.freight !== null ? transport.freight : p.freight;
+    const coolieVal = transport?.coolie !== undefined && transport?.coolie !== null ? transport.coolie : p.coolie;
 
     setForm({
       vendor_id: String(p.vendor_id),
@@ -127,8 +132,8 @@ export default function PurchasesPage() {
       tax_inclusive: !!p.tax_inclusive,
       discount: p.discount ? String(Number(p.discount)) : '',
       notes: p.note || '',
-      freight: p.freight ? String(p.freight) : '',
-      coolie: p.coolie ? String(p.coolie) : '',
+      freight: freightVal ? String(freightVal) : '',
+      coolie: coolieVal ? String(coolieVal) : '',
       advance_paid: p.advance_paid ? String(p.advance_paid) : '',
       has_dispute: false,
       dispute_amount: '',
@@ -200,6 +205,9 @@ export default function PurchasesPage() {
         status:       advancePaidNum >= grandTotal ? 'paid' : (advancePaidNum > 0 ? 'partial' : 'paid'),
         note:         form.notes || null,
         advance_paid: advancePaidNum,
+        freight: freightNum,
+        coolie: coolieNum,
+        transport: (form.freight || form.coolie) ? { freight: freightNum, coolie: coolieNum } : undefined,
         items: form.items
           .filter(it => (parseFloat(it.quantity) > 0 && parseFloat(it.price_per_piece) > 0) || it.category)
           .map(it => ({
@@ -208,9 +216,6 @@ export default function PurchasesPage() {
             rate_per_pc: parseFloat(it.price_per_piece) || 0,
             amount: (parseFloat(it.quantity) || 0) * (parseFloat(it.price_per_piece) || 0)
           })),
-        transport: (form.freight || form.coolie)
-          ? { freight: freightNum, coolie: coolieNum }
-          : undefined,
         dispute: form.has_dispute && form.dispute_amount
           ? { amount: +form.dispute_amount, description: form.dispute_description || null }
           : undefined,
