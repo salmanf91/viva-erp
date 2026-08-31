@@ -128,8 +128,8 @@ export async function createPurchase(req: AuthRequest, res: Response): Promise<v
 
     const discountAmt = parseFloat(discount) || 0;
     const taxAmount = parseFloat((((Math.max(0, subtotal - discountAmt)) * taxRate) / 100).toFixed(2));
-    const freightAmt = transport ? (parseFloat(transport.freight) || 0) : 0;
-    const coolieAmt = transport ? (parseFloat(transport.coolie) || 0) : 0;
+    const freightAmt = req.body.freight !== undefined ? (parseFloat(req.body.freight) || 0) : (transport ? (parseFloat(transport.freight) || 0) : 0);
+    const coolieAmt = req.body.coolie !== undefined ? (parseFloat(req.body.coolie) || 0) : (transport ? (parseFloat(transport.coolie) || 0) : 0);
     
     // If subtotal is 0 but advance_paid is entered, grand total reflects advance_paid
     const calculatedTotal = subtotal - discountAmt + taxAmount + freightAmt + coolieAmt;
@@ -157,10 +157,10 @@ export async function createPurchase(req: AuthRequest, res: Response): Promise<v
       }
     }
 
-    if (transport) {
+    if (freightAmt > 0 || coolieAmt > 0 || transport) {
       await conn.execute(
         'INSERT INTO purchase_transport (purchase_id,freight,coolie) VALUES (?,?,?)',
-        [purchaseId, transport.freight || 0, transport.coolie || 0]
+        [purchaseId, freightAmt, coolieAmt]
       );
     }
 
@@ -261,28 +261,38 @@ export async function updatePurchase(req: AuthRequest, res: Response): Promise<v
     const currentFreight = hasTransport ? Number((existingTransport as any[])[0].freight || 0) : 0;
     const currentCoolie = hasTransport ? Number((existingTransport as any[])[0].coolie || 0) : 0;
 
-    const freightAmt = freight !== undefined ? (parseFloat(freight) || 0) : currentFreight;
-    const coolieAmt = coolie !== undefined ? (parseFloat(coolie) || 0) : currentCoolie;
+    const transportObj = req.body.transport;
+    let freightAmt = currentFreight;
+    let coolieAmt = currentCoolie;
 
-    const total = parseFloat((subtotal - discountAmt + taxAmount + freightAmt + coolieAmt).toFixed(2));
-    const finalStatus = advancePaid >= total ? 'paid' : (advancePaid > 0 ? 'partial' : (status || 'paid'));
+    if (transportObj !== undefined) {
+      freightAmt = parseFloat(transportObj?.freight) || 0;
+      coolieAmt = parseFloat(transportObj?.coolie) || 0;
+    } else {
+      if (freight !== undefined) freightAmt = parseFloat(freight) || 0;
+      if (coolie !== undefined) coolieAmt = parseFloat(coolie) || 0;
+    }
+
+    const calculatedTotal = subtotal - discountAmt + taxAmount + freightAmt + coolieAmt;
+    const total = parseFloat((calculatedTotal > 0 ? calculatedTotal : (advancePaid > 0 ? advancePaid : 0)).toFixed(2));
+    const finalStatus = (total > 0 && advancePaid >= total) ? 'paid' : (advancePaid > 0 ? 'partial' : (status || 'paid'));
 
     await conn.execute(
       'UPDATE purchases SET vendor_id=?, invoice_date=?, subtotal=?, discount=?, tax_rate=?, tax_amount=?, total=?, status=?, note=?, tax_inclusive=?, advance_paid=? WHERE id=? AND tenant_id=?',
       [vendor_id, invoice_date, subtotal, discountAmt, taxRate, taxAmount, total, finalStatus, note || null, taxInclusive ? 1 : 0, advancePaid, id, tenantId]
     );
 
-    // Update transport if provided
-    if (freight !== undefined || coolie !== undefined) {
+    // Update transport if provided or exists
+    if (transportObj !== undefined || freight !== undefined || coolie !== undefined || hasTransport) {
       if (hasTransport) {
         await conn.execute(
           'UPDATE purchase_transport SET freight=?, coolie=? WHERE purchase_id=?',
-          [freight ?? currentFreight, coolie ?? currentCoolie, id]
+          [freightAmt, coolieAmt, id]
         );
-      } else if ((freight ?? 0) > 0 || (coolie ?? 0) > 0) {
+      } else if (freightAmt > 0 || coolieAmt > 0) {
         await conn.execute(
           'INSERT INTO purchase_transport (purchase_id,freight,coolie) VALUES (?,?,?)',
-          [id, freight ?? 0, coolie ?? 0]
+          [id, freightAmt, coolieAmt]
         );
       }
     }
