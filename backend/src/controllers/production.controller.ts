@@ -31,6 +31,32 @@ export async function getBatches(req: AuthRequest, res: Response): Promise<void>
       [tenantId]
     );
 
+    // Fetch batch items for rows and activeRows
+    const allBatchIds = Array.from(new Set([...rows.map(r => r.id), ...activeRows.map(r => r.id)]));
+    let itemsByBatch = new Map<number, any[]>();
+    if (allBatchIds.length > 0) {
+      try {
+        const batchItems = await query<any[]>(
+          `SELECT * FROM production_batch_items WHERE tenant_id = ? AND batch_id IN (${allBatchIds.map(() => '?').join(',')}) ORDER BY id ASC`,
+          [tenantId, ...allBatchIds]
+        );
+        for (const item of batchItems) {
+          if (!itemsByBatch.has(item.batch_id)) itemsByBatch.set(item.batch_id, []);
+          itemsByBatch.get(item.batch_id)!.push(item);
+        }
+      } catch {}
+    }
+
+    const enrichBatch = (b: any) => ({
+      ...b,
+      items: itemsByBatch.get(b.id) || [
+        { id: null, category: b.category, size: null, quantity: b.quantity, cut_rate: b.cut_rate, stitch_rate: b.stitch_rate }
+      ]
+    });
+
+    const enrichedRows = rows.map(enrichBatch);
+    const enrichedActiveRows = activeRows.map(enrichBatch);
+
     // 3. Stats query
     const statsRows = await query<any[]>(
       `SELECT 
@@ -59,8 +85,8 @@ export async function getBatches(req: AuthRequest, res: Response): Promise<void>
     }
 
     res.json({
-      data: rows,
-      active: activeRows,
+      data: enrichedRows,
+      active: enrichedActiveRows,
       total,
       page,
       pages: Math.max(1, Math.ceil(total / limit)),
@@ -79,7 +105,7 @@ export async function getBatches(req: AuthRequest, res: Response): Promise<void>
 
 export async function createBatch(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
-  const { category, quantity, cut_rate, stitch_rate, batch_date } = req.body;
+  const { category, quantity, cut_rate, stitch_rate, batch_date, notes, items } = req.body;
 
   const conn = await pool.getConnection();
   try {
@@ -97,35 +123,83 @@ export async function createBatch(req: AuthRequest, res: Response): Promise<void
     const nextNum = Math.max(maxNum + 1, cnt + 1, 1);
     const batchNumber = `BATCH-${String(nextNum).padStart(3, '0')}`;
 
-    // Resolve rates: if not passed, fall back to product_config defaults
-    let finalCutRate = cut_rate;
-    let finalStitchRate = stitch_rate;
-    if (finalCutRate === undefined || finalCutRate === null || finalStitchRate === undefined || finalStitchRate === null) {
-      const [cfgRows] = await conn.execute('SELECT cut_rate, stitch_rate FROM product_config WHERE tenant_id=? AND category=? LIMIT 1', [tenantId, category]);
-      const config = (cfgRows as any[])[0];
-      if (finalCutRate === undefined || finalCutRate === null) {
-        finalCutRate = config?.cut_rate ?? 5.00; // default fallback if no config
-      }
-      if (finalStitchRate === undefined || finalStitchRate === null) {
-        finalStitchRate = config?.stitch_rate ?? 15.00; // default fallback if no config
-      }
+    // Normalize items
+    let parsedItems: Array<{ category: string, size?: string | null, quantity: number, cut_rate?: number, stitch_rate?: number }> = [];
+    if (Array.isArray(items) && items.length > 0) {
+      parsedItems = items
+        .filter(it => it && (Number(it.quantity) > 0 || it.category))
+        .map(it => ({
+          category: it.category || category || 'ordinary_nighty',
+          size: it.size ? String(it.size).trim() : null,
+          quantity: Number(it.quantity) || 0,
+          cut_rate: it.cut_rate !== undefined && it.cut_rate !== null ? Number(it.cut_rate) : undefined,
+          stitch_rate: it.stitch_rate !== undefined && it.stitch_rate !== null ? Number(it.stitch_rate) : undefined,
+        }));
     }
 
+    if (parsedItems.length === 0) {
+      parsedItems = [{
+        category: category || 'ordinary_nighty',
+        size: req.body.size ? String(req.body.size).trim() : null,
+        quantity: Number(quantity) || 0,
+        cut_rate: cut_rate !== undefined && cut_rate !== null ? Number(cut_rate) : undefined,
+        stitch_rate: stitch_rate !== undefined && stitch_rate !== null ? Number(stitch_rate) : undefined,
+      }];
+    }
+
+    // Resolve rates from product_config for any item missing rates
+    const [cfgRows] = await conn.execute('SELECT category, cut_rate, stitch_rate FROM product_config WHERE tenant_id=?', [tenantId]) as any[];
+    const configMap = new Map<string, { cut_rate: number, stitch_rate: number }>();
+    for (const c of (cfgRows as any[])) {
+      configMap.set((c.category || '').toLowerCase(), {
+        cut_rate: Number(c.cut_rate ?? 5.00),
+        stitch_rate: Number(c.stitch_rate ?? 15.00)
+      });
+    }
+
+    let totalQuantity = 0;
+    let primaryCategory = parsedItems[0]?.category || category || 'ordinary_nighty';
+    let weightedCutSum = 0;
+    let weightedStitchSum = 0;
+
+    for (const it of parsedItems) {
+      const cfg = configMap.get((it.category || '').toLowerCase()) || { cut_rate: 5.00, stitch_rate: 15.00 };
+      if (it.cut_rate === undefined || isNaN(it.cut_rate)) it.cut_rate = cfg.cut_rate;
+      if (it.stitch_rate === undefined || isNaN(it.stitch_rate)) it.stitch_rate = cfg.stitch_rate;
+      totalQuantity += it.quantity;
+      weightedCutSum += (it.cut_rate || 0) * (it.quantity || 1);
+      weightedStitchSum += (it.stitch_rate || 0) * (it.quantity || 1);
+    }
+
+    const avgCutRate = totalQuantity > 0 ? (weightedCutSum / totalQuantity) : (parsedItems[0]?.cut_rate || 5.00);
+    const avgStitchRate = totalQuantity > 0 ? (weightedStitchSum / totalQuantity) : (parsedItems[0]?.stitch_rate || 15.00);
+
     const [bRes] = await conn.execute(
-      'INSERT INTO production_batches (tenant_id,batch_number,category,quantity,cut_rate,stitch_rate,batch_date) VALUES (?,?,?,?,?,?,?)',
-      [tenantId, batchNumber, category, quantity, finalCutRate, finalStitchRate, batch_date]
+      'INSERT INTO production_batches (tenant_id,batch_number,category,quantity,cut_rate,stitch_rate,batch_date,notes) VALUES (?,?,?,?,?,?,?,?)',
+      [tenantId, batchNumber, primaryCategory, totalQuantity, avgCutRate, avgStitchRate, batch_date, notes || null]
     );
     const batchId = (bRes as any).insertId;
 
-    // stock: mark as allocated
-    await conn.execute(
-      `INSERT INTO stock_movements (tenant_id,category,type,quantity,reference,movement_date)
-       VALUES (?,?,?,?,?,?)`,
-      [tenantId, category.replace('_lace', '').replace('shawl_nighty', 'shawl_nighty'), 'allocated', quantity, batchNumber, batch_date]
-    );
+    // Insert batch items
+    for (const it of parsedItems) {
+      await conn.execute(
+        `INSERT INTO production_batch_items (tenant_id, batch_id, category, size, quantity, cut_rate, stitch_rate)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [tenantId, batchId, it.category, it.size || null, it.quantity, it.cut_rate, it.stitch_rate]
+      );
+
+      // stock: mark as allocated
+      if (it.quantity > 0) {
+        await conn.execute(
+          `INSERT INTO stock_movements (tenant_id,category,type,quantity,reference,movement_date)
+           VALUES (?,?,?,?,?,?)`,
+          [tenantId, it.category, 'allocated', it.quantity, `${batchNumber}${it.size ? ` (${it.size})` : ''}`, batch_date]
+        );
+      }
+    }
 
     await conn.commit();
-    res.status(201).json({ id: batchId, batch_number: batchNumber });
+    res.status(201).json({ id: batchId, batch_number: batchNumber, quantity: totalQuantity, items: parsedItems });
   } catch (err) {
     await conn.rollback();
     res.status(500).json({ message: 'Server error', error: err instanceof Error ? err.message : String(err) });
@@ -144,7 +218,21 @@ export async function getBatchDetail(req: AuthRequest, res: Response): Promise<v
       [id, tenantId]
     );
     if (!batches[0]) { res.status(404).json({ message: 'Not found' }); return; }
-    res.json({ batch: batches[0], workLogs: [] });
+
+    const items = await query<any[]>(
+      `SELECT * FROM production_batch_items WHERE batch_id=? AND tenant_id=? ORDER BY id ASC`,
+      [id, tenantId]
+    );
+
+    res.json({
+      batch: {
+        ...batches[0],
+        items: items.length > 0 ? items : [
+          { id: null, category: batches[0].category, size: null, quantity: batches[0].quantity, cut_rate: batches[0].cut_rate, stitch_rate: batches[0].stitch_rate }
+        ]
+      },
+      workLogs: []
+    });
   } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
@@ -176,19 +264,70 @@ export async function getProductConfigs(req: AuthRequest, res: Response): Promis
 export async function updateBatch(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
   const { id } = req.params;
-  const { status, cut_rate, stitch_rate } = req.body;
+  const { status, cut_rate, stitch_rate, batch_date, notes, category, quantity, items } = req.body;
   const allowed = ['allocated', 'cutting', 'stitching', 'finished'];
   if (status && !allowed.includes(status)) { res.status(400).json({ message: 'Invalid status' }); return; }
+
+  const conn = await pool.getConnection();
   try {
+    await conn.beginTransaction();
+
     const sets: string[] = [];
     const vals: any[] = [];
     if (status !== undefined)      { sets.push('status=?');      vals.push(status); }
-    if (cut_rate !== undefined)    { sets.push('cut_rate=?');    vals.push(cut_rate); }
-    if (stitch_rate !== undefined) { sets.push('stitch_rate=?'); vals.push(stitch_rate); }
-    if (!sets.length) { res.status(400).json({ message: 'Nothing to update' }); return; }
-    await query(`UPDATE production_batches SET ${sets.join(',')} WHERE id=? AND tenant_id=?`, [...vals, id, tenantId]);
+    if (batch_date !== undefined)  { sets.push('batch_date=?');  vals.push(batch_date); }
+    if (notes !== undefined)       { sets.push('notes=?');       vals.push(notes || null); }
+
+    // If items are provided, update batch items and calculate total quantity
+    if (Array.isArray(items) && items.length > 0) {
+      const validItems = items.filter(it => it && (Number(it.quantity) > 0 || it.category));
+      let totalQty = 0;
+      let weightedCut = 0;
+      let weightedStitch = 0;
+
+      for (const it of validItems) {
+        totalQty += Number(it.quantity) || 0;
+        weightedCut += (Number(it.cut_rate) || 0) * (Number(it.quantity) || 1);
+        weightedStitch += (Number(it.stitch_rate) || 0) * (Number(it.quantity) || 1);
+      }
+
+      const avgCut = totalQty > 0 ? (weightedCut / totalQty) : (cut_rate || 0);
+      const avgStitch = totalQty > 0 ? (weightedStitch / totalQty) : (stitch_rate || 0);
+
+      sets.push('quantity=?'); vals.push(totalQty);
+      sets.push('cut_rate=?'); vals.push(avgCut);
+      sets.push('stitch_rate=?'); vals.push(avgStitch);
+      if (validItems[0]?.category) { sets.push('category=?'); vals.push(validItems[0].category); }
+
+      // Replace batch items
+      await conn.execute('DELETE FROM production_batch_items WHERE batch_id=? AND tenant_id=?', [id, tenantId]);
+      for (const it of validItems) {
+        await conn.execute(
+          `INSERT INTO production_batch_items (tenant_id, batch_id, category, size, quantity, cut_rate, stitch_rate)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [tenantId, id, it.category, it.size ? String(it.size).trim() : null, Number(it.quantity) || 0, Number(it.cut_rate) || 0, Number(it.stitch_rate) || 0]
+        );
+      }
+    } else {
+      if (quantity !== undefined)    { sets.push('quantity=?');    vals.push(Number(quantity)); }
+      if (category !== undefined)    { sets.push('category=?');    vals.push(category); }
+      if (cut_rate !== undefined)    { sets.push('cut_rate=?');    vals.push(Number(cut_rate)); }
+      if (stitch_rate !== undefined) { sets.push('stitch_rate=?'); vals.push(Number(stitch_rate)); }
+    }
+
+    if (sets.length > 0) {
+      await conn.execute(`UPDATE production_batches SET ${sets.join(',')} WHERE id=? AND tenant_id=?`, [...vals, id, tenantId]);
+    }
+
+    await conn.commit();
     res.json({ message: 'Updated' });
-  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
+  } catch (error) {
+    await conn.rollback();
+    console.error(error);
+    res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
+  } finally {
+    conn.release();
+  }
 }
 
 export async function deleteBatch(req: AuthRequest, res: Response): Promise<void> {
