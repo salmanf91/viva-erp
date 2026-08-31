@@ -86,11 +86,16 @@ export async function createBatch(req: AuthRequest, res: Response): Promise<void
     await conn.beginTransaction();
 
     // auto-generate batch number
-    const [countRows] = await conn.execute(
-      'SELECT COUNT(*) AS cnt FROM production_batches WHERE tenant_id = ?', [tenantId]
-    );
-    const count = (countRows as any[])[0].cnt + 1;
-    const batchNumber = `BATCH-${String(count).padStart(3, '0')}`;
+    const [maxRows] = await conn.execute(
+      `SELECT COALESCE(MAX(CAST(REGEXP_REPLACE(batch_number, '[^0-9]', '') AS UNSIGNED)), 0) AS max_num,
+              COUNT(*) AS cnt 
+       FROM production_batches WHERE tenant_id = ?`,
+      [tenantId]
+    ) as any[];
+    const maxNum = Number((maxRows as any[])[0]?.max_num || 0);
+    const cnt = Number((maxRows as any[])[0]?.cnt || 0);
+    const nextNum = Math.max(maxNum + 1, cnt + 1, 1);
+    const batchNumber = `BATCH-${String(nextNum).padStart(3, '0')}`;
 
     // Resolve rates: if not passed, fall back to product_config defaults
     let finalCutRate = cut_rate;
