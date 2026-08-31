@@ -888,12 +888,13 @@ export default function ProductionPage() {
                   </div>
                   <div className="calc-box" style={{ margin: 0, background: '#f0fdf4', borderColor: '#86efac' }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 6 }}>🧰 Accessories</div>
-                    <div className="calc-row"><span className="cl">Zip (₹{_pvZipPc.toFixed(2)}/pc×{previewQty}{_pvZ ? ' 📌' : ' est.'})</span><span className="cv">{fmt(zipAmt)}</span></div>
-                    <div className="calc-row"><span className="cl">Thread (₹{_pvThrPc.toFixed(2)}/pc×{previewQty}{_pvT ? ' 📌' : ' est.'})</span><span className="cv">{fmt(threadAmt)}</span></div>
-                    <div className="calc-row"><span className="cl">Canvas (₹{_pvCanPc.toFixed(2)}/pc×{previewQty}{_pvC ? ' 📌' : ' est.'})</span><span className="cv">{fmt(canvasAmt)}</span></div>
-                    <div className="calc-row"><span className="cl">Plastic (₹{_pvPlaPc.toFixed(2)}/pc×{previewQty}{_pvP ? ' 📌' : ' est.'})</span><span className="cv">{fmt(plasticAmt)}</span></div>
-                    {isLaceForm && <div className="calc-row" style={{ color: 'var(--cyan)', fontWeight: 600 }}><span className="cl">Lace (₹{previewCfg?.lace_cost||8}×{previewQty})</span><span className="cv">{fmt(laceAmt)}</span></div>}
-                    {!isLaceForm && <div className="calc-row" style={{ color: 'var(--muted)', fontSize: 12 }}><span className="cl">Lace</span><span className="cv">—</span></div>}
+                    {_pvZipPc > 0 && <div className="calc-row"><span className="cl">Zip (₹{_pvZipPc.toFixed(2)}/pc × {previewQty})</span><span className="cv">{fmt(zipAmt)}</span></div>}
+                    {_pvThrPc > 0 && <div className="calc-row"><span className="cl">Thread (₹{_pvThrPc.toFixed(2)}/pc × {previewQty})</span><span className="cv">{fmt(threadAmt)}</span></div>}
+                    {_pvCanPc > 0 && <div className="calc-row"><span className="cl">Canvas (₹{_pvCanPc.toFixed(2)}/pc × {previewQty})</span><span className="cv">{fmt(canvasAmt)}</span></div>}
+                    {_pvPlaPc > 0 && <div className="calc-row"><span className="cl">Packaging (₹{_pvPlaPc.toFixed(2)}/pc × {previewQty})</span><span className="cv">{fmt(plasticAmt)}</span></div>}
+                    {_pvLacPc > 0 && <div className="calc-row" style={{ color: 'var(--cyan)', fontWeight: 600 }}><span className="cl">Lace (₹{_pvLacPc.toFixed(2)} × {previewQty})</span><span className="cv">{fmt(laceAmt)}</span></div>}
+                    {_pvOthPc > 0 && <div className="calc-row"><span className="cl">Other (₹{_pvOthPc.toFixed(2)} × {previewQty})</span><span className="cv">{fmt(otherAmt)}</span></div>}
+                    {accTotal === 0 && <div className="calc-row" style={{ color: 'var(--muted)', fontSize: 12 }}><span className="cl">No accessories</span><span className="cv">₹0.00</span></div>}
                     <hr className="calc-divider" />
                     <div className="calc-row"><span className="cl">Accessories Total</span><span className="cv" style={{ color: 'var(--green)' }}>{fmt(accTotal)}</span></div>
                   </div>
