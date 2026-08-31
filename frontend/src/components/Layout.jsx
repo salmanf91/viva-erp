@@ -95,6 +95,7 @@ export default function Layout({ children, title }) {
   const location = useLocation();
   const [reminderCount, setReminderCount] = useState(0);
   const [activeSectionMenu, setActiveSectionMenu] = useState(null);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   useEffect(() => {
     if (!user || user.role === 'staff_admin') return;
@@ -103,9 +104,10 @@ export default function Layout({ children, title }) {
     }).catch(() => {});
   }, [user]);
 
-  // Reset active section menu on path change
+  // Reset active section menu and drawer on path change
   useEffect(() => {
     setActiveSectionMenu(null);
+    setMobileSidebarOpen(false);
   }, [location.pathname]);
 
   const NAV = getNavItems(user);
@@ -145,9 +147,17 @@ export default function Layout({ children, title }) {
 
   return (
     <div className="shell">
-      {/* ── SIDEBAR (Hidden on mobile) ── */}
-      <aside className="sidebar">
-        <div className="logo">
+      {/* ── MOBILE BACKDROP OVERLAY ── */}
+      {mobileSidebarOpen && (
+        <div
+          className="mobile-drawer-overlay"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      )}
+
+      {/* ── SIDEBAR (Desktop permanent + Mobile slide-out drawer) ── */}
+      <aside className={`sidebar ${mobileSidebarOpen ? 'mobile-open' : ''}`}>
+        <div className="logo" style={{ position: 'relative' }}>
           {user?.role === 'super_admin' ? (
             <div style={{ width: 38, height: 38, borderRadius: 8, background: 'linear-gradient(135deg,#FFE87A,#C8860A)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
               🛡️
@@ -157,12 +167,28 @@ export default function Layout({ children, title }) {
           ) : (
             <img src="/logo.png" alt="Viva Studio" style={{ height: 38, width: 'auto', display: 'block' }} />
           )}
-          <div>
+          <div style={{ flex: 1 }}>
             <div className="logo-text" style={{ background: 'linear-gradient(135deg,#FFE87A,#C8860A)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text' }}>
               {user?.role === 'super_admin' ? 'Platform Admin' : (user?.tenant_name || 'Viva Studio')}
             </div>
             <div className="logo-sub">{user?.role === 'super_admin' ? 'SaaS System Console' : 'ERP Platform'}</div>
           </div>
+          {mobileSidebarOpen && (
+            <button
+              onClick={() => setMobileSidebarOpen(false)}
+              className="mobile-close-drawer-btn"
+              style={{
+                background: 'none',
+                border: 'none',
+                color: 'var(--muted)',
+                fontSize: '20px',
+                cursor: 'pointer',
+                padding: '4px'
+              }}
+            >
+              ✕
+            </button>
+          )}
         </div>
 
         <div className="tenant-bar">
@@ -183,6 +209,7 @@ export default function Layout({ children, title }) {
                 key={item.to}
                 to={item.to}
                 end={item.to === '/'}
+                onClick={() => setMobileSidebarOpen(false)}
                 className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}
               >
                 <span className="ni">{item.icon}</span>
@@ -212,7 +239,27 @@ export default function Layout({ children, title }) {
       {/* ── MAIN CONTENT ── */}
       <div className="main">
         <div className="topbar">
-          <div className="topbar-left" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <div className="topbar-left" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button
+              type="button"
+              className="mobile-hamburger-btn"
+              onClick={() => setMobileSidebarOpen(true)}
+              aria-label="Open Navigation Menu"
+              style={{
+                background: 'none',
+                border: 'none',
+                fontSize: '20px',
+                color: 'var(--text)',
+                cursor: 'pointer',
+                padding: '6px 8px',
+                display: 'none', // Controlled via CSS media queries
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '6px'
+              }}
+            >
+              ☰
+            </button>
             {activeSectionMenu && (
               <button 
                 className="mobile-back-btn" 
@@ -220,7 +267,7 @@ export default function Layout({ children, title }) {
                 style={{
                   background: 'none',
                   border: 'none',
-                  fontSize: '16px',
+                  fontSize: '15px',
                   color: 'var(--accent)',
                   cursor: 'pointer',
                   padding: '4px 8px',
@@ -235,7 +282,7 @@ export default function Layout({ children, title }) {
           <div className="topbar-actions">
             {reminderCount > 0 && (
               <div className="chip chip-yellow" onClick={() => navigate('/partners')} style={{ cursor: 'pointer' }}>
-                ⏰ {reminderCount} Reminder{reminderCount !== 1 ? 's' : ''}
+                ⏰ {reminderCount}
               </div>
             )}
             <div 

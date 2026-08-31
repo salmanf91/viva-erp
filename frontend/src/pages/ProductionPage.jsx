@@ -251,13 +251,73 @@ export default function ProductionPage() {
   const [statsActiveCount, setStatsActiveCount] = useState(0);
   const [statsActivePcs, setStatsActivePcs] = useState(0);
 
-  const emptyForm = () => ({
-    category: configs[0]?.category || 'shawl_nighty', quantity: '',
+  const defaultItemRow = (category, cfgs = []) => {
+    const cat = category || cfgs[0]?.category || 'shawl_nighty_lace';
+    const cfg = cfgs.find(c => (c.category || '').toLowerCase() === (cat || '').toLowerCase()) || {};
+    return {
+      category: cat,
+      size: '',
+      quantity: '',
+      cut_rate: cfg.cut_rate ?? 5.00,
+      stitch_rate: cfg.stitch_rate ?? 15.00,
+    };
+  };
+
+  const emptyForm = (cfgs = []) => ({
     batch_date: new Date().toISOString().slice(0, 10),
-    cut_rate: 5.00,
-    stitch_rate: 15.00,
+    notes: '',
+    items: [defaultItemRow(cfgs[0]?.category, cfgs)],
   });
+
   const [form, setForm] = useState(emptyForm());
+
+  const calculateItemsBreakdown = (itemsList, cfgs = configs) => {
+    let totalQty = 0;
+    let cutTotal = 0;
+    let stitchTotal = 0;
+    let zipTotal = 0;
+    let threadTotal = 0;
+    let canvasTotal = 0;
+    let plasticTotal = 0;
+    let laceTotal = 0;
+    let logisticsTotal = 0;
+
+    (itemsList || []).forEach(it => {
+      const q = parseFloat(it.quantity) || 0;
+      if (q <= 0) return;
+      const c = cfgs.find(cfg => (cfg.category || '').toLowerCase() === (it.category || '').toLowerCase()) || {};
+      const cCut = it.cut_rate !== undefined && it.cut_rate !== '' ? parseFloat(it.cut_rate) : Number(c.cut_rate || 5.00);
+      const cStitch = it.stitch_rate !== undefined && it.stitch_rate !== '' ? parseFloat(it.stitch_rate) : Number(c.stitch_rate || 15.00);
+
+      totalQty += q;
+      cutTotal += q * cCut;
+      stitchTotal += q * cStitch;
+      zipTotal += q * Number(c.zip_cost || 0);
+      threadTotal += q * Number(c.thread_cost || 0);
+      canvasTotal += q * Number(c.canvas_cost || 0);
+      plasticTotal += q * Number(c.plastic_cost || 0);
+      laceTotal += q * Number(c.lace_cost || 0);
+      logisticsTotal += q * Number(c.logistics_cost || 0);
+    });
+
+    const labourTotal = cutTotal + stitchTotal;
+    const accTotal = zipTotal + threadTotal + canvasTotal + plasticTotal + laceTotal + logisticsTotal;
+
+    return {
+      totalQty,
+      cutTotal,
+      stitchTotal,
+      labourTotal,
+      zipTotal,
+      threadTotal,
+      canvasTotal,
+      plasticTotal,
+      laceTotal,
+      logisticsTotal,
+      accTotal,
+      grandTotal: labourTotal + accTotal,
+    };
+  };
 
   const load = () => Promise.all([
     api.get(`/production?page=${histPage}&limit=${HIST_PAGE_SIZE}`).then(r => {
@@ -328,11 +388,53 @@ export default function ProductionPage() {
 
   useEffect(() => { load(); }, [histPage]);
 
+  const handleAddItemRow = () => {
+    setForm(prev => ({
+      ...prev,
+      items: [...prev.items, defaultItemRow(configs[0]?.category, configs)]
+    }));
+  };
+
+  const handleUpdateItemRow = (idx, field, value) => {
+    setForm(prev => {
+      const updated = [...prev.items];
+      updated[idx] = { ...updated[idx], [field]: value };
+      if (field === 'category') {
+        const cfg = configs.find(c => (c.category || '').toLowerCase() === (value || '').toLowerCase()) || {};
+        updated[idx].cut_rate = cfg.cut_rate ?? 5.00;
+        updated[idx].stitch_rate = cfg.stitch_rate ?? 15.00;
+      }
+      return { ...prev, items: updated };
+    });
+  };
+
+  const handleRemoveItemRow = (idx) => {
+    if (form.items.length <= 1) return;
+    setForm(prev => ({
+      ...prev,
+      items: prev.items.filter((_, i) => i !== idx)
+    }));
+  };
+
   const createBatch = async () => {
-    if (!form.quantity) return;
-    await api.post('/production', { ...form, quantity: +form.quantity });
+    const validItems = form.items.filter(it => parseFloat(it.quantity) > 0);
+    if (validItems.length === 0) {
+      alert('Please enter quantity for at least one item line.');
+      return;
+    }
+    await api.post('/production', {
+      batch_date: form.batch_date,
+      notes: form.notes,
+      items: validItems.map(it => ({
+        category: it.category,
+        size: it.size ? it.size.trim() : null,
+        quantity: parseFloat(it.quantity) || 0,
+        cut_rate: parseFloat(it.cut_rate) || 0,
+        stitch_rate: parseFloat(it.stitch_rate) || 0,
+      }))
+    });
     setShowNew(false);
-    setForm(emptyForm());
+    setForm(emptyForm(configs));
     load();
   };
 
@@ -357,11 +459,76 @@ export default function ProductionPage() {
     setDetail(r.data);
   };
 
+  const openEditBatchModal = (b) => {
+    const batchItems = Array.isArray(b.items) && b.items.length > 0
+      ? b.items.map(it => ({
+          category: it.category,
+          size: it.size || '',
+          quantity: it.quantity,
+          cut_rate: it.cut_rate ?? b.cut_rate ?? 5.00,
+          stitch_rate: it.stitch_rate ?? b.stitch_rate ?? 15.00,
+        }))
+      : [
+          {
+            category: b.category,
+            size: '',
+            quantity: b.quantity,
+            cut_rate: b.cut_rate || 5.00,
+            stitch_rate: b.stitch_rate || 15.00,
+          }
+        ];
+
+    setEditBatch({
+      id: b.id,
+      batch_number: b.batch_number,
+      status: b.status,
+      batch_date: b.batch_date ? b.batch_date.slice(0, 10) : new Date().toISOString().slice(0, 10),
+      notes: b.notes || '',
+      items: batchItems,
+    });
+  };
+
+  const handleAddEditBatchItem = () => {
+    setEditBatch(prev => ({
+      ...prev,
+      items: [...prev.items, defaultItemRow(configs[0]?.category, configs)]
+    }));
+  };
+
+  const handleUpdateEditBatchItem = (idx, field, value) => {
+    setEditBatch(prev => {
+      const updated = [...prev.items];
+      updated[idx] = { ...updated[idx], [field]: value };
+      if (field === 'category') {
+        const cfg = configs.find(c => (c.category || '').toLowerCase() === (value || '').toLowerCase()) || {};
+        updated[idx].cut_rate = cfg.cut_rate ?? 5.00;
+        updated[idx].stitch_rate = cfg.stitch_rate ?? 15.00;
+      }
+      return { ...prev, items: updated };
+    });
+  };
+
+  const handleRemoveEditBatchItem = (idx) => {
+    if (editBatch.items.length <= 1) return;
+    setEditBatch(prev => ({
+      ...prev,
+      items: prev.items.filter((_, i) => i !== idx)
+    }));
+  };
+
   const saveBatchEdit = async () => {
+    const validItems = editBatch.items.filter(it => parseFloat(it.quantity) > 0 || it.category);
     await api.put(`/production/${editBatch.id}`, {
-      status:      editBatch.status,
-      cut_rate:    Number(editBatch.cut_rate || 0),
-      stitch_rate: Number(editBatch.stitch_rate || 0),
+      status: editBatch.status,
+      batch_date: editBatch.batch_date,
+      notes: editBatch.notes,
+      items: validItems.map(it => ({
+        category: it.category,
+        size: it.size ? it.size.trim() : null,
+        quantity: parseFloat(it.quantity) || 0,
+        cut_rate: parseFloat(it.cut_rate) || 0,
+        stitch_rate: parseFloat(it.stitch_rate) || 0,
+      }))
     });
     setEditBatch(null);
     load();
@@ -377,25 +544,8 @@ export default function ProductionPage() {
 
   if (loading) return <div className="spinner">Loading…</div>;
 
-  /* New batch modal cost preview */
-  const previewCfg  = configs.find(c => (c.category || '').toLowerCase() === (form.category || '').toLowerCase());
-  const previewQty  = +form.quantity || 0;
-  const cutAmt      = previewQty * Number(form.cut_rate || 0);
-  const tailAmt     = previewQty * Number(form.stitch_rate || 0);
-  const _pvZipPc    = Number(previewCfg?.zip_cost       || 0);
-  const _pvThrPc    = Number(previewCfg?.thread_cost    || 0);
-  const _pvCanPc    = Number(previewCfg?.canvas_cost    || 0);
-  const _pvPlaPc    = Number(previewCfg?.plastic_cost   || 0);
-  const _pvLacPc    = Number(previewCfg?.lace_cost      || 0);
-  const _pvOthPc    = Number(previewCfg?.logistics_cost || 0);
-  const zipAmt      = previewQty * _pvZipPc;
-  const threadAmt   = previewQty * _pvThrPc;
-  const canvasAmt   = previewQty * _pvCanPc;
-  const plasticAmt  = previewQty * _pvPlaPc;
-  const laceAmt     = previewQty * _pvLacPc;
-  const otherAmt    = previewQty * _pvOthPc;
-  const labourTotal = cutAmt + tailAmt;
-  const accTotal    = zipAmt + threadAmt + canvasAmt + plasticAmt + laceAmt + otherAmt;
+  const formCostPreview = calculateItemsBreakdown(form.items, configs);
+  const editCostPreview = editBatch ? calculateItemsBreakdown(editBatch.items, configs) : null;
 
   return (
     <>
@@ -555,85 +705,89 @@ export default function ProductionPage() {
       )}
 
       {activeBatches.map(b => {
-        const bCfg  = configs.find(c => (c.category || '').toLowerCase() === (b.category || '').toLowerCase()) || {};
-        const qty   = Number(b.quantity || 0);
-        const cutRate   = Number((b.cut_rate ?? bCfg.cut_rate) || 0);
-        const stitchRate= Number((b.stitch_rate ?? bCfg.stitch_rate) || 0);
-        const cutAmt    = qty * cutRate;
-        const stitchAmt = qty * stitchRate;
-        const labTotal  = cutAmt + stitchAmt;
+        const bItems = Array.isArray(b.items) && b.items.length > 0
+          ? b.items
+          : [{ category: b.category, size: null, quantity: b.quantity, cut_rate: b.cut_rate, stitch_rate: b.stitch_rate }];
+        
+        const bBreakdown = calculateItemsBreakdown(bItems, configs);
+        const qty = bBreakdown.totalQty || Number(b.quantity || 0);
+        const bCfg = configs.find(c => (c.category || '').toLowerCase() === (b.category || '').toLowerCase()) || {};
 
-        const zipPc  = Number(bCfg.zip_cost       || 0);
-        const thrPc  = Number(bCfg.thread_cost    || 0);
-        const canPc  = Number(bCfg.canvas_cost    || 0);
-        const plaPc  = Number(bCfg.plastic_cost   || 0);
-        const lacPc  = Number(bCfg.lace_cost      || 0);
-        const othPc  = Number(bCfg.logistics_cost || 0);
-
-        const _zip  = qty * zipPc;
-        const _thr  = qty * thrPc;
-        const _can  = qty * canPc;
-        const _pla  = qty * plaPc;
-        const _lac  = qty * lacPc;
-        const _oth  = qty * othPc;
-        const accTotal = _zip + _thr + _can + _pla + _lac + _oth;
         return (
           <div key={b.id} className="card mb16" style={{ borderTop: `3px solid ${getProductColor(b.category)}` }}>
             {/* Header */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6, flexWrap: 'wrap', gap: 8 }}>
               <div>
-                <div style={{ fontWeight: 800, fontSize: 15 }}>{b.batch_number}</div>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                  {bCfg.display_name || bCfg.name || getProductLabel(b.category, configs)} · {fmtDate(b.batch_date)}
+                <div style={{ fontWeight: 800, fontSize: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  {b.batch_number}
+                  <span className={`badge ${b.status === 'cutting' ? 'b-accent' : 'b-yellow'}`}>{STATUS_LABEL[b.status] || b.status}</span>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
+                  {fmtDate(b.batch_date)} {b.notes ? ` · ${b.notes}` : ''}
                 </div>
               </div>
               <div style={{ textAlign: 'right' }}>
-                <div style={{ fontSize: 22, fontWeight: 800, color: getProductColor(b.category) }}>{b.quantity} pcs</div>
-                <span className={`badge ${b.status === 'cutting' ? 'b-accent' : 'b-yellow'}`}>{STATUS_LABEL[b.status] || b.status}</span>
+                <div style={{ fontSize: 22, fontWeight: 800, color: getProductColor(b.category) }}>{qty} pcs</div>
               </div>
             </div>
 
-            <BatchFlow status={b.status} quantity={b.quantity} />
+            {/* Items & Sizes breakdown pills */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '8px 0 10px' }}>
+              {bItems.map((it, idx) => {
+                const itCfg = configs.find(c => (c.category || '').toLowerCase() === (it.category || '').toLowerCase()) || {};
+                const itName = itCfg.display_name || itCfg.name || getProductLabel(it.category, configs);
+                return (
+                  <div key={idx} style={{
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 6,
+                    padding: '4px 8px',
+                    fontSize: 12,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6
+                  }}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: getProductColor(it.category) }} />
+                    <span style={{ fontWeight: 600 }}>{itName}</span>
+                    {it.size && <span style={{ background: '#e0e7ff', color: '#3730a3', padding: '1px 5px', borderRadius: 4, fontWeight: 700, fontSize: 11 }}>{it.size}</span>}
+                    <span style={{ color: 'var(--muted)', fontWeight: 700 }}>× {it.quantity} pcs</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <BatchFlow status={b.status} quantity={qty} />
 
             {/* Labour + Accessories breakdown */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginTop: 12 }}>
               <div className="calc-box" style={{ margin: 0 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 6 }}>👷 Labour</div>
-                <div className="calc-row"><span className="cl">Cutting (₹{cutRate} × {qty})</span><span className="cv">{fmt(cutAmt)}</span></div>
-                <div className="calc-row"><span className="cl">Stitching (₹{stitchRate} × {qty})</span><span className="cv">{fmt(stitchAmt)}</span></div>
+                <div className="calc-row"><span className="cl">Cutting Total</span><span className="cv">{fmt(bBreakdown.cutTotal)}</span></div>
+                <div className="calc-row"><span className="cl">Stitching Total</span><span className="cv">{fmt(bBreakdown.stitchTotal)}</span></div>
                 <hr className="calc-divider" />
-                <div className="calc-row"><span className="cl">Labour Total</span><span className="cv" style={{ color: 'var(--accent)' }}>{fmt(labTotal)}</span></div>
+                <div className="calc-row"><span className="cl">Labour Total</span><span className="cv" style={{ color: 'var(--accent)' }}>{fmt(bBreakdown.labourTotal)}</span></div>
               </div>
               <div className="calc-box" style={{ margin: 0, background: '#f0fdf4', borderColor: '#86efac' }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 6 }}>🧰 Accessories</div>
-                {zipPc > 0 && <div className="calc-row"><span className="cl">Zip (₹{zipPc.toFixed(2)}/pc × {qty})</span><span className="cv">{fmt(_zip)}</span></div>}
-                {thrPc > 0 && <div className="calc-row"><span className="cl">Thread (₹{thrPc.toFixed(2)}/pc × {qty})</span><span className="cv">{fmt(_thr)}</span></div>}
-                {canPc > 0 && <div className="calc-row"><span className="cl">Canvas (₹{canPc.toFixed(2)}/pc × {qty})</span><span className="cv">{fmt(_can)}</span></div>}
-                {plaPc > 0 && <div className="calc-row"><span className="cl">Packaging (₹{plaPc.toFixed(2)}/pc × {qty})</span><span className="cv">{fmt(_pla)}</span></div>}
-                {lacPc > 0 && <div className="calc-row" style={{ color: 'var(--cyan)', fontWeight: 600 }}><span className="cl">Lace (₹{lacPc.toFixed(2)} × {qty})</span><span className="cv">{fmt(_lac)}</span></div>}
-                {othPc > 0 && <div className="calc-row"><span className="cl">Other (₹{othPc.toFixed(2)} × {qty})</span><span className="cv">{fmt(_oth)}</span></div>}
-                {accTotal === 0 && <div className="calc-row" style={{ color: 'var(--muted)', fontSize: 12 }}><span className="cl">No accessories</span><span className="cv">₹0.00</span></div>}
+                {bBreakdown.zipTotal > 0 && <div className="calc-row"><span className="cl">Zip</span><span className="cv">{fmt(bBreakdown.zipTotal)}</span></div>}
+                {bBreakdown.threadTotal > 0 && <div className="calc-row"><span className="cl">Thread</span><span className="cv">{fmt(bBreakdown.threadTotal)}</span></div>}
+                {bBreakdown.canvasTotal > 0 && <div className="calc-row"><span className="cl">Canvas</span><span className="cv">{fmt(bBreakdown.canvasTotal)}</span></div>}
+                {bBreakdown.plasticTotal > 0 && <div className="calc-row"><span className="cl">Packaging</span><span className="cv">{fmt(bBreakdown.plasticTotal)}</span></div>}
+                {bBreakdown.laceTotal > 0 && <div className="calc-row" style={{ color: 'var(--cyan)', fontWeight: 600 }}><span className="cl">Lace</span><span className="cv">{fmt(bBreakdown.laceTotal)}</span></div>}
+                {bBreakdown.logisticsTotal > 0 && <div className="calc-row"><span className="cl">Other</span><span className="cv">{fmt(bBreakdown.logisticsTotal)}</span></div>}
+                {bBreakdown.accTotal === 0 && <div className="calc-row" style={{ color: 'var(--muted)', fontSize: 12 }}><span className="cl">No accessories</span><span className="cv">₹0.00</span></div>}
                 <hr className="calc-divider" />
-                <div className="calc-row"><span className="cl">Accessories Total</span><span className="cv" style={{ color: 'var(--green)' }}>{fmt(accTotal)}</span></div>
+                <div className="calc-row"><span className="cl">Accessories Total</span><span className="cv" style={{ color: 'var(--green)' }}>{fmt(bBreakdown.accTotal)}</span></div>
               </div>
             </div>
             <div className="calc-box" style={{ marginTop: 8 }}>
-              <div className="calc-row bold"><span className="cl">Labour + Accessories</span><span className="cv">{fmt(labTotal + accTotal)}</span></div>
-              {Number(bCfg.selling_rate) > 0 && <>
-                <div className="calc-row"><span className="cl">Selling Rate (₹{bCfg.selling_rate} × {qty})</span><span className="cv" style={{ color: 'var(--green)' }}>{fmt(Number(bCfg.selling_rate) * qty)}</span></div>
-                <div className="calc-row"><span className="cl">Fabric Cost ({qty} pcs)</span><span className="cv" style={{ color: 'var(--red)' }}>−{fmt(Number(bCfg.fabric_cost||0) * qty)} est.</span></div>
-                <hr className="calc-divider" />
-                <div className="calc-row bold">
-                  <span className="cl">Expected Profit (Batch)</span>
-                  <span className="cv" style={{ color: 'var(--green)' }}>{fmt((Number(bCfg.selling_rate) - Number(bCfg.fabric_cost||0)) * qty - (labTotal + accTotal))} est.</span>
-                </div>
-              </>}
+              <div className="calc-row bold"><span className="cl">Labour + Accessories Total</span><span className="cv">{fmt(bBreakdown.grandTotal)}</span></div>
             </div>
 
             {/* Actions */}
-            <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
               <button className="btn btn-ghost btn-sm" onClick={() => openDetail(b.id)}>View Details →</button>
-              <button className="btn btn-ghost btn-sm" onClick={() => setEditBatch({ id: b.id, batch_number: b.batch_number, category: b.category, quantity: b.quantity, status: b.status, cut_rate: b.cut_rate || 0, stitch_rate: b.stitch_rate || 0 })}>Edit</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => openEditBatchModal(b)}>✏️ Edit Batch</button>
               <button className="btn btn-red btn-sm" style={{ marginLeft: 'auto' }} onClick={() => deleteBatch(b.id)}>Delete</button>
             </div>
           </div>
@@ -652,37 +806,64 @@ export default function ProductionPage() {
             <thead>
               <tr>
                 <th>Batch</th>
-                <th>Category</th>
-                <th style={{ textAlign: 'right' }}>Qty</th>
+                <th>Products & Sizes</th>
+                <th style={{ textAlign: 'right' }}>Total Qty</th>
                 <th>Date</th>
-                <th style={{ textAlign: 'right' }}>Cut Rate</th>
-                <th style={{ textAlign: 'right' }}>Stitch Rate</th>
+                <th style={{ textAlign: 'right' }}>Avg Cut</th>
+                <th style={{ textAlign: 'right' }}>Avg Stitch</th>
                 <th>Status</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {histSlice.map(b => (
-                <tr key={b.id}>
-                  <td style={{ fontWeight: 700 }}>{b.batch_number}</td>
-                  <td>
-                    <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: getProductColor(b.category), marginRight: 5 }} />
-                    {getProductLabel(b.category, configs)}
-                  </td>
-                  <td style={{ textAlign: 'right', fontWeight: 700 }}>{b.quantity}</td>
-                  <td style={{ color: 'var(--muted)', fontSize: 12 }}>{fmtDate(b.batch_date)}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--accent)' }}>₹{b.cut_rate}</td>
-                  <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--cyan)' }}>₹{b.stitch_rate}</td>
-                  <td>
-                    <span className={`badge ${b.status === 'finished' ? 'b-green' : b.status === 'cutting' ? 'b-accent' : 'b-yellow'}`}>
-                      {STATUS_LABEL[b.status] || b.status}
-                    </span>
-                  </td>
-                  <td>
-                    <button className="btn btn-ghost btn-sm" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => openDetail(b.id)}>View</button>
-                  </td>
-                </tr>
-              ))}
+              {histSlice.map(b => {
+                const bItems = Array.isArray(b.items) && b.items.length > 0
+                  ? b.items
+                  : [{ category: b.category, size: null, quantity: b.quantity }];
+                return (
+                  <tr key={b.id}>
+                    <td style={{ fontWeight: 700 }}>{b.batch_number}</td>
+                    <td>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                        {bItems.map((it, idx) => {
+                          const itCfg = configs.find(c => (c.category || '').toLowerCase() === (it.category || '').toLowerCase()) || {};
+                          return (
+                            <span key={idx} style={{
+                              background: '#f1f5f9',
+                              padding: '2px 6px',
+                              borderRadius: 4,
+                              fontSize: 11,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4
+                            }}>
+                              <span style={{ width: 6, height: 6, borderRadius: '50%', background: getProductColor(it.category) }} />
+                              {itCfg.display_name || itCfg.name || getProductLabel(it.category, configs)}
+                              {it.size && <strong style={{ color: '#4f46e5' }}>({it.size})</strong>}
+                              <span style={{ color: 'var(--muted)' }}>: {it.quantity}</span>
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </td>
+                    <td style={{ textAlign: 'right', fontWeight: 800, fontSize: 13 }}>{b.quantity} pcs</td>
+                    <td style={{ color: 'var(--muted)', fontSize: 12 }}>{fmtDate(b.batch_date)}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--accent)' }}>₹{Number(b.cut_rate || 0).toFixed(2)}</td>
+                    <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--cyan)' }}>₹{Number(b.stitch_rate || 0).toFixed(2)}</td>
+                    <td>
+                      <span className={`badge ${b.status === 'finished' ? 'b-green' : b.status === 'cutting' ? 'b-accent' : 'b-yellow'}`}>
+                        {STATUS_LABEL[b.status] || b.status}
+                      </span>
+                    </td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <button className="btn btn-ghost btn-sm" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => openDetail(b.id)}>View</button>
+                        <button className="btn btn-ghost btn-sm" style={{ padding: '2px 8px', fontSize: 11 }} onClick={() => openEditBatchModal(b)}>Edit</button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
 
@@ -708,90 +889,81 @@ export default function ProductionPage() {
       {/* ── Batch detail modal ── */}
       {detail && (
         <div className="modal-overlay" onClick={() => setDetail(null)}>
-          <div className="modal" style={{ width: 580 }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+          <div className="modal" style={{ width: 620 }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4, flexWrap: 'wrap', gap: 8 }}>
               <h2 style={{ margin: 0 }}>✂️ {detail.batch?.batch_number}</h2>
               <span className={`badge ${detail.batch?.status === 'finished' ? 'b-green' : 'b-yellow'}`}>
                 {STATUS_LABEL[detail.batch?.status] || detail.batch?.status}
               </span>
             </div>
             <div style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 16 }}>
-              {getProductLabel(detail.batch?.category, configs)}
-              {' · '}{detail.batch?.quantity} pcs{' · '}{fmtDate(detail.batch?.batch_date)}
+              Total: {detail.batch?.quantity} pcs · Date: {fmtDate(detail.batch?.batch_date)} {detail.batch?.notes ? ` · Notes: ${detail.batch.notes}` : ''}
             </div>
 
-            <BatchFlow status={detail.batch?.status} />
+            <BatchFlow status={detail.batch?.status} quantity={detail.batch?.quantity} />
 
-            <div style={{ display: 'flex', gap: 12, margin: '12px 0', fontSize: 13 }}>
-              <div style={{ flex: 1, background: 'var(--accent-l)', borderRadius: 8, padding: '8px 12px' }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 2 }}>Cutting Rate</div>
-                <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--accent)' }}>₹{detail.batch?.cut_rate}/pc</div>
+            {/* Items Breakdown Table */}
+            <div style={{ marginTop: 16, marginBottom: 12 }}>
+              <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>
+                Items & Sizes in Batch
               </div>
-              <div style={{ flex: 1, background: 'var(--cyan-l)', borderRadius: 8, padding: '8px 12px' }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--cyan)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 2 }}>Stitching Rate</div>
-                <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--cyan)' }}>₹{detail.batch?.stitch_rate}/pc</div>
-              </div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th>Size</th>
+                    <th style={{ textAlign: 'right' }}>Qty</th>
+                    <th style={{ textAlign: 'right' }}>Cut Rate</th>
+                    <th style={{ textAlign: 'right' }}>Stitch Rate</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(detail.batch?.items || [{ category: detail.batch?.category, size: null, quantity: detail.batch?.quantity, cut_rate: detail.batch?.cut_rate, stitch_rate: detail.batch?.stitch_rate }]).map((it, idx) => {
+                    const itCfg = configs.find(c => (c.category || '').toLowerCase() === (it.category || '').toLowerCase()) || {};
+                    return (
+                      <tr key={idx}>
+                        <td style={{ fontWeight: 600 }}>{itCfg.display_name || itCfg.name || getProductLabel(it.category, configs)}</td>
+                        <td>{it.size ? <span style={{ background: '#e0e7ff', color: '#3730a3', padding: '1px 6px', borderRadius: 4, fontWeight: 700, fontSize: 11 }}>{it.size}</span> : <span style={{ color: 'var(--muted)' }}>—</span>}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 700 }}>{it.quantity} pcs</td>
+                        <td style={{ textAlign: 'right', color: 'var(--accent)' }}>₹{Number(it.cut_rate || 0).toFixed(2)}</td>
+                        <td style={{ textAlign: 'right', color: 'var(--cyan)' }}>₹{Number(it.stitch_rate || 0).toFixed(2)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
             </div>
 
-            {/* Cost breakdown — always shown from product config */}
+            {/* Combined Cost breakdown */}
             {(() => {
-              const b      = detail.batch;
-              const qty    = Number(b?.quantity || 0);
-              const bCfg   = configs.find(c => (c.category || '').toLowerCase() === (b?.category || '').toLowerCase()) || {};
-              const cutRate    = Number(b?.cut_rate ?? bCfg.cut_rate ?? 0);
-              const stitchRate = Number(b?.stitch_rate ?? bCfg.stitch_rate ?? 0);
-              const cutAmt     = qty * cutRate;
-              const stitchAmt  = qty * stitchRate;
-              const labTotal   = cutAmt + stitchAmt;
+              const bItems = detail.batch?.items || [{ category: detail.batch?.category, size: null, quantity: detail.batch?.quantity, cut_rate: detail.batch?.cut_rate, stitch_rate: detail.batch?.stitch_rate }];
+              const breakdown = calculateItemsBreakdown(bItems, configs);
 
-              const _zipPc = Number(bCfg.zip_cost       || 0);
-              const _thrPc = Number(bCfg.thread_cost    || 0);
-              const _canPc = Number(bCfg.canvas_cost    || 0);
-              const _plaPc = Number(bCfg.plastic_cost   || 0);
-              const _lacPc = Number(bCfg.lace_cost      || 0);
-              const _othPc = Number(bCfg.logistics_cost || 0);
-
-              const _zip  = qty * _zipPc;
-              const _thr  = qty * _thrPc;
-              const _can  = qty * _canPc;
-              const _pla  = qty * _plaPc;
-              const _lac  = qty * _lacPc;
-              const _oth  = qty * _othPc;
-              const _acc  = _zip + _thr + _can + _pla + _lac + _oth;
               return (
                 <>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginTop: 12 }}>
                     <div className="calc-box" style={{ margin: 0 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 6 }}>👷 Labour</div>
-                      <div className="calc-row"><span className="cl">Cutting (₹{cutRate} × {qty})</span><span className="cv">{fmt(cutAmt)}</span></div>
-                      <div className="calc-row"><span className="cl">Stitching (₹{stitchRate} × {qty})</span><span className="cv">{fmt(stitchAmt)}</span></div>
+                      <div className="calc-row"><span className="cl">Cutting Total</span><span className="cv">{fmt(breakdown.cutTotal)}</span></div>
+                      <div className="calc-row"><span className="cl">Stitching Total</span><span className="cv">{fmt(breakdown.stitchTotal)}</span></div>
                       <hr className="calc-divider" />
-                      <div className="calc-row"><span className="cl">Labour Total</span><span className="cv" style={{ color: 'var(--accent)' }}>{fmt(labTotal)}</span></div>
+                      <div className="calc-row"><span className="cl">Labour Total</span><span className="cv" style={{ color: 'var(--accent)' }}>{fmt(breakdown.labourTotal)}</span></div>
                     </div>
                     <div className="calc-box" style={{ margin: 0, background: '#f0fdf4', borderColor: '#86efac' }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 6 }}>🧰 Accessories</div>
-                      {_zipPc > 0 && <div className="calc-row"><span className="cl">Zip (₹{_zipPc.toFixed(2)}/pc × {qty})</span><span className="cv">{fmt(_zip)}</span></div>}
-                      {_thrPc > 0 && <div className="calc-row"><span className="cl">Thread (₹{_thrPc.toFixed(2)}/pc × {qty})</span><span className="cv">{fmt(_thr)}</span></div>}
-                      {_canPc > 0 && <div className="calc-row"><span className="cl">Canvas (₹{_canPc.toFixed(2)}/pc × {qty})</span><span className="cv">{fmt(_can)}</span></div>}
-                      {_plaPc > 0 && <div className="calc-row"><span className="cl">Packaging (₹{_plaPc.toFixed(2)}/pc × {qty})</span><span className="cv">{fmt(_pla)}</span></div>}
-                      {_lacPc > 0 && <div className="calc-row" style={{ color: 'var(--cyan)', fontWeight: 600 }}><span className="cl">Lace (₹{_lacPc.toFixed(2)} × {qty})</span><span className="cv">{fmt(_lac)}</span></div>}
-                      {_othPc > 0 && <div className="calc-row"><span className="cl">Other (₹{_othPc.toFixed(2)} × {qty})</span><span className="cv">{fmt(_oth)}</span></div>}
-                      {_acc === 0 && <div className="calc-row" style={{ color: 'var(--muted)', fontSize: 12 }}><span className="cl">No accessories</span><span className="cv">₹0.00</span></div>}
+                      {breakdown.zipTotal > 0 && <div className="calc-row"><span className="cl">Zip</span><span className="cv">{fmt(breakdown.zipTotal)}</span></div>}
+                      {breakdown.threadTotal > 0 && <div className="calc-row"><span className="cl">Thread</span><span className="cv">{fmt(breakdown.threadTotal)}</span></div>}
+                      {breakdown.canvasTotal > 0 && <div className="calc-row"><span className="cl">Canvas</span><span className="cv">{fmt(breakdown.canvasTotal)}</span></div>}
+                      {breakdown.plasticTotal > 0 && <div className="calc-row"><span className="cl">Packaging</span><span className="cv">{fmt(breakdown.plasticTotal)}</span></div>}
+                      {breakdown.laceTotal > 0 && <div className="calc-row" style={{ color: 'var(--cyan)', fontWeight: 600 }}><span className="cl">Lace</span><span className="cv">{fmt(breakdown.laceTotal)}</span></div>}
+                      {breakdown.logisticsTotal > 0 && <div className="calc-row"><span className="cl">Other</span><span className="cv">{fmt(breakdown.logisticsTotal)}</span></div>}
+                      {breakdown.accTotal === 0 && <div className="calc-row" style={{ color: 'var(--muted)', fontSize: 12 }}><span className="cl">No accessories</span><span className="cv">₹0.00</span></div>}
                       <hr className="calc-divider" />
-                      <div className="calc-row"><span className="cl">Accessories Total</span><span className="cv" style={{ color: 'var(--green)' }}>{fmt(_acc)}</span></div>
+                      <div className="calc-row"><span className="cl">Accessories Total</span><span className="cv" style={{ color: 'var(--green)' }}>{fmt(breakdown.accTotal)}</span></div>
                     </div>
                   </div>
                   <div className="calc-box" style={{ marginTop: 10 }}>
-                    <div className="calc-row bold"><span className="cl">Labour + Accessories</span><span className="cv">{fmt(labTotal + _acc)}</span></div>
-                    {Number(bCfg.selling_rate) > 0 && <>
-                      <div className="calc-row"><span className="cl">Selling Rate (₹{bCfg.selling_rate} × {qty})</span><span className="cv" style={{ color: 'var(--green)' }}>{fmt(Number(bCfg.selling_rate) * qty)}</span></div>
-                      <div className="calc-row"><span className="cl">Fabric Cost ({qty} pcs)</span><span className="cv" style={{ color: 'var(--red)' }}>−{fmt(Number(bCfg.fabric_cost||0) * qty)} est.</span></div>
-                      <hr className="calc-divider" />
-                      <div className="calc-row bold">
-                        <span className="cl">Expected Profit (Batch)</span>
-                        <span className="cv" style={{ color: 'var(--green)' }}>{fmt((Number(bCfg.selling_rate) - Number(bCfg.fabric_cost||0)) * qty - (labTotal + _acc))} est.</span>
-                      </div>
-                    </>}
+                    <div className="calc-row bold"><span className="cl">Total Batch Cost (Labour + Accessories)</span><span className="cv" style={{ color: 'var(--accent)' }}>{fmt(breakdown.grandTotal)}</span></div>
                   </div>
                 </>
               );
@@ -836,78 +1008,151 @@ export default function ProductionPage() {
       {/* ── New Batch modal ── */}
       {showNew && (
         <div className="modal-overlay" onClick={() => setShowNew(false)}>
-          <div className="modal" style={{ width: 580 }} onClick={e => e.stopPropagation()}>
-            <h2>New Production Batch</h2>
-            <div className="form-grid">
-              <div className="field">
-                <label>Category</label>
-                <select value={form.category} onChange={e => {
-                  const cat = e.target.value;
-                  const cfg = configs.find(c => (c.category || '').toLowerCase() === (cat || '').toLowerCase()) || {};
-                  setForm(f => ({
-                    ...f,
-                    category: cat,
-                    cut_rate: cfg.cut_rate ?? 5.00,
-                    stitch_rate: cfg.stitch_rate ?? 15.00,
-                  }));
-                }}>
-                  {configs.map(c => <option key={c.category} value={c.category}>{c.display_name || c.name || getProductLabel(c.category, configs)}</option>)}
-                </select>
-              </div>
-              <div className="field">
-                <label>Quantity (pcs)</label>
-                <input type="number" placeholder="e.g. 300" autoFocus
-                  value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} />
-              </div>
-              <div className="field">
-                <label>Date</label>
-                <input type="date" value={form.batch_date} onChange={e => setForm(f => ({ ...f, batch_date: e.target.value }))} />
-              </div>
-              <div className="field">
-                <label>Cutting Rate (₹/pc)</label>
-                <input type="number" step="0.01" value={form.cut_rate}
-                  onChange={e => setForm(f => ({ ...f, cut_rate: e.target.value }))} />
-              </div>
-              <div className="field">
-                <label>Stitching Rate (₹/pc)</label>
-                <input type="number" step="0.01" value={form.stitch_rate}
-                  onChange={e => setForm(f => ({ ...f, stitch_rate: e.target.value }))} />
+          <div className="modal" style={{ width: 680, maxWidth: '95vw' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h2 style={{ margin: 0 }}>➕ New Production Batch</h2>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>
+                Total: {formCostPreview.totalQty} pcs
               </div>
             </div>
 
-            {/* Labour + Accessories cost preview */}
-            {previewQty > 0 && (
+            <div className="form-grid mb16">
+              <div className="field">
+                <label>Batch Date</label>
+                <input type="date" value={form.batch_date} onChange={e => setForm(f => ({ ...f, batch_date: e.target.value }))} />
+              </div>
+              <div className="field">
+                <label>Notes / Batch Remarks (Optional)</label>
+                <input type="text" placeholder="e.g. Eid Festive Collection" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+              </div>
+            </div>
+
+            {/* Product & Size Items List */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <label style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: 'var(--muted)', letterSpacing: '.5px' }}>
+                  📦 Batch Items (Categories & Optional Sizes)
+                </label>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={handleAddItemRow} style={{ color: 'var(--accent)', fontWeight: 700 }}>
+                  + Add Item / Size Line
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {form.items.map((it, idx) => (
+                  <div key={idx} style={{
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 8,
+                    padding: 12,
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr)) 36px',
+                    gap: 8,
+                    alignItems: 'center'
+                  }}>
+                    <div>
+                      <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Product Category</label>
+                      <select value={it.category} onChange={e => handleUpdateItemRow(idx, 'category', e.target.value)} style={{ width: '100%' }}>
+                        {configs.map(c => <option key={c.category} value={c.category}>{c.display_name || c.name || getProductLabel(c.category, configs)}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Size (Optional)</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. M, L, XL, Free"
+                        value={it.size}
+                        onChange={e => handleUpdateItemRow(idx, 'size', e.target.value)}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Qty (pcs) *</label>
+                      <input
+                        type="number"
+                        placeholder="0"
+                        value={it.quantity}
+                        onChange={e => handleUpdateItemRow(idx, 'quantity', e.target.value)}
+                        style={{ width: '100%', fontWeight: 700 }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Cut Rate (₹)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={it.cut_rate}
+                        onChange={e => handleUpdateItemRow(idx, 'cut_rate', e.target.value)}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Stitch Rate (₹)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={it.stitch_rate}
+                        onChange={e => handleUpdateItemRow(idx, 'stitch_rate', e.target.value)}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 14 }}>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveItemRow(idx)}
+                        disabled={form.items.length <= 1}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: form.items.length > 1 ? '#ef4444' : '#cbd5e1',
+                          cursor: form.items.length > 1 ? 'pointer' : 'not-allowed',
+                          fontSize: 18
+                        }}
+                        title="Remove Line"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Live Cost Preview */}
+            {formCostPreview.totalQty > 0 && (
               <>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginTop: 12 }}>
                   <div className="calc-box" style={{ margin: 0 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 6 }}>👷 Labour</div>
-                    <div className="calc-row"><span className="cl">Cutting (₹{form.cut_rate||0}×{previewQty})</span><span className="cv">{fmt(cutAmt)}</span></div>
-                    <div className="calc-row"><span className="cl">Stitching (₹{form.stitch_rate||0}×{previewQty})</span><span className="cv">{fmt(tailAmt)}</span></div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 6 }}>👷 Labour ({formCostPreview.totalQty} pcs)</div>
+                    <div className="calc-row"><span className="cl">Cutting Total</span><span className="cv">{fmt(formCostPreview.cutTotal)}</span></div>
+                    <div className="calc-row"><span className="cl">Stitching Total</span><span className="cv">{fmt(formCostPreview.stitchTotal)}</span></div>
                     <hr className="calc-divider" />
-                    <div className="calc-row"><span className="cl">Labour Total</span><span className="cv" style={{ color: 'var(--accent)' }}>{fmt(labourTotal)}</span></div>
+                    <div className="calc-row"><span className="cl">Labour Total</span><span className="cv" style={{ color: 'var(--accent)' }}>{fmt(formCostPreview.labourTotal)}</span></div>
                   </div>
                   <div className="calc-box" style={{ margin: 0, background: '#f0fdf4', borderColor: '#86efac' }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 6 }}>🧰 Accessories</div>
-                    {_pvZipPc > 0 && <div className="calc-row"><span className="cl">Zip (₹{_pvZipPc.toFixed(2)}/pc × {previewQty})</span><span className="cv">{fmt(zipAmt)}</span></div>}
-                    {_pvThrPc > 0 && <div className="calc-row"><span className="cl">Thread (₹{_pvThrPc.toFixed(2)}/pc × {previewQty})</span><span className="cv">{fmt(threadAmt)}</span></div>}
-                    {_pvCanPc > 0 && <div className="calc-row"><span className="cl">Canvas (₹{_pvCanPc.toFixed(2)}/pc × {previewQty})</span><span className="cv">{fmt(canvasAmt)}</span></div>}
-                    {_pvPlaPc > 0 && <div className="calc-row"><span className="cl">Packaging (₹{_pvPlaPc.toFixed(2)}/pc × {previewQty})</span><span className="cv">{fmt(plasticAmt)}</span></div>}
-                    {_pvLacPc > 0 && <div className="calc-row" style={{ color: 'var(--cyan)', fontWeight: 600 }}><span className="cl">Lace (₹{_pvLacPc.toFixed(2)} × {previewQty})</span><span className="cv">{fmt(laceAmt)}</span></div>}
-                    {_pvOthPc > 0 && <div className="calc-row"><span className="cl">Other (₹{_pvOthPc.toFixed(2)} × {previewQty})</span><span className="cv">{fmt(otherAmt)}</span></div>}
-                    {accTotal === 0 && <div className="calc-row" style={{ color: 'var(--muted)', fontSize: 12 }}><span className="cl">No accessories</span><span className="cv">₹0.00</span></div>}
+                    {formCostPreview.zipTotal > 0 && <div className="calc-row"><span className="cl">Zip</span><span className="cv">{fmt(formCostPreview.zipTotal)}</span></div>}
+                    {formCostPreview.threadTotal > 0 && <div className="calc-row"><span className="cl">Thread</span><span className="cv">{fmt(formCostPreview.threadTotal)}</span></div>}
+                    {formCostPreview.canvasTotal > 0 && <div className="calc-row"><span className="cl">Canvas</span><span className="cv">{fmt(formCostPreview.canvasTotal)}</span></div>}
+                    {formCostPreview.plasticTotal > 0 && <div className="calc-row"><span className="cl">Packaging</span><span className="cv">{fmt(formCostPreview.plasticTotal)}</span></div>}
+                    {formCostPreview.laceTotal > 0 && <div className="calc-row" style={{ color: 'var(--cyan)', fontWeight: 600 }}><span className="cl">Lace</span><span className="cv">{fmt(formCostPreview.laceTotal)}</span></div>}
+                    {formCostPreview.logisticsTotal > 0 && <div className="calc-row"><span className="cl">Other</span><span className="cv">{fmt(formCostPreview.logisticsTotal)}</span></div>}
+                    {formCostPreview.accTotal === 0 && <div className="calc-row" style={{ color: 'var(--muted)', fontSize: 12 }}><span className="cl">No accessories</span><span className="cv">₹0.00</span></div>}
                     <hr className="calc-divider" />
-                    <div className="calc-row"><span className="cl">Accessories Total</span><span className="cv" style={{ color: 'var(--green)' }}>{fmt(accTotal)}</span></div>
+                    <div className="calc-row"><span className="cl">Accessories Total</span><span className="cv" style={{ color: 'var(--green)' }}>{fmt(formCostPreview.accTotal)}</span></div>
                   </div>
                 </div>
                 <div className="calc-box" style={{ marginTop: 8 }}>
-                  <div className="calc-row bold"><span className="cl">Total Batch Cost (Labour + Accessories)</span><span className="cv" style={{ color: 'var(--accent)' }}>{fmt(labourTotal + accTotal)}</span></div>
+                  <div className="calc-row bold"><span className="cl">Total Batch Cost (Labour + Accessories)</span><span className="cv" style={{ color: 'var(--accent)' }}>{fmt(formCostPreview.grandTotal)}</span></div>
                 </div>
               </>
             )}
 
             <div className="modal-actions">
-              <button className="btn btn-ghost" onClick={() => { setShowNew(false); setForm(emptyForm()); }}>Cancel</button>
-              <button className="btn btn-primary" onClick={createBatch} disabled={!form.quantity}>Create Batch</button>
+              <button className="btn btn-ghost" onClick={() => { setShowNew(false); setForm(emptyForm(configs)); }}>Cancel</button>
+              <button className="btn btn-primary" onClick={createBatch} disabled={formCostPreview.totalQty <= 0}>
+                Create Batch ({formCostPreview.totalQty} pcs)
+              </button>
             </div>
           </div>
         </div>
@@ -916,30 +1161,127 @@ export default function ProductionPage() {
       {/* ── Edit Batch modal ── */}
       {editBatch && (
         <div className="modal-overlay" onClick={() => setEditBatch(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <h2>Edit Batch — {editBatch.batch_number}</h2>
-            <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
-               {getProductLabel(editBatch.category)} · {editBatch.quantity} pcs
+          <div className="modal" style={{ width: 680, maxWidth: '95vw' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
+              <h2 style={{ margin: 0 }}>✏️ Edit Batch — {editBatch.batch_number}</h2>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>
+                Total: {editCostPreview?.totalQty || 0} pcs
+              </div>
             </div>
 
-            <div className="form-grid">
-              <div className="field form-full">
+            <div className="form-grid mb16">
+              <div className="field">
                 <label>Status</label>
                 <select value={editBatch.status} onChange={e => setEditBatch(b => ({ ...b, status: e.target.value }))}>
                   {STATUS_STEPS.map(s => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
                 </select>
               </div>
               <div className="field">
-                <label>Cutting Rate (₹/pc)</label>
-                <input type="number" step="0.01" value={editBatch.cut_rate}
-                  onChange={e => setEditBatch(b => ({ ...b, cut_rate: e.target.value }))} />
+                <label>Date</label>
+                <input type="date" value={editBatch.batch_date} onChange={e => setEditBatch(b => ({ ...b, batch_date: e.target.value }))} />
               </div>
-              <div className="field">
-                <label>Stitching Rate (₹/pc)</label>
-                <input type="number" step="0.01" value={editBatch.stitch_rate}
-                  onChange={e => setEditBatch(b => ({ ...b, stitch_rate: e.target.value }))} />
+              <div className="field form-full">
+                <label>Notes / Batch Remarks</label>
+                <input type="text" value={editBatch.notes} onChange={e => setEditBatch(b => ({ ...b, notes: e.target.value }))} placeholder="Optional notes" />
               </div>
             </div>
+
+            {/* Batch Items List */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <label style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: 'var(--muted)', letterSpacing: '.5px' }}>
+                  📦 Batch Items (Categories & Sizes)
+                </label>
+                <button type="button" className="btn btn-ghost btn-sm" onClick={handleAddEditBatchItem} style={{ color: 'var(--accent)', fontWeight: 700 }}>
+                  + Add Item / Size Line
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {editBatch.items.map((it, idx) => (
+                  <div key={idx} style={{
+                    background: '#f8fafc',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 8,
+                    padding: 12,
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr)) 36px',
+                    gap: 8,
+                    alignItems: 'center'
+                  }}>
+                    <div>
+                      <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Product Category</label>
+                      <select value={it.category} onChange={e => handleUpdateEditBatchItem(idx, 'category', e.target.value)} style={{ width: '100%' }}>
+                        {configs.map(c => <option key={c.category} value={c.category}>{c.display_name || c.name || getProductLabel(c.category, configs)}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Size (Optional)</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. M, L, XL"
+                        value={it.size}
+                        onChange={e => handleUpdateEditBatchItem(idx, 'size', e.target.value)}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Qty (pcs) *</label>
+                      <input
+                        type="number"
+                        value={it.quantity}
+                        onChange={e => handleUpdateEditBatchItem(idx, 'quantity', e.target.value)}
+                        style={{ width: '100%', fontWeight: 700 }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Cut Rate (₹)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={it.cut_rate}
+                        onChange={e => handleUpdateEditBatchItem(idx, 'cut_rate', e.target.value)}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Stitch Rate (₹)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={it.stitch_rate}
+                        onChange={e => handleUpdateEditBatchItem(idx, 'stitch_rate', e.target.value)}
+                        style={{ width: '100%' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 14 }}>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveEditBatchItem(idx)}
+                        disabled={editBatch.items.length <= 1}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: editBatch.items.length > 1 ? '#ef4444' : '#cbd5e1',
+                          cursor: editBatch.items.length > 1 ? 'pointer' : 'not-allowed',
+                          fontSize: 18
+                        }}
+                        title="Remove Line"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Live Cost Preview */}
+            {editCostPreview && editCostPreview.totalQty > 0 && (
+              <div className="calc-box" style={{ marginTop: 8 }}>
+                <div className="calc-row bold"><span className="cl">Updated Batch Cost (Labour + Accessories)</span><span className="cv" style={{ color: 'var(--accent)' }}>{fmt(editCostPreview.grandTotal)}</span></div>
+              </div>
+            )}
 
             <div className="modal-actions">
               <button className="btn btn-ghost" onClick={() => setEditBatch(null)}>Cancel</button>
