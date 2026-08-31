@@ -1428,14 +1428,16 @@ export default function ItemsPage() {
                       style={{
                         borderBottom: '1px solid var(--border)',
                         transition: 'background 0.12s ease',
-                        opacity: item.is_active ? 1 : 0.6
+                        opacity: item.is_active ? 1 : 0.6,
+                        cursor: 'pointer'
                       }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(244, 246, 251, 0.6)'}
+                      onClick={() => openEditItem(item)}
+                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(244, 246, 251, 0.75)'}
                       onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                     >
                       {/* Name & SKU */}
                       <td style={{ padding: '12px 16px' }}>
-                        <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text)' }}>
+                        <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--accent)', textDecoration: 'none' }}>
                           {item.display_name || item.name}
                         </div>
                         <div style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', gap: 6, alignItems: 'center', marginTop: 2 }}>
@@ -1544,38 +1546,41 @@ export default function ItemsPage() {
 
                       {/* Actions */}
                       <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                        <div style={{ display: 'flex', gap: 5, justifyContent: 'flex-end' }}>
+                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                           <button
                             type="button"
-                            onClick={() => openEditItem(item)}
+                            onClick={(e) => { e.stopPropagation(); openEditItem(item); }}
                             style={{
-                              background: 'var(--bg)',
-                              border: '1px solid var(--border)',
+                              background: 'var(--accent-l, #ede9fe)',
+                              border: '1px solid var(--accent, #6366f1)',
                               borderRadius: 6,
-                              padding: '4px 9px',
-                              fontSize: 11,
-                              fontWeight: 600,
-                              color: 'var(--text)',
-                              cursor: 'pointer'
+                              padding: '5px 11px',
+                              fontSize: 12,
+                              fontWeight: 700,
+                              color: 'var(--accent, #6366f1)',
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 4
                             }}
                           >
                             ✏️ Edit
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleDeleteItem(item)}
+                            onClick={(e) => { e.stopPropagation(); handleDeleteItem(item); }}
                             style={{
-                              background: 'none',
-                              border: '1px solid #fee2e2',
+                              background: '#fff',
+                              border: '1px solid #fca5a5',
                               borderRadius: 6,
-                              padding: '4px 7px',
-                              fontSize: 11,
-                              color: 'var(--red)',
+                              padding: '5px 8px',
+                              fontSize: 12,
+                              color: 'var(--red, #ef4444)',
                               cursor: 'pointer'
                             }}
                             title="Delete item"
                           >
-                            ❌
+                            🗑️
                           </button>
                         </div>
                       </td>
