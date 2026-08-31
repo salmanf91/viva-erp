@@ -383,7 +383,7 @@ export default function PartyLedgerPage() {
             </div>
           ) : (
             <div className="tbl-wrap" style={{ width: '100%', overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', tableLayout: 'fixed' }}>
+              <table style={{ width: '100%', minWidth: 780, borderCollapse: 'collapse', textAlign: 'left' }}>
                 <thead>
                   <tr style={{ background: 'var(--surface)', borderBottom: '1.5px solid var(--border)' }}>
                     <th style={{ width: '11%', padding: '10px 8px', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)' }}>Date</th>

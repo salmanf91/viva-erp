@@ -150,18 +150,90 @@ a { text-decoration: none; color: inherit; }
 .alert-accent .a-title { color: var(--accent); }
 .alert .a-body { font-size: 12px; color: var(--muted); margin-top: 2px; }
 
-/* ── TABLE ── */
-.tbl-wrap { overflow-x: auto; }
-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+/* ── TABLE STYLES & RESPONSIVENESS (Strategies 1, 2, 3) ── */
+.tbl-wrap, .table-responsive, .table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+/* Strategy 1: Dense operational lists with minimum readable width */
+table.dense-table,
+.tbl-wrap table,
+.table-scroll table,
+.table-responsive table {
+  min-width: 600px;
+}
+
+table.dense-table th,
+table.dense-table td,
+.tbl-wrap table th,
+.tbl-wrap table td {
+  white-space: nowrap;
+}
+
 thead th {
-  background: var(--light); font-size: 11px; font-weight: 700; color: var(--muted);
-  text-transform: uppercase; letter-spacing: .6px; padding: 9px 12px; text-align: left;
+  background: var(--light);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  padding: 9px 12px;
+  text-align: left;
   border-bottom: 1px solid var(--border);
 }
-tbody tr { border-bottom: 1px solid var(--border); transition: background .1s; }
-tbody tr:last-child { border-bottom: none; }
-tbody tr:hover { background: var(--light); }
-tbody td { padding: 10px 12px; vertical-align: middle; }
+
+tbody tr {
+  border-bottom: 1px solid var(--border);
+  transition: background .1s;
+}
+
+tbody tr:last-child {
+  border-bottom: none;
+}
+
+tbody tr:hover {
+  background: var(--light);
+}
+
+tbody td {
+  padding: 10px 12px;
+  vertical-align: middle;
+}
+
+/* Strategy 4: Freeze First Column (Optional Sticky left identifier) */
+.sticky-first-col th:first-child,
+.sticky-first-col td:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--white);
+  z-index: 2;
+  box-shadow: 2px 0 6px rgba(0,0,0,0.04);
+}
+
+.sticky-first-col th:first-child {
+  background: var(--light);
+  z-index: 3;
+}
+
+/* Strategy 3: Priority Column Visibility */
+.hide-mobile,
+.col-hide-mobile {
+  /* Visible on desktop by default */
+}
+
+@media (min-width: 769px) {
+  .show-mobile-only {
+    display: none !important;
+  }
+}
 
 /* ── BADGE ── */
 .badge { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 20px; font-size: 11px; font-weight: 700; }
@@ -540,18 +612,85 @@ label.field-label {
     display: flex !important;
   }
 
-  /* Tables and card scroll wrappers */
+  /* Strategy 3: Priority Column Visibility on Mobile */
+  .hide-mobile,
+  .col-hide-mobile {
+    display: none !important;
+  }
+
+  .show-mobile-only {
+    display: block !important;
+  }
+
+  /* Strategy 2: Mobile Card List Transformation */
+  table.table-cards {
+    min-width: 100% !important;
+    display: block !important;
+  }
+  table.table-cards thead {
+    display: none !important;
+  }
+  table.table-cards tbody {
+    display: block !important;
+    width: 100% !important;
+  }
+  table.table-cards tbody tr {
+    display: flex !important;
+    flex-direction: column !important;
+    background: var(--white) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 10px !important;
+    padding: 12px !important;
+    margin-bottom: 12px !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.03) !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+  table.table-cards tbody td {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    padding: 6px 0 !important;
+    border: none !important;
+    border-bottom: 1px dashed var(--border) !important;
+    text-align: right !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+  table.table-cards tbody td:last-child {
+    border-bottom: none !important;
+    padding-top: 8px !important;
+    justify-content: flex-end !important;
+  }
+  table.table-cards tbody td[data-label]::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: var(--muted);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .4px;
+    text-align: left;
+    margin-right: 12px;
+  }
+
+  /* Tables and card scroll wrappers (Strategy 1) */
   .card {
     padding: 14px !important;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
   }
 
-  .tbl-wrap, table {
+  .tbl-wrap, .table-responsive, .table-scroll {
     display: block;
     width: 100%;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+  }
+
+  /* Default table horizontal scroll container */
+  .tbl-wrap table, .table-responsive table, .table-scroll table, table.dense-table {
+    display: table;
+    min-width: 600px;
   }
 
   /* Tabs horizontal scrolling */
