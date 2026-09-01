@@ -81,14 +81,13 @@ function DailyLogTab() {
     setDate(toDateStr(d));
   };
 
-  const saveEntry = async (staffId, category, work_type, allocated, completed, allocDate, compDate, size, entryId = null) => {
-    const allocNum = +allocated || 0;
-    const doneNum  = +completed || 0;
-    if (allocNum === 0 && doneNum === 0) return;
+  const saveEntry = async (staffId, category, work_type, allocated, completed, allocDate, compDate, size, entryId = null, items = null) => {
     const key = entryId ? `entry-${entryId}` : `${staffId}-${category}-${work_type}`;
     setSaving(key);
     try {
       if (entryId) {
+        const allocNum = +allocated || 0;
+        const doneNum  = +completed || 0;
         await api.put(`/staff/work-entries/${entryId}`, {
           entry_date: allocDate || date,
           completion_date: doneNum > 0 ? (compDate || date) : null,
@@ -98,7 +97,29 @@ function DailyLogTab() {
           allocated_pcs: allocNum,
           completed_pcs: doneNum,
         });
+      } else if (Array.isArray(items) && items.length > 0) {
+        const validItems = items.filter(it => (+it.allocated > 0 || +it.completed > 0));
+        if (!validItems.length) {
+          alert('Please enter allocated or completed pieces for at least one size');
+          setSaving(null);
+          return;
+        }
+        await api.post('/staff/work-entries', {
+          staff_id: staffId,
+          entry_date: allocDate || date,
+          completion_date: compDate || date,
+          work_type,
+          items: validItems.map(it => ({
+            category: it.category || category,
+            size: it.size ? String(it.size).trim() : null,
+            allocated_pcs: +it.allocated || 0,
+            completed_pcs: +it.completed || 0,
+          })),
+        });
       } else {
+        const allocNum = +allocated || 0;
+        const doneNum  = +completed || 0;
+        if (allocNum === 0 && doneNum === 0) return;
         await api.post('/staff/work-entries', {
           staff_id: staffId,
           entry_date: allocDate || date,
@@ -146,12 +167,12 @@ function DailyLogTab() {
       ...p,
       [staffId]: {
         category,
-        size: '',
         work_type: wt,
         allocDate: date,
         compDate: date,
-        allocated: '',
-        completed: '',
+        items: [
+          { id: 1, size: '', allocated: '', completed: '' }
+        ]
       }
     }));
     setShowAddEntry(p => ({ ...p, [staffId]: category }));
@@ -925,19 +946,56 @@ function StaffCard({ staff, workType, activeDate, saving, editEntry, newEntry, s
         </div>
       )}
 
-      {/* ── Active Add Entry Form (when user clicked Quick Log) ── */}
+      {/* ── Active Add Entry Form (Multi-Size Log for Category) ── */}
       {showAdd && (() => {
         const cat = showAdd;
         const savingKey = `${staff.id}-${cat}-${newEntry?.work_type || workType}`;
         const currentProd = products.find(p => (p.category || '').toLowerCase() === cat.toLowerCase() || (p.name || '').toLowerCase() === cat.toLowerCase());
         const configuredSizes = (currentProd?.size_rates || []).map(s => s.size_label).filter(Boolean);
+        const standardSizes = configuredSizes.length > 0 ? configuredSizes : ['38', '40', '42', '44'];
         const allSizeOptions = configuredSizes.length > 0 ? configuredSizes : ['Free Size', 'S', 'M', 'L', 'XL', 'XXL', '38', '40', '42', '44'];
+
+        const items = Array.isArray(newEntry?.items) && newEntry.items.length > 0
+          ? newEntry.items
+          : [{ id: 1, size: newEntry?.size || '', allocated: newEntry?.allocated || '', completed: newEntry?.completed || '' }];
+
+        const addSizeRow = (sz = '') => {
+          const updated = [...items, { id: Date.now() + Math.random(), size: sz, allocated: '', completed: '' }];
+          onSetNew({ ...newEntry, items: updated });
+        };
+
+        const addAllSizes = () => {
+          const updated = standardSizes.map((sz, i) => ({
+            id: Date.now() + i,
+            size: sz,
+            allocated: '',
+            completed: ''
+          }));
+          onSetNew({ ...newEntry, items: updated });
+        };
+
+        const updateRow = (id, field, val) => {
+          const updated = items.map(it => it.id === id ? { ...it, [field]: val } : it);
+          onSetNew({ ...newEntry, items: updated });
+        };
+
+        const removeRow = (id) => {
+          const updated = items.length > 1 ? items.filter(it => it.id !== id) : items;
+          onSetNew({ ...newEntry, items: updated });
+        };
+
+        const totAlloc = items.reduce((s, it) => s + (+it.allocated || 0), 0);
+        const totDone  = items.reduce((s, it) => s + (+it.completed || 0), 0);
 
         return (
           <div style={{ background: '#f8fafc', borderRadius: 10, padding: 14, border: '1px solid #e2e8f0', marginBottom: 14 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '.05em' }}>
-              New Log: {getProductLabel(cat)}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 6 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
+                New Log: {getProductLabel(cat)}
+              </div>
+              <span className="badge b-cyan" style={{ fontSize: 10 }}>Multi-Size Log</span>
             </div>
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {/* Date Pickers */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -961,53 +1019,12 @@ function StaffCard({ staff, workType, activeDate, saving, editEntry, newEntry, s
                 </div>
               </div>
 
-              {/* Size Selector for Cutting as well as Stitching */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Item Size / Variation</span>
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                  {allSizeOptions.map(sz => (
-                    <button
-                      key={sz}
-                      type="button"
-                      onClick={() => onSetNew({ ...newEntry, size: (newEntry?.size || '') === sz ? '' : sz })}
-                      style={{
-                        padding: '4px 10px',
-                        borderRadius: 6,
-                        fontSize: 11,
-                        fontWeight: 600,
-                        border: '1px solid',
-                        borderColor: (newEntry?.size || '') === sz ? 'var(--accent)' : '#cbd5e1',
-                        background: (newEntry?.size || '') === sz ? '#ede9fe' : '#ffffff',
-                        color: (newEntry?.size || '') === sz ? '#6d28d9' : '#334155',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s'
-                      }}
-                    >
-                      {sz}
-                    </button>
-                  ))}
-                  <input
-                    type="text"
-                    placeholder="Or custom size (e.g. 46, Free)"
-                    value={newEntry?.size || ''}
-                    onChange={e => onSetNew({ ...newEntry, size: e.target.value })}
-                    style={{
-                      padding: '5px 10px',
-                      borderRadius: 6,
-                      border: '1px solid #cbd5e1',
-                      outline: 'none',
-                      fontSize: 12,
-                      minWidth: 160
-                    }}
-                  />
-                </div>
-              </div>
-
               {isCutter && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Work Type</span>
                   <div style={{ display: 'flex', background: '#e2e8f0', borderRadius: 8, padding: 3, width: 'fit-content' }}>
                     <button
+                      type="button"
                       onClick={() => onSetNew({ ...newEntry, work_type: 'cutting' })}
                       style={{
                         padding: '5px 12px', fontSize: 12, fontWeight: 600, border: 'none', borderRadius: 6, cursor: 'pointer',
@@ -1020,6 +1037,7 @@ function StaffCard({ staff, workType, activeDate, saving, editEntry, newEntry, s
                       ✂️ Cutting
                     </button>
                     <button
+                      type="button"
                       onClick={() => onSetNew({ ...newEntry, work_type: 'stitching' })}
                       style={{
                         padding: '5px 12px', fontSize: 12, fontWeight: 600, border: 'none', borderRadius: 6, cursor: 'pointer',
@@ -1035,46 +1053,141 @@ function StaffCard({ staff, workType, activeDate, saving, editEntry, newEntry, s
                 </div>
               )}
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Allocated (pcs)</span>
-                  <input
-                    type="number"
-                    placeholder="e.g. 50"
-                    min="0"
-                    style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', fontSize: 13 }}
-                    value={newEntry?.allocated || ''}
-                    onChange={e => onSetNew({ ...newEntry, allocated: e.target.value })}
-                  />
+              {/* Quick Add Size Chips */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>+ Add Size:</span>
+                  {allSizeOptions.map(sz => (
+                    <button
+                      key={sz}
+                      type="button"
+                      onClick={() => addSizeRow(sz)}
+                      style={{
+                        padding: '3px 8px',
+                        borderRadius: 6,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        border: '1px solid #cbd5e1',
+                        background: '#ffffff',
+                        color: '#334155',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      + {sz}
+                    </button>
+                  ))}
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Completed (pcs)</span>
-                  <input
-                    type="number"
-                    placeholder="e.g. 45"
-                    min="0"
-                    style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', fontSize: 13 }}
-                    value={newEntry?.completed || ''}
-                    onChange={e => onSetNew({ ...newEntry, completed: e.target.value })}
-                  />
-                </div>
+                <button
+                  type="button"
+                  onClick={addAllSizes}
+                  className="btn btn-ghost btn-sm"
+                  style={{ fontSize: 11, padding: '2px 8px', border: '1px solid var(--accent)', color: 'var(--accent)', background: '#ede9fe' }}
+                >
+                  ⚡ Fill Standard Sizes (38, 40, 42, 44)
+                </button>
               </div>
+
+              {/* Multi-Size Entries Table */}
+              <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden', background: '#fff' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', textAlign: 'left' }}>
+                      <th style={{ padding: '6px 10px', fontWeight: 700, color: '#475569', width: '35%' }}>Size / Variation</th>
+                      <th style={{ padding: '6px 10px', fontWeight: 700, color: '#475569', width: '30%', textAlign: 'right' }}>Allocated (pcs)</th>
+                      <th style={{ padding: '6px 10px', fontWeight: 700, color: '#475569', width: '30%', textAlign: 'right' }}>Completed (pcs)</th>
+                      <th style={{ padding: '6px 6px', width: '5%', textAlign: 'center' }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((it, idx) => (
+                      <tr key={it.id || idx} style={{ borderBottom: idx < items.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
+                        <td style={{ padding: '6px 10px' }}>
+                          <input
+                            type="text"
+                            placeholder="e.g. 38, XL"
+                            value={it.size}
+                            onChange={e => updateRow(it.id, 'size', e.target.value)}
+                            style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12 }}
+                          />
+                        </td>
+                        <td style={{ padding: '6px 10px', textAlign: 'right' }}>
+                          <input
+                            type="number"
+                            min="0"
+                            placeholder="0"
+                            value={it.allocated}
+                            onChange={e => updateRow(it.id, 'allocated', e.target.value)}
+                            style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12, textAlign: 'right', fontWeight: 600 }}
+                          />
+                        </td>
+                        <td style={{ padding: '6px 10px', textAlign: 'right' }}>
+                          <input
+                            type="number"
+                            min="0"
+                            placeholder="0"
+                            value={it.completed}
+                            onChange={e => updateRow(it.id, 'completed', e.target.value)}
+                            style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12, textAlign: 'right', fontWeight: 600, color: 'var(--green)' }}
+                          />
+                        </td>
+                        <td style={{ padding: '6px 6px', textAlign: 'center' }}>
+                          <button
+                            type="button"
+                            onClick={() => removeRow(it.id)}
+                            disabled={items.length === 1}
+                            style={{
+                              background: 'transparent',
+                              border: 'none',
+                              color: items.length > 1 ? '#ef4444' : '#cbd5e1',
+                              cursor: items.length > 1 ? 'pointer' : 'default',
+                              fontSize: 13
+                            }}
+                            title="Remove row"
+                          >
+                            ✕
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background: '#f8fafc', borderTop: '1px solid #e2e8f0', fontWeight: 700 }}>
+                      <td style={{ padding: '6px 10px', color: '#475569' }}>Total ({items.length} size{items.length !== 1 ? 's' : ''})</td>
+                      <td style={{ padding: '6px 10px', textAlign: 'right', color: 'var(--text)' }}>{totAlloc} pcs</td>
+                      <td style={{ padding: '6px 10px', textAlign: 'right', color: 'var(--green)' }}>{totDone} pcs</td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => addSizeRow('')}
+                className="btn btn-ghost btn-sm"
+                style={{ width: '100%', border: '1px dashed #cbd5e1', padding: '6px', fontSize: 12, color: 'var(--accent)', background: '#ffffff' }}
+              >
+                + Add Another Size Row
+              </button>
+
               <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
                 <button
                   className="btn btn-primary btn-sm"
                   style={{ height: 32, padding: '0 16px', borderRadius: 6, fontSize: 12 }}
-                  disabled={(!newEntry?.allocated && !newEntry?.completed) || saving === savingKey}
+                  disabled={(totAlloc === 0 && totDone === 0) || saving === savingKey}
                   onClick={() => onSave(
                     cat,
                     newEntry?.work_type || (isCutter ? 'cutting' : 'stitching'),
-                    newEntry?.allocated,
-                    newEntry?.completed,
+                    null,
+                    null,
                     newEntry?.allocDate || activeDate,
                     newEntry?.compDate || activeDate,
-                    newEntry?.size
+                    null,
+                    null,
+                    items
                   )}
                 >
-                  {saving === savingKey ? 'Saving…' : 'Save Entry'}
+                  {saving === savingKey ? 'Saving…' : `Save ${items.length} ${items.length === 1 ? 'Entry' : 'Entries'}`}
                 </button>
                 <button
                   className="btn btn-ghost btn-sm"

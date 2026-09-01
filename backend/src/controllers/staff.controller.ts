@@ -228,34 +228,71 @@ export async function getStaffHistory(req: AuthRequest, res: Response): Promise<
 
 export async function upsertWorkEntry(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
-  const { staff_id, entry_date, completion_date, category, size, work_type, allocated_pcs, completed_pcs } = req.body;
-  if (!staff_id || !category || !work_type) {
-    res.status(400).json({ message: 'staff_id, category, work_type required' }); return;
+
+  // Support array of entries, object with items[], or single entry object
+  let rawList: any[] = [];
+  if (Array.isArray(req.body)) {
+    rawList = req.body;
+  } else if (Array.isArray(req.body.items) && req.body.items.length > 0) {
+    rawList = req.body.items.map((item: any) => ({
+      staff_id: item.staff_id || req.body.staff_id,
+      entry_date: item.entry_date || req.body.entry_date,
+      completion_date: item.completion_date || req.body.completion_date,
+      work_type: item.work_type || req.body.work_type,
+      category: item.category || req.body.category,
+      size: item.size !== undefined ? item.size : req.body.size,
+      allocated_pcs: item.allocated_pcs !== undefined ? item.allocated_pcs : req.body.allocated_pcs,
+      completed_pcs: item.completed_pcs !== undefined ? item.completed_pcs : req.body.completed_pcs,
+    }));
+  } else {
+    rawList = [req.body];
   }
-  const date      = entry_date || new Date().toISOString().slice(0, 10);
-  const compDate  = completion_date || (Number(completed_pcs) > 0 ? date : null);
-  const allocated = Number(allocated_pcs) || 0;
-  const completed = Number(completed_pcs) || 0;
-  const itemSize  = size ? String(size).trim() : null;
+
+  if (!rawList.length) {
+    res.status(400).json({ message: 'No entries provided' });
+    return;
+  }
+
+  const results: any[] = [];
 
   try {
-    try {
-      const r = await query<any>(
-        `INSERT INTO staff_work_entries (tenant_id,staff_id,entry_date,completion_date,category,size,work_type,allocated_pcs,completed_pcs)
-         VALUES (?,?,?,?,?,?,?,?,?)`,
-        [tenantId, staff_id, date, compDate, category, itemSize, work_type, allocated, completed]
-      );
-      res.status(201).json({ id: r.insertId, staff_id, entry_date: date, completion_date: compDate, category, size: itemSize, work_type, allocated_pcs: allocated, completed_pcs: completed });
-    } catch {
-      // Fallback for missing completion_date or size columns
-      const r = await query<any>(
-        `INSERT INTO staff_work_entries (tenant_id,staff_id,entry_date,category,work_type,allocated_pcs,completed_pcs)
-         VALUES (?,?,?,?,?,?,?)`,
-        [tenantId, staff_id, date, category, work_type, allocated, completed]
-      );
-      res.status(201).json({ id: r.insertId, staff_id, entry_date: date, category, work_type, allocated_pcs: allocated, completed_pcs: completed });
+    for (const entry of rawList) {
+      const { staff_id, entry_date, completion_date, category, size, work_type, allocated_pcs, completed_pcs } = entry;
+      if (!staff_id || !category || !work_type) continue;
+
+      const date      = entry_date || new Date().toISOString().slice(0, 10);
+      const compDate  = completion_date || (Number(completed_pcs) > 0 ? date : null);
+      const allocated = Number(allocated_pcs) || 0;
+      const completed = Number(completed_pcs) || 0;
+      const itemSize  = size ? String(size).trim() : null;
+
+      try {
+        const r = await query<any>(
+          `INSERT INTO staff_work_entries (tenant_id,staff_id,entry_date,completion_date,category,size,work_type,allocated_pcs,completed_pcs)
+           VALUES (?,?,?,?,?,?,?,?,?)`,
+          [tenantId, staff_id, date, compDate, category, itemSize, work_type, allocated, completed]
+        );
+        results.push({ id: r.insertId, staff_id, entry_date: date, completion_date: compDate, category, size: itemSize, work_type, allocated_pcs: allocated, completed_pcs: completed });
+      } catch {
+        // Fallback for missing completion_date or size columns
+        const r = await query<any>(
+          `INSERT INTO staff_work_entries (tenant_id,staff_id,entry_date,category,work_type,allocated_pcs,completed_pcs)
+           VALUES (?,?,?,?,?,?,?)`,
+          [tenantId, staff_id, date, category, work_type, allocated, completed]
+        );
+        results.push({ id: r.insertId, staff_id, entry_date: date, category, work_type, allocated_pcs: allocated, completed_pcs: completed });
+      }
     }
-  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
+
+    if (Array.isArray(req.body) || Array.isArray(req.body?.items)) {
+      res.status(201).json(results);
+    } else {
+      res.status(201).json(results[0] || { message: 'Created' });
+    }
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
+  }
 }
 
 export async function updateWorkEntry(req: AuthRequest, res: Response): Promise<void> {
