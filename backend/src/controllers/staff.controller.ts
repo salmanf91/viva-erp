@@ -182,6 +182,17 @@ export async function getWorkEntries(req: AuthRequest, res: Response): Promise<v
   } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
+// Helper to calculate 21st of prev month to 20th of current month salary cycle
+export function getSalaryCycleDates(month: number, year: number) {
+  const m = Number(month);
+  const y = Number(year);
+  const prevMonth = m === 1 ? 12 : m - 1;
+  const prevYear = m === 1 ? y - 1 : y;
+  const startDate = `${prevYear}-${String(prevMonth).padStart(2, '0')}-21`;
+  const endDate = `${y}-${String(m).padStart(2, '0')}-20`;
+  return { startDate, endDate, prevMonth, prevYear, month: m, year: y };
+}
+
 export async function getStaffHistory(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
   const { staff_id, month, year, from_date, to_date } = req.query;
@@ -189,36 +200,28 @@ export async function getStaffHistory(req: AuthRequest, res: Response): Promise<
     const conditions: string[] = ['e.tenant_id=?'];
     const vals: any[] = [tenantId];
     if (staff_id) { conditions.push('e.staff_id=?'); vals.push(staff_id); }
+
     if (from_date && to_date) {
-      conditions.push('e.entry_date BETWEEN ? AND ?');
+      conditions.push('COALESCE(e.completion_date, e.entry_date) BETWEEN ? AND ?');
       vals.push(from_date, to_date);
-    } else {
-      if (month) { conditions.push('(MONTH(e.entry_date)=? OR MONTH(COALESCE(e.completion_date, e.entry_date))=?)'); vals.push(month, month); }
-      if (year)  { conditions.push('(YEAR(e.entry_date)=? OR YEAR(COALESCE(e.completion_date, e.entry_date))=?)'); vals.push(year, year); }
+    } else if (month && year) {
+      const cycle = getSalaryCycleDates(Number(month), Number(year));
+      conditions.push('COALESCE(e.completion_date, e.entry_date) BETWEEN ? AND ?');
+      vals.push(cycle.startDate, cycle.endDate);
     }
+
     const rows = await query<any[]>(
       `SELECT e.id, e.entry_date, e.completion_date, e.staff_id, s.name AS staff_name, s.role AS staff_role,
               e.category, e.size, e.work_type, e.allocated_pcs, e.completed_pcs,
-              (e.allocated_pcs - e.completed_pcs) AS remaining_pcs, e.is_settled,
+              (e.allocated_pcs - e.completed_pcs) AS remaining_pcs,
+              e.is_settled,
               ${earningExpr} AS earned_amount
        FROM staff_work_entries e
-       JOIN staff s ON s.id = e.staff_id
+       JOIN staff s ON s.id=e.staff_id
        WHERE ${conditions.join(' AND ')}
-       ORDER BY e.entry_date DESC, e.id DESC`,
+       ORDER BY COALESCE(e.completion_date, e.entry_date) DESC, e.id DESC`,
       vals
-    ).catch(async () => {
-      return query<any[]>(
-        `SELECT e.id, e.entry_date, e.staff_id, s.name AS staff_name, s.role AS staff_role,
-                e.category, e.size, e.work_type, e.allocated_pcs, e.completed_pcs,
-                (e.allocated_pcs - e.completed_pcs) AS remaining_pcs, e.is_settled,
-                ${earningExpr} AS earned_amount
-         FROM staff_work_entries e
-         JOIN staff s ON s.id = e.staff_id
-         WHERE ${conditions.join(' AND ')}
-         ORDER BY e.entry_date DESC, e.id DESC`,
-        vals
-      );
-    });
+    );
     res.json(rows);
   } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
@@ -226,54 +229,32 @@ export async function getStaffHistory(req: AuthRequest, res: Response): Promise<
 export async function upsertWorkEntry(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
   const { staff_id, entry_date, completion_date, category, size, work_type, allocated_pcs, completed_pcs } = req.body;
-  const alloc = Number(allocated_pcs) || 0;
-  const done  = Number(completed_pcs) || 0;
-  const compDate = done > 0 ? (completion_date || entry_date) : null;
-  const sizeVal = size ? String(size).trim() : null;
+  if (!staff_id || !category || !work_type) {
+    res.status(400).json({ message: 'staff_id, category, work_type required' }); return;
+  }
+  const date      = entry_date || new Date().toISOString().slice(0, 10);
+  const compDate  = completion_date || (Number(completed_pcs) > 0 ? date : null);
+  const allocated = Number(allocated_pcs) || 0;
+  const completed = Number(completed_pcs) || 0;
+  const itemSize  = size ? String(size).trim() : null;
 
   try {
-    let insertId: number | null = null;
     try {
-      const resInsert: any = await query(
+      const r = await query<any>(
         `INSERT INTO staff_work_entries (tenant_id,staff_id,entry_date,completion_date,category,size,work_type,allocated_pcs,completed_pcs)
-         VALUES (?,?,?,?,?,?,?,?,?)
-         ON DUPLICATE KEY UPDATE 
-           allocated_pcs=VALUES(allocated_pcs), 
-           completed_pcs=VALUES(completed_pcs),
-           completion_date=VALUES(completion_date),
-           size=VALUES(size)`,
-        [tenantId, staff_id, entry_date, compDate, category, sizeVal, work_type, alloc, done]
+         VALUES (?,?,?,?,?,?,?,?,?)`,
+        [tenantId, staff_id, date, compDate, category, itemSize, work_type, allocated, completed]
       );
-      insertId = resInsert?.insertId;
+      res.status(201).json({ id: r.insertId, staff_id, entry_date: date, completion_date: compDate, category, size: itemSize, work_type, allocated_pcs: allocated, completed_pcs: completed });
     } catch {
-      // Fallback if size or completion_date column is missing
-      try {
-        const resInsert: any = await query(
-          `INSERT INTO staff_work_entries (tenant_id,staff_id,entry_date,completion_date,category,work_type,allocated_pcs,completed_pcs)
-           VALUES (?,?,?,?,?,?,?,?)
-           ON DUPLICATE KEY UPDATE 
-             allocated_pcs=VALUES(allocated_pcs), 
-             completed_pcs=VALUES(completed_pcs),
-             completion_date=VALUES(completion_date)`,
-          [tenantId, staff_id, entry_date, compDate, category, work_type, alloc, done]
-        );
-        insertId = resInsert?.insertId;
-      } catch {
-        const resInsert: any = await query(
-          `INSERT INTO staff_work_entries (tenant_id,staff_id,entry_date,category,work_type,allocated_pcs,completed_pcs)
-           VALUES (?,?,?,?,?,?,?)
-           ON DUPLICATE KEY UPDATE allocated_pcs=VALUES(allocated_pcs), completed_pcs=VALUES(completed_pcs)`,
-          [tenantId, staff_id, entry_date, category, work_type, alloc, done]
-        );
-        insertId = resInsert?.insertId;
-      }
+      // Fallback for missing completion_date or size columns
+      const r = await query<any>(
+        `INSERT INTO staff_work_entries (tenant_id,staff_id,entry_date,category,work_type,allocated_pcs,completed_pcs)
+         VALUES (?,?,?,?,?,?,?)`,
+        [tenantId, staff_id, date, category, work_type, allocated, completed]
+      );
+      res.status(201).json({ id: r.insertId, staff_id, entry_date: date, category, work_type, allocated_pcs: allocated, completed_pcs: completed });
     }
-
-    const rows = await query<any[]>(
-      'SELECT * FROM staff_work_entries WHERE tenant_id=? AND staff_id=? AND entry_date=? AND category=? AND work_type=? ORDER BY id DESC LIMIT 1',
-      [tenantId, staff_id, entry_date, category, work_type]
-    );
-    res.json(rows[0] || { id: insertId, staff_id, category, size: sizeVal, work_type, allocated_pcs: alloc, completed_pcs: done });
   } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
@@ -324,11 +305,24 @@ export async function deleteWorkEntry(req: AuthRequest, res: Response): Promise<
   } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
-// ── Payroll ─────────────────────────────────────────────────────────────────
+// ── Payroll (21st of previous month to 20th of current month salary cycle) ───
 
 export async function getPayrollSummary(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
-  const { month, year } = req.query;
+  const { month, year, from_date, to_date } = req.query;
+
+  let startDate: string;
+  let endDate: string;
+
+  if (from_date && to_date) {
+    startDate = String(from_date);
+    endDate = String(to_date);
+  } else {
+    const cycle = getSalaryCycleDates(Number(month || (new Date().getMonth() + 1)), Number(year || new Date().getFullYear()));
+    startDate = cycle.startDate;
+    endDate = cycle.endDate;
+  }
+
   try {
     const rows = await query(
       `SELECT s.id, s.name, s.role, s.can_stitch, s.rate_per_pc, s.phone,
@@ -343,58 +337,38 @@ export async function getPayrollSummary(req: AuthRequest, res: Response): Promis
        FROM staff s
        LEFT JOIN staff_work_entries e ON e.staff_id=s.id
          AND e.tenant_id=? 
-         AND (
-           (e.completion_date IS NOT NULL AND MONTH(e.completion_date)=? AND YEAR(e.completion_date)=?)
-           OR (e.completion_date IS NULL AND MONTH(e.entry_date)=? AND YEAR(e.entry_date)=?)
-         )
+         AND COALESCE(e.completion_date, e.entry_date) BETWEEN ? AND ?
        WHERE s.tenant_id=? AND s.is_active=1
        GROUP BY s.id ORDER BY s.role, s.name`,
-      [tenantId, month, year, month, year, tenantId]
-    ).catch(async () => {
-      return query(
-        `SELECT s.id, s.name, s.role, s.can_stitch, s.rate_per_pc, s.phone,
-           COALESCE(SUM(e.completed_pcs), 0)                                                                            AS total_pieces,
-           COALESCE(SUM(CASE WHEN e.work_type='cutting'   THEN e.completed_pcs ELSE 0 END), 0)                          AS cut_pieces,
-           COALESCE(SUM(CASE WHEN e.work_type='stitching' THEN e.completed_pcs ELSE 0 END), 0)                          AS stitch_pieces,
-           COALESCE(SUM(CASE WHEN e.work_type='cutting'   THEN e.completed_pcs * COALESCE((SELECT pc.cut_rate    FROM product_config pc WHERE pc.tenant_id=e.tenant_id AND pc.category=e.category LIMIT 1), s.rate_per_pc) ELSE 0 END), 0) AS cut_due,
-           COALESCE(SUM(CASE WHEN e.work_type='stitching' THEN e.completed_pcs * COALESCE((SELECT pc.stitch_rate FROM product_config pc WHERE pc.tenant_id=e.tenant_id AND pc.category=e.category LIMIT 1), 0)             ELSE 0 END), 0) AS stitch_due,
-           COALESCE(SUM(${earningExpr}), 0)                                                                             AS total_due,
-           COALESCE(SUM(CASE WHEN e.is_settled=1 THEN ${earningExpr} ELSE 0 END), 0)                                    AS settled,
-           COALESCE(SUM(CASE WHEN e.is_settled=0 AND e.completed_pcs>0 THEN ${earningExpr} ELSE 0 END),0)               AS pending
-         FROM staff s
-         LEFT JOIN staff_work_entries e ON e.staff_id=s.id
-           AND e.tenant_id=? AND MONTH(e.entry_date)=? AND YEAR(e.entry_date)=?
-         WHERE s.tenant_id=? AND s.is_active=1
-         GROUP BY s.id ORDER BY s.role, s.name`,
-        [tenantId, month, year, tenantId]
-      );
-    });
+      [tenantId, startDate, endDate, tenantId]
+    );
     res.json(rows);
   } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
 export async function settleStaff(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
-  const { staff_id, month, year } = req.body;
+  const { staff_id, month, year, from_date, to_date } = req.body;
+
+  let startDate: string;
+  let endDate: string;
+
+  if (from_date && to_date) {
+    startDate = String(from_date);
+    endDate = String(to_date);
+  } else {
+    const cycle = getSalaryCycleDates(Number(month || (new Date().getMonth() + 1)), Number(year || new Date().getFullYear()));
+    startDate = cycle.startDate;
+    endDate = cycle.endDate;
+  }
+
   try {
-    try {
-      await query(
-        `UPDATE staff_work_entries SET is_settled=1
-         WHERE tenant_id=? AND staff_id=? AND is_settled=0
-           AND (
-             (completion_date IS NOT NULL AND MONTH(completion_date)=? AND YEAR(completion_date)=?)
-             OR (completion_date IS NULL AND MONTH(entry_date)=? AND YEAR(entry_date)=?)
-           )`,
-        [tenantId, staff_id, month, year, month, year]
-      );
-    } catch {
-      await query(
-        `UPDATE staff_work_entries SET is_settled=1
-         WHERE tenant_id=? AND staff_id=? AND is_settled=0
-           AND MONTH(entry_date)=? AND YEAR(entry_date)=?`,
-        [tenantId, staff_id, month, year]
-      );
-    }
+    await query(
+      `UPDATE staff_work_entries SET is_settled=1
+       WHERE tenant_id=? AND staff_id=? AND is_settled=0
+         AND COALESCE(completion_date, entry_date) BETWEEN ? AND ?`,
+      [tenantId, staff_id, startDate, endDate]
+    );
     res.json({ message: 'Settled' });
   } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }

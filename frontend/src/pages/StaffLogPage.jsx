@@ -368,16 +368,22 @@ function HistoryTab() {
   const totalPcs = rows.reduce((s, r) => s + (r.completed_pcs || 0), 0);
   const pendingPcs = rows.reduce((s, r) => s + (r.remaining_pcs > 0 ? r.remaining_pcs : 0), 0);
 
+  const prevM = month === 1 ? 12 : month - 1;
+  const prevY = month === 1 ? year - 1 : year;
+  const cycleLabel = `21 ${MONTH_NAMES[prevM - 1]} ${prevY !== year ? prevY : ''} – 20 ${MONTH_NAMES[month - 1]} ${year}`;
+
   return (
     <>
       {/* Controls */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
         <button className="btn btn-ghost btn-sm" onClick={() => changeMonth(-1)}>← Prev</button>
         <div style={{
-          fontWeight: 700, fontSize: 15, background: 'var(--white)',
-          border: '1.5px solid var(--border)', borderRadius: 10, padding: '8px 20px',
+          fontWeight: 700, fontSize: 14, background: 'var(--white)',
+          border: '1.5px solid var(--border)', borderRadius: 10, padding: '7px 16px',
+          display: 'flex', alignItems: 'center', gap: 8
         }}>
-          {MONTH_NAMES[month - 1]} {year}
+          <span>💰 {MONTH_NAMES[month - 1]} {year}</span>
+          <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>({cycleLabel})</span>
         </div>
         <button className="btn btn-ghost btn-sm"
           disabled={month === now.getMonth() + 1 && year === now.getFullYear()}

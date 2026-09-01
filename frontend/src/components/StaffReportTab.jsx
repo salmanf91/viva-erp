@@ -65,9 +65,12 @@ export default function StaffReportTab() {
   };
 
   const handleCopyText = () => {
+    const prevM = month === 1 ? 12 : month - 1;
+    const prevY = month === 1 ? year - 1 : year;
+    const cycleLabel = `21 ${MONTH_NAMES[prevM - 1]} ${prevY !== year ? prevY : ''} – 20 ${MONTH_NAMES[month - 1]} ${year}`;
     const statusLabel = statusFilter ? ` | Status: ${statusFilter.toUpperCase()}` : '';
     const workLabel = workTypeFilter ? ` | Type: ${workTypeFilter.toUpperCase()}` : '';
-    const title = `STAFF WORK REPORT - ${selectedStaffObj ? selectedStaffObj.name.toUpperCase() : 'ALL STAFF'}\nPeriod: ${MONTH_NAMES[month - 1]} ${year}${statusLabel}${workLabel}\n`;
+    const title = `STAFF WORK REPORT - ${selectedStaffObj ? selectedStaffObj.name.toUpperCase() : 'ALL STAFF'}\nSalary Period: ${cycleLabel} (Payout: 20th ${MONTH_NAMES[month - 1]} ${year})${statusLabel}${workLabel}\n`;
     const summary = `Allocated: ${totalAlloc} pcs | Completed: ${totalDone} pcs | Pending: ${totalPend} pcs (${completionPct}% Done)\n\nBreakdown:\n`;
     const items = filteredRows.map(r => {
       const pName = getProductLabel(r.category);
@@ -81,6 +84,10 @@ export default function StaffReportTab() {
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
   };
+
+  const prevM = month === 1 ? 12 : month - 1;
+  const prevY = month === 1 ? year - 1 : year;
+  const cycleLabel = `21 ${MONTH_NAMES[prevM - 1]} ${prevY !== year ? prevY : ''} – 20 ${MONTH_NAMES[month - 1]} ${year}`;
 
   return (
     <div>
@@ -114,10 +121,12 @@ export default function StaffReportTab() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <button className="btn btn-ghost btn-sm" onClick={() => changeMonth(-1)}>← Prev</button>
           <div style={{
-            fontWeight: 700, fontSize: 14, background: 'var(--white)',
-            border: '1.5px solid var(--border)', borderRadius: 8, padding: '6px 16px',
+            fontWeight: 700, fontSize: 13, background: 'var(--white)',
+            border: '1.5px solid var(--border)', borderRadius: 8, padding: '6px 14px',
+            display: 'flex', alignItems: 'center', gap: 6
           }}>
-            {MONTH_NAMES[month - 1]} {year}
+            <span>💰 {MONTH_NAMES[month - 1]} {year}</span>
+            <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>({cycleLabel})</span>
           </div>
           <button className="btn btn-ghost btn-sm"
             disabled={month === now.getMonth() + 1 && year === now.getFullYear()}
@@ -197,7 +206,7 @@ export default function StaffReportTab() {
               </div>
             )}
             <div style={{ fontSize: 12, color: 'var(--accent)', fontWeight: 700, marginTop: 4 }}>
-              Period: {MONTH_NAMES[month - 1]} {year}
+              Salary Period: {cycleLabel} (Payout: 20th {MONTH_NAMES[month - 1]} {year})
             </div>
           </div>
         </div>

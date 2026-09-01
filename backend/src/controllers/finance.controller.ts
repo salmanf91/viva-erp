@@ -36,14 +36,19 @@ export async function getPnL(req: AuthRequest, res: Response): Promise<void> {
       [tenantId, month, year]
     );
 
-    // Payroll (settled work done this month)
+    // Payroll (settled work done in the salary cycle ending 20th of this month)
+    const prevM = Number(month) === 1 ? 12 : Number(month) - 1;
+    const prevY = Number(month) === 1 ? Number(year) - 1 : Number(year);
+    const salaryCycleStart = `${prevY}-${String(prevM).padStart(2, '0')}-21`;
+    const salaryCycleEnd   = `${year}-${String(month).padStart(2, '0')}-20`;
+
     const [payroll] = await query<any[]>(
       `SELECT COALESCE(SUM(${earningExpr}), 0) AS total
        FROM staff_work_entries e
        JOIN staff s ON s.id = e.staff_id
        WHERE e.tenant_id=? AND e.is_settled=1
-         AND MONTH(e.entry_date)=? AND YEAR(e.entry_date)=?`,
-      [tenantId, month, year]
+         AND COALESCE(e.completion_date, e.entry_date) BETWEEN ? AND ?`,
+      [tenantId, salaryCycleStart, salaryCycleEnd]
     );
 
     // Expenses
