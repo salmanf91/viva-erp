@@ -51,11 +51,11 @@ export default function StaffPage() {
     staff_id: '',
     entry_date: new Date().toISOString().slice(0, 10),
     completion_date: new Date().toISOString().slice(0, 10),
-    category: 'ordinary_nighty',
-    size: '',
     work_type: 'cutting',
-    allocated_pcs: '',
-    completed_pcs: '',
+    default_category: 'ordinary_nighty',
+    items: [
+      { id: 1, category: 'ordinary_nighty', size: '', allocated_pcs: '', completed_pcs: '' }
+    ],
   });
 
   const [form, setForm] = useState({ name: '', role: 'tailor', phone: '', rate_per_pc: '', can_stitch: false });
@@ -153,35 +153,45 @@ export default function StaffPage() {
 
   const saveAddEntry = async () => {
     if (!addEntryForm.staff_id) return alert('Please select a staff member');
-    if (!addEntryForm.allocated_pcs && !addEntryForm.completed_pcs) return alert('Please enter allocated or completed pieces');
+
+    const validItems = (addEntryForm.items || []).filter(
+      item => (Number(item.allocated_pcs) > 0 || Number(item.completed_pcs) > 0)
+    );
+
+    if (validItems.length === 0) {
+      return alert('Please enter allocated or completed pieces for at least one item/size');
+    }
 
     try {
       await api.post('/staff/work-entries', {
         staff_id: Number(addEntryForm.staff_id),
-        category: addEntryForm.category,
-        size: addEntryForm.size || null,
-        work_type: addEntryForm.work_type,
-        allocated_pcs: Number(addEntryForm.allocated_pcs) || 0,
-        completed_pcs: Number(addEntryForm.completed_pcs) || 0,
         entry_date: addEntryForm.entry_date,
-        completion_date: addEntryForm.completed_pcs > 0 ? (addEntryForm.completion_date || addEntryForm.entry_date) : null,
+        completion_date: addEntryForm.completion_date,
+        work_type: addEntryForm.work_type,
+        items: validItems.map(it => ({
+          category: it.category,
+          size: it.size ? String(it.size).trim() : null,
+          allocated_pcs: Number(it.allocated_pcs) || 0,
+          completed_pcs: Number(it.completed_pcs) || 0,
+        })),
       });
+
       setShowAddEntry(false);
       setAddEntryForm({
         staff_id: '',
         entry_date: new Date().toISOString().slice(0, 10),
         completion_date: new Date().toISOString().slice(0, 10),
-        category: 'ordinary_nighty',
-        size: '',
         work_type: 'cutting',
-        allocated_pcs: '',
-        completed_pcs: '',
+        default_category: 'ordinary_nighty',
+        items: [
+          { id: 1, category: 'ordinary_nighty', size: '', allocated_pcs: '', completed_pcs: '' }
+        ],
       });
       loadHistory();
       loadPayroll();
       loadStaff();
     } catch (err) {
-      alert('Failed to save work entry: ' + (err.response?.data?.message || err.message));
+      alert('Failed to save work entries: ' + (err.response?.data?.message || err.message));
     }
   };
 
@@ -822,101 +832,70 @@ export default function StaffPage() {
         );
       })()}
 
-      {/* ── Add Work Entry Modal for Admin / Manager / Owner ── */}
-      {showAddEntry && (() => {
-        const currentStaff = staff.find(s => String(s.id) === String(addEntryForm.staff_id));
-        const isCutter = currentStaff?.role === 'cutting_master';
-        const currentProd = configs.find(p => (p.category || '').toLowerCase() === (addEntryForm.category || '').toLowerCase() || (p.name || '').toLowerCase() === (addEntryForm.category || '').toLowerCase());
+      {/* ── Edit Work Entry Modal (Allocation/Completion Dates, Category, Size, Pcs & Sibling Sizes) ── */}
+      {editingEntry && (() => {
+        const currentProd = configs.find(p => (p.category || '').toLowerCase() === (entryForm.category || '').toLowerCase() || (p.name || '').toLowerCase() === (entryForm.category || '').toLowerCase());
         const configuredSizes = (currentProd?.size_rates || []).map(s => s.size_label).filter(Boolean);
         const allSizeOptions = configuredSizes.length > 0 ? configuredSizes : ['Free Size', 'S', 'M', 'L', 'XL', 'XXL', '38', '40', '42', '44'];
 
         return (
-          <div className="modal-overlay" onClick={() => setShowAddEntry(false)}>
-            <div className="modal" onClick={e => e.stopPropagation()}>
-              <h2>➕ Log Staff Work Entry</h2>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
-                Record daily piece-rate allocation and completed production for any staff member.
+          <div className="modal-overlay" onClick={() => setEditingEntry(null)}>
+            <div className="modal" style={{ maxWidth: 640 }} onClick={e => e.stopPropagation()}>
+              <h2>✏️ Edit Staff Work Entry</h2>
+              <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14 }}>
+                Staff Member: <b>{editingEntry.staff_name}</b> ({editingEntry.staff_role === 'cutting_master' ? 'Cutting Master' : 'Tailor'})
               </div>
               <div className="form-grid">
-                <div className="field form-full">
-                  <label>Staff Member *</label>
-                  <select
-                    value={addEntryForm.staff_id}
-                    onChange={e => {
-                      const selectedId = e.target.value;
-                      const selectedStaff = staff.find(s => String(s.id) === String(selectedId));
-                      const defaultWorkType = selectedStaff?.role === 'cutting_master' ? 'cutting' : 'stitching';
-                      setAddEntryForm(f => ({ ...f, staff_id: selectedId, work_type: defaultWorkType }));
-                    }}
-                    autoFocus
-                  >
-                    <option value="">-- Select Staff Member --</option>
-                    {activeStaff.map(s => (
-                      <option key={s.id} value={s.id}>
-                        {s.name} ({s.role === 'cutting_master' ? '✂️ Cutting Master' : '🧵 Tailor'})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
                 <div className="field">
                   <label>Allocation Date</label>
                   <input
                     type="date"
-                    value={addEntryForm.entry_date}
-                    onChange={e => setAddEntryForm(f => ({ ...f, entry_date: e.target.value }))}
+                    value={entryForm.entry_date}
+                    onChange={e => setEntryForm(f => ({ ...f, entry_date: e.target.value }))}
                   />
                 </div>
                 <div className="field">
-                  <label>Completion Date</label>
+                  <label>Completion Date (if finished)</label>
                   <input
                     type="date"
-                    value={addEntryForm.completion_date}
-                    onChange={e => setAddEntryForm(f => ({ ...f, completion_date: e.target.value }))}
+                    value={entryForm.completion_date}
+                    onChange={e => setEntryForm(f => ({ ...f, completion_date: e.target.value }))}
                   />
                 </div>
-
                 <div className="field">
                   <label>Product Category</label>
-                  <select
-                    value={addEntryForm.category}
-                    onChange={e => setAddEntryForm(f => ({ ...f, category: e.target.value }))}
-                  >
+                  <select value={entryForm.category} onChange={e => setEntryForm(f => ({ ...f, category: e.target.value }))}>
                     {configs.length > 0
                       ? configs.map(c => <option key={c.category} value={c.category}>{c.display_name || c.name || getProductLabel(c.category)}</option>)
                       : CATEGORIES.map(c => <option key={c} value={c}>{getProductLabel(c)}</option>)}
                   </select>
                 </div>
-
                 <div className="field">
                   <label>Work Type</label>
-                  <select
-                    value={addEntryForm.work_type}
-                    onChange={e => setAddEntryForm(f => ({ ...f, work_type: e.target.value }))}
-                  >
+                  <select value={entryForm.work_type} onChange={e => setEntryForm(f => ({ ...f, work_type: e.target.value }))}>
                     <option value="cutting">✂️ Cutting</option>
                     <option value="stitching">🧵 Stitching</option>
                   </select>
                 </div>
 
-                {/* Size Selector in Add Entry */}
+                {/* Size Selector in Edit */}
                 <div className="field form-full">
-                  <label>Size / Variation (Optional)</label>
+                  <label>Size / Variation</label>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 4 }}>
                     {allSizeOptions.map(sz => (
                       <button
                         key={sz}
                         type="button"
-                        onClick={() => setAddEntryForm(f => ({ ...f, size: f.size === sz ? '' : sz }))}
+                        onClick={() => setEntryForm(f => ({ ...f, size: f.size === sz ? '' : sz }))}
                         style={{
-                          padding: '4px 10px',
+                          padding: '3px 8px',
                           borderRadius: 6,
                           fontSize: 11,
                           fontWeight: 600,
                           border: '1px solid',
-                          borderColor: addEntryForm.size === sz ? 'var(--accent)' : '#cbd5e1',
-                          background: addEntryForm.size === sz ? '#ede9fe' : '#ffffff',
-                          color: addEntryForm.size === sz ? '#6d28d9' : '#334155',
+                          borderColor: entryForm.size === sz ? 'var(--accent)' : '#cbd5e1',
+                          background: entryForm.size === sz ? '#ede9fe' : '#ffffff',
+                          color: entryForm.size === sz ? '#6d28d9' : '#334155',
                           cursor: 'pointer'
                         }}
                       >
@@ -925,10 +904,10 @@ export default function StaffPage() {
                     ))}
                     <input
                       type="text"
-                      placeholder="Or custom size (e.g. 42, XL)"
-                      value={addEntryForm.size}
-                      onChange={e => setAddEntryForm(f => ({ ...f, size: e.target.value }))}
-                      style={{ padding: '6px 10px', fontSize: 12, minWidth: 150 }}
+                      placeholder="Or custom size"
+                      value={entryForm.size}
+                      onChange={e => setEntryForm(f => ({ ...f, size: e.target.value }))}
+                      style={{ padding: '4px 8px', fontSize: 12, minWidth: 140 }}
                     />
                   </div>
                 </div>
@@ -938,9 +917,8 @@ export default function StaffPage() {
                   <input
                     type="number"
                     min="0"
-                    placeholder="e.g. 50"
-                    value={addEntryForm.allocated_pcs}
-                    onChange={e => setAddEntryForm(f => ({ ...f, allocated_pcs: e.target.value }))}
+                    value={entryForm.allocated_pcs}
+                    onChange={e => setEntryForm(f => ({ ...f, allocated_pcs: e.target.value }))}
                   />
                 </div>
                 <div className="field">
@@ -948,20 +926,296 @@ export default function StaffPage() {
                   <input
                     type="number"
                     min="0"
-                    placeholder="e.g. 45"
-                    value={addEntryForm.completed_pcs}
-                    onChange={e => setAddEntryForm(f => ({ ...f, completed_pcs: e.target.value }))}
+                    value={entryForm.completed_pcs}
+                    onChange={e => setEntryForm(f => ({ ...f, completed_pcs: e.target.value }))}
                   />
                 </div>
               </div>
               <div className="modal-actions">
+                <button className="btn btn-ghost" onClick={() => setEditingEntry(null)}>Cancel</button>
+                <button className="btn btn-primary" onClick={saveEditEntry}>Save Changes</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Add Work Entry Modal for Admin / Manager / Owner (Multi-Item & Multi-Size Log) ── */}
+      {showAddEntry && (() => {
+        const currentStaff = staff.find(s => String(s.id) === String(addEntryForm.staff_id));
+        const isCutter = currentStaff?.role === 'cutting_master';
+        const currentProd = configs.find(p => (p.category || '').toLowerCase() === (addEntryForm.default_category || '').toLowerCase() || (p.name || '').toLowerCase() === (addEntryForm.default_category || '').toLowerCase());
+        const configuredSizes = (currentProd?.size_rates || []).map(s => s.size_label).filter(Boolean);
+        const standardSizes = configuredSizes.length > 0 ? configuredSizes : ['38', '40', '42', '44'];
+        const allSizeOptions = configuredSizes.length > 0 ? configuredSizes : ['Free Size', 'S', 'M', 'L', 'XL', 'XXL', '38', '40', '42', '44'];
+
+        const addItemRow = (sizeVal = '') => {
+          setAddEntryForm(f => ({
+            ...f,
+            items: [
+              ...f.items,
+              { id: Date.now() + Math.random(), category: f.default_category || 'ordinary_nighty', size: sizeVal, allocated_pcs: '', completed_pcs: '' }
+            ]
+          }));
+        };
+
+        const addAllStandardSizes = () => {
+          const newItems = standardSizes.map((sz, idx) => ({
+            id: Date.now() + idx,
+            category: addEntryForm.default_category || 'ordinary_nighty',
+            size: sz,
+            allocated_pcs: '',
+            completed_pcs: ''
+          }));
+          setAddEntryForm(f => ({ ...f, items: newItems }));
+        };
+
+        const updateItemRow = (id, key, val) => {
+          setAddEntryForm(f => ({
+            ...f,
+            items: f.items.map(it => it.id === id ? { ...it, [key]: val } : it)
+          }));
+        };
+
+        const removeItemRow = (id) => {
+          setAddEntryForm(f => ({
+            ...f,
+            items: f.items.length > 1 ? f.items.filter(it => it.id !== id) : f.items
+          }));
+        };
+
+        const totalAllocPcs = addEntryForm.items.reduce((s, it) => s + (Number(it.allocated_pcs) || 0), 0);
+        const totalCompPcs  = addEntryForm.items.reduce((s, it) => s + (Number(it.completed_pcs) || 0), 0);
+
+        return (
+          <div className="modal-overlay" onClick={() => setShowAddEntry(false)}>
+            <div className="modal" style={{ maxWidth: 760, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <h2 style={{ margin: 0 }}>➕ Log Staff Work Entries</h2>
+                <span className="badge b-accent" style={{ fontSize: 11 }}>Multi-Size Log</span>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
+                Log multiple items and sizes for a staff member at once without creating separate single entries.
+              </div>
+
+              <div style={{ overflowY: 'auto', paddingRight: 4, flex: 1 }}>
+                {/* General Details (Staff, Dates, Work Type) */}
+                <div className="form-grid" style={{ background: '#f8fafc', padding: 12, borderRadius: 8, border: '1px solid #e2e8f0', marginBottom: 16 }}>
+                  <div className="field form-full">
+                    <label>Staff Member *</label>
+                    <select
+                      value={addEntryForm.staff_id}
+                      onChange={e => {
+                        const selectedId = e.target.value;
+                        const selectedStaff = staff.find(s => String(s.id) === String(selectedId));
+                        const defaultWorkType = selectedStaff?.role === 'cutting_master' ? 'cutting' : 'stitching';
+                        setAddEntryForm(f => ({ ...f, staff_id: selectedId, work_type: defaultWorkType }));
+                      }}
+                      autoFocus
+                    >
+                      <option value="">-- Select Staff Member --</option>
+                      {activeStaff.map(s => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} ({s.role === 'cutting_master' ? '✂️ Cutting Master' : '🧵 Tailor'})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="field">
+                    <label>Allocation Date</label>
+                    <input
+                      type="date"
+                      value={addEntryForm.entry_date}
+                      onChange={e => setAddEntryForm(f => ({ ...f, entry_date: e.target.value }))}
+                    />
+                  </div>
+                  <div className="field">
+                    <label>Completion Date (if finished)</label>
+                    <input
+                      type="date"
+                      value={addEntryForm.completion_date}
+                      onChange={e => setAddEntryForm(f => ({ ...f, completion_date: e.target.value }))}
+                    />
+                  </div>
+
+                  <div className="field">
+                    <label>Work Type</label>
+                    <select
+                      value={addEntryForm.work_type}
+                      onChange={e => setAddEntryForm(f => ({ ...f, work_type: e.target.value }))}
+                    >
+                      <option value="cutting">✂️ Cutting</option>
+                      <option value="stitching">🧵 Stitching</option>
+                    </select>
+                  </div>
+
+                  <div className="field">
+                    <label>Default Product Category</label>
+                    <select
+                      value={addEntryForm.default_category}
+                      onChange={e => {
+                        const newCat = e.target.value;
+                        setAddEntryForm(f => ({
+                          ...f,
+                          default_category: newCat,
+                          items: f.items.map(it => ({ ...it, category: newCat }))
+                        }));
+                      }}
+                    >
+                      {configs.length > 0
+                        ? configs.map(c => <option key={c.category} value={c.category}>{c.display_name || c.name || getProductLabel(c.category)}</option>)
+                        : CATEGORIES.map(c => <option key={c} value={c}>{getProductLabel(c)}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Quick Add Helper Chips */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Quick Add Size:</span>
+                    {allSizeOptions.map(sz => (
+                      <button
+                        key={sz}
+                        type="button"
+                        onClick={() => addItemRow(sz)}
+                        style={{
+                          padding: '3px 8px',
+                          borderRadius: 6,
+                          fontSize: 11,
+                          fontWeight: 600,
+                          border: '1px solid #cbd5e1',
+                          background: '#ffffff',
+                          color: '#334155',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        + {sz}
+                      </button>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={addAllStandardSizes}
+                    className="btn btn-ghost btn-sm"
+                    style={{ fontSize: 11, padding: '3px 8px', border: '1px solid var(--accent)', color: 'var(--accent)', background: '#ede9fe' }}
+                  >
+                    ⚡ Pre-fill All Sizes (38, 40, 42, 44)
+                  </button>
+                </div>
+
+                {/* Items & Sizes Multi-Row Table */}
+                <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden', marginBottom: 14 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', textAlign: 'left' }}>
+                        <th style={{ padding: '8px 10px', fontWeight: 700, color: '#475569' }}>Product Category</th>
+                        <th style={{ padding: '8px 10px', fontWeight: 700, color: '#475569', width: '22%' }}>Size / Variation</th>
+                        <th style={{ padding: '8px 10px', fontWeight: 700, color: '#475569', width: '18%', textAlign: 'right' }}>Allocated (pcs)</th>
+                        <th style={{ padding: '8px 10px', fontWeight: 700, color: '#475569', width: '18%', textAlign: 'right' }}>Completed (pcs)</th>
+                        <th style={{ padding: '8px 6px', width: '40px', textAlign: 'center' }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {addEntryForm.items.map((item, idx) => (
+                        <tr key={item.id || idx} style={{ borderBottom: idx < addEntryForm.items.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
+                          <td style={{ padding: '6px 10px' }}>
+                            <select
+                              value={item.category}
+                              onChange={e => updateItemRow(item.id, 'category', e.target.value)}
+                              style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12 }}
+                            >
+                              {configs.length > 0
+                                ? configs.map(c => <option key={c.category} value={c.category}>{c.display_name || c.name || getProductLabel(c.category)}</option>)
+                                : CATEGORIES.map(c => <option key={c} value={c}>{getProductLabel(c)}</option>)}
+                            </select>
+                          </td>
+                          <td style={{ padding: '6px 10px' }}>
+                            <input
+                              type="text"
+                              placeholder="e.g. 38, XL"
+                              value={item.size}
+                              onChange={e => updateItemRow(item.id, 'size', e.target.value)}
+                              style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12 }}
+                            />
+                          </td>
+                          <td style={{ padding: '6px 10px', textAlign: 'right' }}>
+                            <input
+                              type="number"
+                              min="0"
+                              placeholder="0"
+                              value={item.allocated_pcs}
+                              onChange={e => updateItemRow(item.id, 'allocated_pcs', e.target.value)}
+                              style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12, textAlign: 'right', fontWeight: 600 }}
+                            />
+                          </td>
+                          <td style={{ padding: '6px 10px', textAlign: 'right' }}>
+                            <input
+                              type="number"
+                              min="0"
+                              placeholder="0"
+                              value={item.completed_pcs}
+                              onChange={e => updateItemRow(item.id, 'completed_pcs', e.target.value)}
+                              style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12, textAlign: 'right', fontWeight: 600, color: 'var(--green)' }}
+                            />
+                          </td>
+                          <td style={{ padding: '6px 6px', textAlign: 'center' }}>
+                            <button
+                              type="button"
+                              onClick={() => removeItemRow(item.id)}
+                              disabled={addEntryForm.items.length === 1}
+                              style={{
+                                background: 'transparent',
+                                border: 'none',
+                                color: addEntryForm.items.length > 1 ? '#ef4444' : '#cbd5e1',
+                                cursor: addEntryForm.items.length > 1 ? 'pointer' : 'default',
+                                fontSize: 14,
+                                padding: '2px 4px'
+                              }}
+                              title="Remove size row"
+                            >
+                              ✕
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ background: '#f8fafc', borderTop: '1.5px solid #e2e8f0', fontWeight: 700 }}>
+                        <td colSpan={2} style={{ padding: '8px 10px', color: '#475569' }}>
+                          Total ({addEntryForm.items.length} size{addEntryForm.items.length !== 1 ? 's' : ''})
+                        </td>
+                        <td style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--text)' }}>
+                          {totalAllocPcs} pcs
+                        </td>
+                        <td style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--green)' }}>
+                          {totalCompPcs} pcs
+                        </td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => addItemRow('')}
+                  className="btn btn-ghost btn-sm"
+                  style={{ width: '100%', border: '1px dashed #cbd5e1', padding: '8px', fontSize: 12, color: 'var(--accent)' }}
+                >
+                  + Add Another Size / Item Row
+                </button>
+              </div>
+
+              <div className="modal-actions" style={{ marginTop: 16 }}>
                 <button className="btn btn-ghost" onClick={() => setShowAddEntry(false)}>Cancel</button>
                 <button
                   className="btn btn-primary"
                   onClick={saveAddEntry}
-                  disabled={!addEntryForm.staff_id || (!addEntryForm.allocated_pcs && !addEntryForm.completed_pcs)}
+                  disabled={!addEntryForm.staff_id || (totalAllocPcs === 0 && totalCompPcs === 0)}
                 >
-                  Save Entry
+                  Save {addEntryForm.items.length} {addEntryForm.items.length === 1 ? 'Entry' : 'Entries'}
                 </button>
               </div>
             </div>
