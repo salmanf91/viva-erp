@@ -7,37 +7,69 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
   try {
     // total received per category
     const received = await query<any[]>(
-      `SELECT category, SUM(quantity) AS qty
+      `SELECT 
+         CASE WHEN category = 'shawl_nighty_lace' THEN 'shawl_nighty' 
+              WHEN category = '' OR category IS NULL THEN 'mixed'
+              ELSE category END AS category, 
+         SUM(quantity) AS qty
        FROM stock_movements WHERE tenant_id=? AND type='in'
-       GROUP BY category`,
+       GROUP BY CASE WHEN category = 'shawl_nighty_lace' THEN 'shawl_nighty' 
+                     WHEN category = '' OR category IS NULL THEN 'mixed'
+                     ELSE category END`,
       [tenantId]
     );
+
     // fabric in active production — merge shawl_nighty_lace → shawl_nighty (same raw material)
     const allocated = await query<any[]>(
       `SELECT
-         CASE WHEN category = 'shawl_nighty_lace' THEN 'shawl_nighty' ELSE category END AS category,
-         SUM(quantity) AS qty
-       FROM production_batches
-       WHERE tenant_id=? AND status != 'finished'
-       GROUP BY CASE WHEN category = 'shawl_nighty_lace' THEN 'shawl_nighty' ELSE category END`,
+         CASE WHEN COALESCE(pbi.category, pb.category) = 'shawl_nighty_lace' THEN 'shawl_nighty' 
+              ELSE COALESCE(pbi.category, pb.category) END AS category,
+         SUM(COALESCE(pbi.quantity, pb.quantity)) AS qty
+       FROM production_batches pb
+       LEFT JOIN production_batch_items pbi ON pbi.batch_id = pb.id AND pbi.tenant_id = pb.tenant_id
+       WHERE pb.tenant_id=? AND (pb.status != 'finished' OR pb.status IS NULL)
+       GROUP BY CASE WHEN COALESCE(pbi.category, pb.category) = 'shawl_nighty_lace' THEN 'shawl_nighty' 
+                     ELSE COALESCE(pbi.category, pb.category) END`,
       [tenantId]
     );
+
     // finished goods — same merge
     const finished = await query<any[]>(
       `SELECT
-         CASE WHEN category = 'shawl_nighty_lace' THEN 'shawl_nighty' ELSE category END AS category,
-         SUM(quantity) AS qty
-       FROM production_batches
-       WHERE tenant_id=? AND status='finished'
-       GROUP BY CASE WHEN category = 'shawl_nighty_lace' THEN 'shawl_nighty' ELSE category END`,
+         CASE WHEN COALESCE(pbi.category, pb.category) = 'shawl_nighty_lace' THEN 'shawl_nighty' 
+              ELSE COALESCE(pbi.category, pb.category) END AS category,
+         SUM(COALESCE(pbi.quantity, pb.quantity)) AS qty
+       FROM production_batches pb
+       LEFT JOIN production_batch_items pbi ON pbi.batch_id = pb.id AND pbi.tenant_id = pb.tenant_id
+       WHERE pb.tenant_id=? AND pb.status='finished'
+       GROUP BY CASE WHEN COALESCE(pbi.category, pb.category) = 'shawl_nighty_lace' THEN 'shawl_nighty' 
+                     ELSE COALESCE(pbi.category, pb.category) END`,
       [tenantId]
     );
+
     // shawl nighty sub-breakdown: how many going to lace vs plain (active batches only)
     const shawlBreakdown = await query<any[]>(
-      `SELECT category, SUM(quantity) AS qty
-       FROM production_batches
-       WHERE tenant_id=? AND status != 'finished' AND category IN ('shawl_nighty','shawl_nighty_lace')
-       GROUP BY category`,
+      `SELECT
+         COALESCE(pbi.category, pb.category) AS category,
+         SUM(COALESCE(pbi.quantity, pb.quantity)) AS qty
+       FROM production_batches pb
+       LEFT JOIN production_batch_items pbi ON pbi.batch_id = pb.id AND pbi.tenant_id = pb.tenant_id
+       WHERE pb.tenant_id=? AND (pb.status != 'finished' OR pb.status IS NULL) 
+         AND COALESCE(pbi.category, pb.category) IN ('shawl_nighty', 'shawl_nighty_lace')
+       GROUP BY COALESCE(pbi.category, pb.category)`,
+      [tenantId]
+    );
+
+    // finished goods item & size breakdown
+    const finishedBreakdown = await query<any[]>(
+      `SELECT
+         COALESCE(pbi.category, pb.category) AS category,
+         pbi.size,
+         SUM(COALESCE(pbi.quantity, pb.quantity)) AS qty
+       FROM production_batches pb
+       LEFT JOIN production_batch_items pbi ON pbi.batch_id = pb.id AND pbi.tenant_id = pb.tenant_id
+       WHERE pb.tenant_id=? AND pb.status='finished'
+       GROUP BY COALESCE(pbi.category, pb.category), pbi.size`,
       [tenantId]
     );
 
@@ -53,7 +85,7 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
       [tenantId]
     );
 
-    res.json({ received, allocated, finished, shawlBreakdown, sold });
+    res.json({ received, allocated, finished, shawlBreakdown, finishedBreakdown, sold });
   } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
@@ -61,11 +93,14 @@ export async function getStockByVendor(req: AuthRequest, res: Response): Promise
   const { tenantId } = req.user!;
   try {
     const rows = await query(
-      `SELECT sm.category, v.name AS vendor_name, SUM(sm.quantity) AS received
+      `SELECT 
+         CASE WHEN sm.category = '' OR sm.category IS NULL THEN 'mixed' ELSE sm.category END AS category,
+         COALESCE(v.name, 'Unknown Vendor') AS vendor_name, 
+         SUM(sm.quantity) AS received
        FROM stock_movements sm
        LEFT JOIN vendors v ON v.id = sm.vendor_id
        WHERE sm.tenant_id=? AND sm.type='in'
-       GROUP BY sm.category, sm.vendor_id`,
+       GROUP BY CASE WHEN sm.category = '' OR sm.category IS NULL THEN 'mixed' ELSE sm.category END, sm.vendor_id`,
       [tenantId]
     );
     res.json(rows);
@@ -116,13 +151,14 @@ export async function getDashboardStats(req: AuthRequest, res: Response): Promis
       safe(query<any[]>(`
         SELECT
           (SELECT COALESCE(SUM(quantity),0) FROM stock_movements   WHERE tenant_id=? AND type='in') AS total_in,
-          (SELECT COALESCE(SUM(quantity),0) FROM production_batches WHERE tenant_id=?)               AS total_allocated,
+          (SELECT COALESCE(SUM(quantity),0) FROM production_batches WHERE tenant_id=? AND (status != 'finished' OR status IS NULL)) AS total_in_production,
+          (SELECT COALESCE(SUM(quantity),0) FROM production_batches WHERE tenant_id=?) AS total_allocated,
           (SELECT COALESCE(SUM(quantity),0) FROM production_batches WHERE tenant_id=? AND status='finished') AS total_finished,
           (SELECT COALESCE(SUM(i.quantity),0) FROM sales_order_items i JOIN sales_orders o ON o.id=i.order_id WHERE o.tenant_id=?) AS total_sold`,
-        [tenantId, tenantId, tenantId, tenantId])),
+        [tenantId, tenantId, tenantId, tenantId, tenantId])),
       safe(query<any[]>(`
         SELECT COUNT(*) AS active FROM production_batches
-        WHERE tenant_id=? AND status != 'finished'`, [tenantId])),
+        WHERE tenant_id=? AND (status != 'finished' OR status IS NULL)`, [tenantId])),
     ]);
 
     const totalInvested   = num(capitalRow[0]?.total_invested);
@@ -146,7 +182,7 @@ export async function getDashboardStats(req: AuthRequest, res: Response): Promis
       other_expenses:   otherExpenses,
       labor_liability:  laborLiability,
       stock_in:         num(stock[0]?.total_in),
-      stock_allocated:  num(stock[0]?.total_allocated),
+      stock_allocated:  num(stock[0]?.total_in_production),
       stock_available:  num(stock[0]?.total_in) - num(stock[0]?.total_allocated),
       stock_finished:   num(stock[0]?.total_finished),
       stock_sold:       num(stock[0]?.total_sold),

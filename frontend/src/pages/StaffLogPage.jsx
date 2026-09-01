@@ -81,23 +81,35 @@ function DailyLogTab() {
     setDate(toDateStr(d));
   };
 
-  const saveEntry = async (staffId, category, work_type, allocated, completed, allocDate, compDate, size) => {
+  const saveEntry = async (staffId, category, work_type, allocated, completed, allocDate, compDate, size, entryId = null) => {
     const allocNum = +allocated || 0;
     const doneNum  = +completed || 0;
     if (allocNum === 0 && doneNum === 0) return;
-    const key = `${staffId}-${category}-${work_type}`;
+    const key = entryId ? `entry-${entryId}` : `${staffId}-${category}-${work_type}`;
     setSaving(key);
     try {
-      await api.post('/staff/work-entries', {
-        staff_id: staffId,
-        entry_date: allocDate || date,
-        completion_date: doneNum > 0 ? (compDate || date) : null,
-        category,
-        size: size ? String(size).trim() : null,
-        work_type,
-        allocated_pcs: allocNum,
-        completed_pcs: doneNum,
-      });
+      if (entryId) {
+        await api.put(`/staff/work-entries/${entryId}`, {
+          entry_date: allocDate || date,
+          completion_date: doneNum > 0 ? (compDate || date) : null,
+          category,
+          size: size ? String(size).trim() : null,
+          work_type,
+          allocated_pcs: allocNum,
+          completed_pcs: doneNum,
+        });
+      } else {
+        await api.post('/staff/work-entries', {
+          staff_id: staffId,
+          entry_date: allocDate || date,
+          completion_date: doneNum > 0 ? (compDate || date) : null,
+          category,
+          size: size ? String(size).trim() : null,
+          work_type,
+          allocated_pcs: allocNum,
+          completed_pcs: doneNum,
+        });
+      }
       load();
       setShowAddEntry(p => ({ ...p, [staffId]: null }));
       setNewEntry(p => ({ ...p, [staffId]: null }));
@@ -152,7 +164,7 @@ function DailyLogTab() {
 
   const deleteEntry = async (entry) => {
     if (!confirm(`Delete this entry for ${getProductLabel(entry.category)}?`)) return;
-    const key = `${entry.staff_id}-${entry.category}-${entry.work_type}`;
+    const key = `entry-${entry.id}`;
     setSaving(key);
     try {
       await api.delete(`/staff/work-entries/${entry.id}`);
@@ -165,10 +177,12 @@ function DailyLogTab() {
   };
 
   const startEdit = (entry) => {
-    const key = `${entry.staff_id}-${entry.category}-${entry.work_type}`;
+    const key = `entry-${entry.id}`;
     setEditEntry(p => ({
       ...p,
       [key]: {
+        category: entry.category,
+        work_type: entry.work_type,
         size: entry.size || '',
         allocated: String(entry.allocated_pcs),
         completed: String(entry.completed_pcs),
@@ -179,7 +193,7 @@ function DailyLogTab() {
   };
 
   const cancelEdit = (entry) => {
-    const key = `${entry.staff_id}-${entry.category}-${entry.work_type}`;
+    const key = `entry-${entry.id}`;
     setEditEntry(p => { const n = { ...p }; delete n[key]; return n; });
   };
 
@@ -225,7 +239,7 @@ function DailyLogTab() {
               onSetNew={v => setNewEntry(p => ({ ...p, [s.id]: v }))}
               onOpenAdd={cat => openAddEntry(s.id, cat)}
               onCloseAdd={() => closeAddEntry(s.id)}
-              onSave={(cat, wt, alloc, done, allocD, compD, sz) => saveEntry(s.id, cat, wt, alloc, done, allocD, compD, sz)}
+              onSave={(cat, wt, alloc, done, allocD, compD, sz, entryId) => saveEntry(s.id, cat, wt, alloc, done, allocD, compD, sz, entryId)}
               onStartEdit={startEdit} onCancelEdit={cancelEdit}
               onSetEdit={(key, v) => setEditEntry(p => ({ ...p, [key]: v }))}
               onDelete={deleteEntry}
@@ -245,7 +259,7 @@ function DailyLogTab() {
               onSetNew={v => setNewEntry(p => ({ ...p, [s.id]: v }))}
               onOpenAdd={cat => openAddEntry(s.id, cat)}
               onCloseAdd={() => closeAddEntry(s.id)}
-              onSave={(cat, wt, alloc, done, allocD, compD, sz) => saveEntry(s.id, cat, wt, alloc, done, allocD, compD, sz)}
+              onSave={(cat, wt, alloc, done, allocD, compD, sz, entryId) => saveEntry(s.id, cat, wt, alloc, done, allocD, compD, sz, entryId)}
               onStartEdit={startEdit} onCancelEdit={cancelEdit}
               onSetEdit={(key, v) => setEditEntry(p => ({ ...p, [key]: v }))}
               onDelete={deleteEntry}
@@ -824,18 +838,6 @@ function StaffCard({ staff, workType, activeDate, saving, editEntry, newEntry, s
   const entries = staff.entries || [];
   const carryoverItems = staff.carryover_items || [];
 
-  // Group entries by category
-  const entriesByCat = entries.reduce((acc, e) => {
-    acc[e.category] = e;
-    return acc;
-  }, {});
-
-  // Determine active categories to show in the list (existing entries + category currently being added)
-  const activeCategories = Array.from(new Set([
-    ...entries.map(e => e.category),
-    ...(showAdd ? [showAdd] : [])
-  ]));
-
   return (
     <div className="card" style={{ marginBottom: 14, padding: '16px 20px', borderRadius: 12, border: '1px solid var(--border)', boxShadow: '0 2px 8px rgba(0,0,0,0.02)', ...cardStyle }}>
       {/* Card Header */}
@@ -917,52 +919,211 @@ function StaffCard({ staff, workType, activeDate, saving, editEntry, newEntry, s
         </div>
       )}
 
-      {/* Entries List */}
-      {(entries.length > 0 || showAdd) && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: !showAdd ? 14 : 0 }}>
-          {activeCategories.map(cat => {
-            const entry = entriesByCat[cat];
-            const isAddingThisCat = showAdd === cat;
-            const eKey = entry ? `${entry.staff_id}-${entry.category}-${entry.work_type}` : '';
-            const isEditingThisCat = entry && !!editEntry[eKey];
+      {/* ── Active Add Entry Form (when user clicked Quick Log) ── */}
+      {showAdd && (() => {
+        const cat = showAdd;
+        const savingKey = `${staff.id}-${cat}-${newEntry?.work_type || workType}`;
+        const currentProd = products.find(p => (p.category || '').toLowerCase() === cat.toLowerCase() || (p.name || '').toLowerCase() === cat.toLowerCase());
+        const configuredSizes = (currentProd?.size_rates || []).map(s => s.size_label).filter(Boolean);
+        const allSizeOptions = configuredSizes.length > 0 ? configuredSizes : ['Free Size', 'S', 'M', 'L', 'XL', 'XXL', '38', '40', '42', '44'];
 
-            if (isAddingThisCat) {
-              // Add form for this category
-              const allocated = newEntry?.allocated ? +newEntry.allocated : 0;
-              const savingKey = `${staff.id}-${cat}-${newEntry?.work_type || workType}`;
-              const currentProd = products.find(p => (p.category || '').toLowerCase() === cat.toLowerCase() || (p.name || '').toLowerCase() === cat.toLowerCase());
-              const configuredSizes = (currentProd?.size_rates || []).map(s => s.size_label).filter(Boolean);
-              const allSizeOptions = configuredSizes.length > 0 ? configuredSizes : ['Free Size', 'S', 'M', 'L', 'XL', 'XXL', '38', '40', '42', '44'];
+        return (
+          <div style={{ background: '#f8fafc', borderRadius: 10, padding: 14, border: '1px solid #e2e8f0', marginBottom: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '.05em' }}>
+              New Log: {getProductLabel(cat)}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {/* Date Pickers */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Allocation Date</span>
+                  <input
+                    type="date"
+                    value={newEntry?.allocDate || activeDate}
+                    onChange={e => onSetNew({ ...newEntry, allocDate: e.target.value })}
+                    style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', fontSize: 12 }}
+                  />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Completion Date (if done)</span>
+                  <input
+                    type="date"
+                    value={newEntry?.compDate || activeDate}
+                    onChange={e => onSetNew({ ...newEntry, compDate: e.target.value })}
+                    style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', fontSize: 12 }}
+                  />
+                </div>
+              </div>
 
+              {/* Size Selector for Cutting as well as Stitching */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Item Size / Variation</span>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                  {allSizeOptions.map(sz => (
+                    <button
+                      key={sz}
+                      type="button"
+                      onClick={() => onSetNew({ ...newEntry, size: (newEntry?.size || '') === sz ? '' : sz })}
+                      style={{
+                        padding: '4px 10px',
+                        borderRadius: 6,
+                        fontSize: 11,
+                        fontWeight: 600,
+                        border: '1px solid',
+                        borderColor: (newEntry?.size || '') === sz ? 'var(--accent)' : '#cbd5e1',
+                        background: (newEntry?.size || '') === sz ? '#ede9fe' : '#ffffff',
+                        color: (newEntry?.size || '') === sz ? '#6d28d9' : '#334155',
+                        cursor: 'pointer',
+                        transition: 'all 0.15s'
+                      }}
+                    >
+                      {sz}
+                    </button>
+                  ))}
+                  <input
+                    type="text"
+                    placeholder="Or custom size (e.g. 46, Free)"
+                    value={newEntry?.size || ''}
+                    onChange={e => onSetNew({ ...newEntry, size: e.target.value })}
+                    style={{
+                      padding: '5px 10px',
+                      borderRadius: 6,
+                      border: '1px solid #cbd5e1',
+                      outline: 'none',
+                      fontSize: 12,
+                      minWidth: 160
+                    }}
+                  />
+                </div>
+              </div>
+
+              {isCutter && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Work Type</span>
+                  <div style={{ display: 'flex', background: '#e2e8f0', borderRadius: 8, padding: 3, width: 'fit-content' }}>
+                    <button
+                      onClick={() => onSetNew({ ...newEntry, work_type: 'cutting' })}
+                      style={{
+                        padding: '5px 12px', fontSize: 12, fontWeight: 600, border: 'none', borderRadius: 6, cursor: 'pointer',
+                        background: (newEntry?.work_type || 'cutting') === 'cutting' ? 'var(--white)' : 'transparent',
+                        boxShadow: (newEntry?.work_type || 'cutting') === 'cutting' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                        color: (newEntry?.work_type || 'cutting') === 'cutting' ? 'var(--text)' : 'var(--muted)',
+                        transition: 'all 0.15s'
+                      }}
+                    >
+                      ✂️ Cutting
+                    </button>
+                    <button
+                      onClick={() => onSetNew({ ...newEntry, work_type: 'stitching' })}
+                      style={{
+                        padding: '5px 12px', fontSize: 12, fontWeight: 600, border: 'none', borderRadius: 6, cursor: 'pointer',
+                        background: newEntry?.work_type === 'stitching' ? 'var(--white)' : 'transparent',
+                        boxShadow: newEntry?.work_type === 'stitching' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                        color: newEntry?.work_type === 'stitching' ? 'var(--text)' : 'var(--muted)',
+                        transition: 'all 0.15s'
+                      }}
+                    >
+                      🧵 Stitching
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Allocated (pcs)</span>
+                  <input
+                    type="number"
+                    placeholder="e.g. 50"
+                    min="0"
+                    style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', fontSize: 13 }}
+                    value={newEntry?.allocated || ''}
+                    onChange={e => onSetNew({ ...newEntry, allocated: e.target.value })}
+                  />
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Completed (pcs)</span>
+                  <input
+                    type="number"
+                    placeholder="e.g. 45"
+                    min="0"
+                    style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', fontSize: 13 }}
+                    value={newEntry?.completed || ''}
+                    onChange={e => onSetNew({ ...newEntry, completed: e.target.value })}
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                <button
+                  className="btn btn-primary btn-sm"
+                  style={{ height: 32, padding: '0 16px', borderRadius: 6, fontSize: 12 }}
+                  disabled={(!newEntry?.allocated && !newEntry?.completed) || saving === savingKey}
+                  onClick={() => onSave(
+                    cat,
+                    newEntry?.work_type || (isCutter ? 'cutting' : 'stitching'),
+                    newEntry?.allocated,
+                    newEntry?.completed,
+                    newEntry?.allocDate || activeDate,
+                    newEntry?.compDate || activeDate,
+                    newEntry?.size
+                  )}
+                >
+                  {saving === savingKey ? 'Saving…' : 'Save Entry'}
+                </button>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  style={{ height: 32, padding: '0 12px', borderRadius: 6, fontSize: 12, border: '1px solid #cbd5e1', background: 'transparent' }}
+                  onClick={onCloseAdd}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ── Logged Entries List ── */}
+      {entries.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 14 }}>
+          {entries.map(entry => {
+            const eKey = `entry-${entry.id}`;
+            const isEditing = !!editEntry[eKey];
+            const ed = editEntry[eKey] || {};
+            const cat = entry.category;
+            const currentProd = products.find(p => (p.category || '').toLowerCase() === (cat || '').toLowerCase() || (p.name || '').toLowerCase() === (cat || '').toLowerCase());
+            const configuredSizes = (currentProd?.size_rates || []).map(s => s.size_label).filter(Boolean);
+            const allSizeOptions = configuredSizes.length > 0 ? configuredSizes : ['Free Size', 'S', 'M', 'L', 'XL', 'XXL', '38', '40', '42', '44'];
+
+            if (isEditing) {
               return (
-                <div key={cat} style={{ background: '#f8fafc', borderRadius: 10, padding: 14, border: '1px solid #e2e8f0' }}>
+                <div key={entry.id} style={{ background: '#f8fafc', borderRadius: 10, padding: 14, border: '1px solid #e2e8f0' }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '.05em' }}>
-                    New Log: {getProductLabel(cat)}
+                    Edit Log: {getProductLabel(cat)} ({entry.work_type})
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    {/* Date Pickers for Allocation Date & Completion Date */}
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                         <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Allocation Date</span>
                         <input
                           type="date"
-                          value={newEntry?.allocDate || activeDate}
-                          onChange={e => onSetNew({ ...newEntry, allocDate: e.target.value })}
+                          value={ed.allocDate || entry.entry_date || activeDate}
+                          onChange={ev => onSetEdit(eKey, { ...ed, allocDate: ev.target.value })}
                           style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', fontSize: 12 }}
                         />
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Completion Date (if done)</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Completion Date</span>
                         <input
                           type="date"
-                          value={newEntry?.compDate || activeDate}
-                          onChange={e => onSetNew({ ...newEntry, compDate: e.target.value })}
+                          value={ed.compDate || entry.completion_date || activeDate}
+                          onChange={ev => onSetEdit(eKey, { ...ed, compDate: ev.target.value })}
                           style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', fontSize: 12 }}
                         />
                       </div>
                     </div>
 
-                    {/* Size Selector */}
+                    {/* Size Selector in Edit */}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Item Size / Variation</span>
                       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -970,16 +1131,16 @@ function StaffCard({ staff, workType, activeDate, saving, editEntry, newEntry, s
                           <button
                             key={sz}
                             type="button"
-                            onClick={() => onSetNew({ ...newEntry, size: (newEntry?.size || '') === sz ? '' : sz })}
+                            onClick={() => onSetEdit(eKey, { ...ed, size: (ed?.size || '') === sz ? '' : sz })}
                             style={{
                               padding: '4px 10px',
                               borderRadius: 6,
                               fontSize: 11,
                               fontWeight: 600,
                               border: '1px solid',
-                              borderColor: (newEntry?.size || '') === sz ? 'var(--accent)' : '#cbd5e1',
-                              background: (newEntry?.size || '') === sz ? '#ede9fe' : '#ffffff',
-                              color: (newEntry?.size || '') === sz ? '#6d28d9' : '#334155',
+                              borderColor: (ed?.size || '') === sz ? 'var(--accent)' : '#cbd5e1',
+                              background: (ed?.size || '') === sz ? '#ede9fe' : '#ffffff',
+                              color: (ed?.size || '') === sz ? '#6d28d9' : '#334155',
                               cursor: 'pointer',
                               transition: 'all 0.15s'
                             }}
@@ -989,9 +1150,9 @@ function StaffCard({ staff, workType, activeDate, saving, editEntry, newEntry, s
                         ))}
                         <input
                           type="text"
-                          placeholder="Or custom size (e.g. 46, Free)"
-                          value={newEntry?.size || ''}
-                          onChange={e => onSetNew({ ...newEntry, size: e.target.value })}
+                          placeholder="Or custom size"
+                          value={ed?.size !== undefined ? ed.size : (entry.size || '')}
+                          onChange={ev => onSetEdit(eKey, { ...ed, size: ev.target.value })}
                           style={{
                             padding: '5px 10px',
                             borderRadius: 6,
@@ -1004,59 +1165,25 @@ function StaffCard({ staff, workType, activeDate, saving, editEntry, newEntry, s
                       </div>
                     </div>
 
-                    {isCutter && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Work Type</span>
-                        <div style={{ display: 'flex', background: '#e2e8f0', borderRadius: 8, padding: 3, width: 'fit-content' }}>
-                          <button
-                            onClick={() => onSetNew({ ...newEntry, work_type: 'cutting' })}
-                            style={{
-                              padding: '5px 12px', fontSize: 12, fontWeight: 600, border: 'none', borderRadius: 6, cursor: 'pointer',
-                              background: newEntry?.work_type === 'cutting' ? 'var(--white)' : 'transparent',
-                              boxShadow: newEntry?.work_type === 'cutting' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                              color: newEntry?.work_type === 'cutting' ? 'var(--text)' : 'var(--muted)',
-                              transition: 'all 0.15s'
-                            }}
-                          >
-                            ✂️ Cutting
-                          </button>
-                          <button
-                            onClick={() => onSetNew({ ...newEntry, work_type: 'stitching' })}
-                            style={{
-                              padding: '5px 12px', fontSize: 12, fontWeight: 600, border: 'none', borderRadius: 6, cursor: 'pointer',
-                              background: newEntry?.work_type === 'stitching' ? 'var(--white)' : 'transparent',
-                              boxShadow: newEntry?.work_type === 'stitching' ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                              color: newEntry?.work_type === 'stitching' ? 'var(--text)' : 'var(--muted)',
-                              transition: 'all 0.15s'
-                            }}
-                          >
-                            🧵 Stitching
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                         <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Allocated (pcs)</span>
                         <input
                           type="number"
-                          placeholder="e.g. 50"
                           min="0"
                           style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', fontSize: 13 }}
-                          value={newEntry?.allocated || ''}
-                          onChange={e => onSetNew({ ...newEntry, allocated: e.target.value })}
+                          value={ed.allocated !== undefined ? ed.allocated : String(entry.allocated_pcs)}
+                          onChange={ev => onSetEdit(eKey, { ...ed, allocated: ev.target.value })}
                         />
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
                         <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Completed (pcs)</span>
                         <input
                           type="number"
-                          placeholder="e.g. 45"
                           min="0"
                           style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', fontSize: 13 }}
-                          value={newEntry?.completed || ''}
-                          onChange={e => onSetNew({ ...newEntry, completed: e.target.value })}
+                          value={ed.completed !== undefined ? ed.completed : String(entry.completed_pcs)}
+                          onChange={ev => onSetEdit(eKey, { ...ed, completed: ev.target.value })}
                         />
                       </div>
                     </div>
@@ -1064,23 +1191,24 @@ function StaffCard({ staff, workType, activeDate, saving, editEntry, newEntry, s
                       <button
                         className="btn btn-primary btn-sm"
                         style={{ height: 32, padding: '0 16px', borderRadius: 6, fontSize: 12 }}
-                        disabled={(!newEntry?.allocated && !newEntry?.completed) || saving === savingKey}
+                        disabled={saving === eKey}
                         onClick={() => onSave(
-                          cat,
-                          newEntry?.work_type || workType,
-                          newEntry?.allocated,
-                          newEntry?.completed,
-                          newEntry?.allocDate || activeDate,
-                          newEntry?.compDate || activeDate,
-                          newEntry?.size
+                          entry.category,
+                          entry.work_type,
+                          ed.allocated !== undefined ? ed.allocated : entry.allocated_pcs,
+                          ed.completed !== undefined ? ed.completed : entry.completed_pcs,
+                          ed.allocDate || entry.entry_date,
+                          ed.compDate || entry.completion_date,
+                          ed.size !== undefined ? ed.size : entry.size,
+                          entry.id
                         )}
                       >
-                        {saving === savingKey ? 'Saving…' : 'Save Entry'}
+                        {saving === eKey ? 'Saving…' : 'Save Changes'}
                       </button>
                       <button
                         className="btn btn-ghost btn-sm"
                         style={{ height: 32, padding: '0 12px', borderRadius: 6, fontSize: 12, border: '1px solid #cbd5e1', background: 'transparent' }}
-                        onClick={onCloseAdd}
+                        onClick={() => onCancelEdit(entry)}
                       >
                         Cancel
                       </button>
@@ -1090,219 +1218,93 @@ function StaffCard({ staff, workType, activeDate, saving, editEntry, newEntry, s
               );
             }
 
-            if (entry) {
-              const ed = editEntry[eKey] || {};
-              const remaining = (entry.allocated_pcs || 0) - (entry.completed_pcs || 0);
-              const currentProd = products.find(p => (p.category || '').toLowerCase() === cat.toLowerCase() || (p.name || '').toLowerCase() === cat.toLowerCase());
-              const configuredSizes = (currentProd?.size_rates || []).map(s => s.size_label).filter(Boolean);
-              const allSizeOptions = configuredSizes.length > 0 ? configuredSizes : ['Free Size', 'S', 'M', 'L', 'XL', 'XXL', '38', '40', '42', '44'];
+            const remaining = (entry.allocated_pcs || 0) - (entry.completed_pcs || 0);
+            const pct = entry.allocated_pcs > 0 ? Math.round((entry.completed_pcs / entry.allocated_pcs) * 100) : 0;
+            const isSettled = !!entry.is_settled;
 
-              if (isEditingThisCat) {
-                // Edit form for this entry
-                return (
-                  <div key={entry.id} style={{ background: '#f8fafc', borderRadius: 10, padding: 14, border: '1px solid #e2e8f0' }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '.05em' }}>
-                      Edit Log: {getProductLabel(cat)} {isCutter && `(${entry.work_type})`}
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Allocation Date</span>
-                          <input
-                            type="date"
-                            value={ed.allocDate || entry.entry_date || activeDate}
-                            onChange={ev => onSetEdit(eKey, { ...ed, allocDate: ev.target.value })}
-                            style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', fontSize: 12 }}
-                          />
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Completion Date</span>
-                          <input
-                            type="date"
-                            value={ed.compDate || entry.completion_date || activeDate}
-                            onChange={ev => onSetEdit(eKey, { ...ed, compDate: ev.target.value })}
-                            style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', fontSize: 12 }}
-                          />
-                        </div>
-                      </div>
-
-                      {/* Size Selector in Edit */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Item Size / Variation</span>
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
-                          {allSizeOptions.map(sz => (
-                            <button
-                              key={sz}
-                              type="button"
-                              onClick={() => onSetEdit(eKey, { ...ed, size: (ed?.size || '') === sz ? '' : sz })}
-                              style={{
-                                padding: '4px 10px',
-                                borderRadius: 6,
-                                fontSize: 11,
-                                fontWeight: 600,
-                                border: '1px solid',
-                                borderColor: (ed?.size || '') === sz ? 'var(--accent)' : '#cbd5e1',
-                                background: (ed?.size || '') === sz ? '#ede9fe' : '#ffffff',
-                                color: (ed?.size || '') === sz ? '#6d28d9' : '#334155',
-                                cursor: 'pointer',
-                                transition: 'all 0.15s'
-                              }}
-                            >
-                              {sz}
-                            </button>
-                          ))}
-                          <input
-                            type="text"
-                            placeholder="Or custom size"
-                            value={ed?.size !== undefined ? ed.size : (entry.size || '')}
-                            onChange={ev => onSetEdit(eKey, { ...ed, size: ev.target.value })}
-                            style={{
-                              padding: '5px 10px',
-                              borderRadius: 6,
-                              border: '1px solid #cbd5e1',
-                              outline: 'none',
-                              fontSize: 12,
-                              minWidth: 160
-                            }}
-                          />
-                        </div>
-                      </div>
-
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Allocated (pcs)</span>
-                          <input
-                            type="number"
-                            min="0"
-                            style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', fontSize: 13 }}
-                            value={ed.allocated}
-                            onChange={ev => onSetEdit(eKey, { ...ed, allocated: ev.target.value })}
-                          />
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Completed (pcs)</span>
-                          <input
-                            type="number"
-                            min="0"
-                            style={{ padding: '8px 12px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', fontSize: 13 }}
-                            value={ed.completed}
-                            onChange={ev => onSetEdit(eKey, { ...ed, completed: ev.target.value })}
-                          />
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                        <button
-                          className="btn btn-primary btn-sm"
-                          style={{ height: 32, padding: '0 16px', borderRadius: 6, fontSize: 12 }}
-                          disabled={saving === eKey}
-                          onClick={() => onSave(entry.category, entry.work_type, ed.allocated, ed.completed, ed.allocDate, ed.compDate, ed.size !== undefined ? ed.size : entry.size)}
-                        >
-                          {saving === eKey ? 'Saving…' : 'Save Changes'}
-                        </button>
-                        <button
-                          className="btn btn-ghost btn-sm"
-                          style={{ height: 32, padding: '0 12px', borderRadius: 6, fontSize: 12, border: '1px solid #cbd5e1', background: 'transparent' }}
-                          onClick={() => onCancelEdit(entry)}
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              }
-
-              // Normal Render of Saved Row
-              const pct = entry.allocated_pcs > 0 ? Math.round((entry.completed_pcs / entry.allocated_pcs) * 100) : 0;
-              const isSettled = !!entry.is_settled;
-
-              return (
-                <div key={entry.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 12px', background: '#f8fafc', borderRadius: 10, border: '1px solid #f1f5f9' }}>
-                  {/* Category Label & Size Badge */}
-                  <div style={{ minWidth: 140, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                      <span style={{ fontWeight: 700, fontSize: 13, color: '#334155' }}>
-                        {cat === 'shawl_nighty' ? '🧵' : cat === 'ordinary_nighty' ? '👗' : '✨'} {getProductLabel(cat)}
-                      </span>
-                      {entry.size && (
-                        <span className="badge" style={{ fontSize: 10, background: '#ede9fe', color: '#6d28d9', border: '1px solid #ddd6fe', fontWeight: 700, padding: '1px 6px', borderRadius: 4 }}>
-                          📏 {entry.size}
-                        </span>
-                      )}
-                    </div>
-                    {isCutter && (
-                      <span style={{ fontSize: 10, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                        {entry.work_type === 'stitching' ? 'Stitching' : 'Cutting'}
-                      </span>
-                    )}
-                    {entry.completion_date && entry.completion_date !== entry.entry_date && (
-                      <span style={{ fontSize: 10, color: 'var(--green)', fontWeight: 600 }}>
-                        Done on {fmtShort(entry.completion_date)}
+            return (
+              <div key={entry.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '10px 12px', background: '#f8fafc', borderRadius: 10, border: '1px solid #f1f5f9' }}>
+                {/* Category Label & Size Badge */}
+                <div style={{ minWidth: 150, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 700, fontSize: 13, color: '#334155' }}>
+                      {entry.work_type === 'cutting' ? '✂️' : '🧵'} {getProductLabel(cat)}
+                    </span>
+                    {entry.size && (
+                      <span className="badge" style={{ fontSize: 10, background: '#ede9fe', color: '#6d28d9', border: '1px solid #ddd6fe', fontWeight: 700, padding: '1px 6px', borderRadius: 4 }}>
+                        📏 {entry.size}
                       </span>
                     )}
                   </div>
+                  <span style={{ fontSize: 10, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                    {entry.work_type === 'stitching' ? 'Stitching' : 'Cutting'}
+                  </span>
+                  {entry.completion_date && entry.completion_date !== entry.entry_date && (
+                    <span style={{ fontSize: 10, color: 'var(--green)', fontWeight: 600 }}>
+                      Done on {fmtShort(entry.completion_date)}
+                    </span>
+                  )}
+                </div>
 
-                  {/* Progress bar */}
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 100 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 700 }}>
-                      <span style={{ color: 'var(--muted)' }}>Completed</span>
-                      <span style={{ color: '#475569' }}>{entry.completed_pcs} / {entry.allocated_pcs} pcs</span>
-                    </div>
-                    <div style={{ background: '#e2e8f0', height: 6, borderRadius: 3, overflow: 'hidden', display: 'flex' }}>
-                      <div
-                        style={{
-                          background: entry.completed_pcs >= entry.allocated_pcs ? '#10b981' : '#f59e0b',
-                          width: `${Math.min(100, pct)}%`,
-                          height: '100%',
-                          borderRadius: 3,
-                          transition: 'width 0.3s ease'
-                        }}
-                      />
-                    </div>
+                {/* Progress bar */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1, minWidth: 100 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 700 }}>
+                    <span style={{ color: 'var(--muted)' }}>Completed</span>
+                    <span style={{ color: '#475569' }}>{entry.completed_pcs} / {entry.allocated_pcs} pcs</span>
                   </div>
-
-                  {/* Badges / Status */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    {isSettled ? (
-                      <span className="badge b-green" style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, whiteSpace: 'nowrap' }}>
-                        ✓ Settled
-                      </span>
-                    ) : remaining > 0 ? (
-                      <span className="badge b-yellow" style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, whiteSpace: 'nowrap' }}>
-                        ⏳ {remaining} left
-                      </span>
-                    ) : (
-                      <span className="badge b-green" style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, whiteSpace: 'nowrap' }}>
-                        ✓ Done
-                      </span>
-                    )}
-
-                    {/* Actions */}
-                    {!isSettled && (
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        <button
-                          className="btn btn-ghost btn-sm"
-                          style={{ height: 26, width: 26, display: 'inline-flex', padding: 0, alignItems: 'center', justifyContent: 'center', borderRadius: 6, background: 'transparent' }}
-                          title="Edit log"
-                          onClick={() => onStartEdit(entry)}
-                        >
-                          ✏️
-                        </button>
-                        <button
-                          className="btn btn-ghost btn-sm"
-                          style={{ height: 26, width: 26, display: 'inline-flex', padding: 0, alignItems: 'center', justifyContent: 'center', borderRadius: 6, background: 'transparent', color: 'var(--red)', borderColor: '#fca5a5' }}
-                          title="Delete log"
-                          onClick={() => onDelete(entry)}
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    )}
+                  <div style={{ background: '#e2e8f0', height: 6, borderRadius: 3, overflow: 'hidden', display: 'flex' }}>
+                    <div
+                      style={{
+                        background: entry.completed_pcs >= entry.allocated_pcs ? '#10b981' : '#f59e0b',
+                        width: `${Math.min(100, pct)}%`,
+                        height: '100%',
+                        borderRadius: 3,
+                        transition: 'width 0.3s ease'
+                      }}
+                    />
                   </div>
                 </div>
-              );
-            }
-            return null;
+
+                {/* Badges / Status */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  {isSettled ? (
+                    <span className="badge b-green" style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, whiteSpace: 'nowrap' }}>
+                      ✓ Settled
+                    </span>
+                  ) : remaining > 0 ? (
+                    <span className="badge b-yellow" style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, whiteSpace: 'nowrap' }}>
+                      ⏳ {remaining} left
+                    </span>
+                  ) : (
+                    <span className="badge b-green" style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, whiteSpace: 'nowrap' }}>
+                      ✓ Done
+                    </span>
+                  )}
+
+                  {/* Actions */}
+                  {!isSettled && (
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        style={{ height: 26, width: 26, display: 'inline-flex', padding: 0, alignItems: 'center', justifyContent: 'center', borderRadius: 6, background: 'transparent' }}
+                        title="Edit log"
+                        onClick={() => onStartEdit(entry)}
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        style={{ height: 26, width: 26, display: 'inline-flex', padding: 0, alignItems: 'center', justifyContent: 'center', borderRadius: 6, background: 'transparent', color: 'var(--red)', borderColor: '#fca5a5' }}
+                        title="Delete log"
+                        onClick={() => onDelete(entry)}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
           })}
         </div>
       )}
@@ -1335,7 +1337,7 @@ function StaffCard({ staff, workType, activeDate, saving, editEntry, newEntry, s
             onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = 'var(--accent)'; }}
             onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--muted)'; }}
           >
-            <option value="" disabled>+ Select Product...</option>
+            <option value="" disabled>+ Select Product to Log Work...</option>
             {products.map(p => (
               <option key={p.category} value={p.category}>
                 {getProductLabel(p.category)}

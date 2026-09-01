@@ -50,7 +50,20 @@ export async function getBatches(req: AuthRequest, res: Response): Promise<void>
     const enrichBatch = (b: any) => ({
       ...b,
       items: itemsByBatch.get(b.id) || [
-        { id: null, category: b.category, size: null, quantity: b.quantity, cut_rate: b.cut_rate, stitch_rate: b.stitch_rate }
+        {
+          id: null,
+          category: b.category,
+          size: null,
+          quantity: b.quantity,
+          cut_rate: b.cut_rate,
+          stitch_rate: b.stitch_rate,
+          zip_cost: 0,
+          thread_cost: 0,
+          canvas_cost: 0,
+          plastic_cost: 0,
+          lace_cost: 0,
+          logistics_cost: 0,
+        }
       ]
     });
 
@@ -124,7 +137,20 @@ export async function createBatch(req: AuthRequest, res: Response): Promise<void
     const batchNumber = `BATCH-${String(nextNum).padStart(3, '0')}`;
 
     // Normalize items
-    let parsedItems: Array<{ category: string, size?: string | null, quantity: number, cut_rate?: number, stitch_rate?: number }> = [];
+    let parsedItems: Array<{
+      category: string;
+      size?: string | null;
+      quantity: number;
+      cut_rate?: number;
+      stitch_rate?: number;
+      zip_cost?: number;
+      thread_cost?: number;
+      canvas_cost?: number;
+      plastic_cost?: number;
+      lace_cost?: number;
+      logistics_cost?: number;
+    }> = [];
+
     if (Array.isArray(items) && items.length > 0) {
       parsedItems = items
         .filter(it => it && (Number(it.quantity) > 0 || it.category))
@@ -134,6 +160,12 @@ export async function createBatch(req: AuthRequest, res: Response): Promise<void
           quantity: Number(it.quantity) || 0,
           cut_rate: it.cut_rate !== undefined && it.cut_rate !== null ? Number(it.cut_rate) : undefined,
           stitch_rate: it.stitch_rate !== undefined && it.stitch_rate !== null ? Number(it.stitch_rate) : undefined,
+          zip_cost: it.zip_cost !== undefined && it.zip_cost !== null ? Number(it.zip_cost) : undefined,
+          thread_cost: it.thread_cost !== undefined && it.thread_cost !== null ? Number(it.thread_cost) : undefined,
+          canvas_cost: it.canvas_cost !== undefined && it.canvas_cost !== null ? Number(it.canvas_cost) : undefined,
+          plastic_cost: it.plastic_cost !== undefined && it.plastic_cost !== null ? Number(it.plastic_cost) : undefined,
+          lace_cost: it.lace_cost !== undefined && it.lace_cost !== null ? Number(it.lace_cost) : undefined,
+          logistics_cost: it.logistics_cost !== undefined && it.logistics_cost !== null ? Number(it.logistics_cost) : undefined,
         }));
     }
 
@@ -144,16 +176,31 @@ export async function createBatch(req: AuthRequest, res: Response): Promise<void
         quantity: Number(quantity) || 0,
         cut_rate: cut_rate !== undefined && cut_rate !== null ? Number(cut_rate) : undefined,
         stitch_rate: stitch_rate !== undefined && stitch_rate !== null ? Number(stitch_rate) : undefined,
+        zip_cost: req.body.zip_cost !== undefined ? Number(req.body.zip_cost) : undefined,
+        thread_cost: req.body.thread_cost !== undefined ? Number(req.body.thread_cost) : undefined,
+        canvas_cost: req.body.canvas_cost !== undefined ? Number(req.body.canvas_cost) : undefined,
+        plastic_cost: req.body.plastic_cost !== undefined ? Number(req.body.plastic_cost) : undefined,
+        lace_cost: req.body.lace_cost !== undefined ? Number(req.body.lace_cost) : undefined,
+        logistics_cost: req.body.logistics_cost !== undefined ? Number(req.body.logistics_cost) : undefined,
       }];
     }
 
-    // Resolve rates from product_config for any item missing rates
-    const [cfgRows] = await conn.execute('SELECT category, cut_rate, stitch_rate FROM product_config WHERE tenant_id=?', [tenantId]) as any[];
-    const configMap = new Map<string, { cut_rate: number, stitch_rate: number }>();
+    // Resolve rates and accessories from product_config for any item missing rates
+    const [cfgRows] = await conn.execute(
+      'SELECT category, cut_rate, stitch_rate, zip_cost, thread_cost, canvas_cost, plastic_cost, lace_cost, logistics_cost FROM product_config WHERE tenant_id=?',
+      [tenantId]
+    ) as any[];
+    const configMap = new Map<string, any>();
     for (const c of (cfgRows as any[])) {
       configMap.set((c.category || '').toLowerCase(), {
         cut_rate: Number(c.cut_rate ?? 5.00),
-        stitch_rate: Number(c.stitch_rate ?? 15.00)
+        stitch_rate: Number(c.stitch_rate ?? 15.00),
+        zip_cost: Number(c.zip_cost ?? 0.00),
+        thread_cost: Number(c.thread_cost ?? 0.00),
+        canvas_cost: Number(c.canvas_cost ?? 0.00),
+        plastic_cost: Number(c.plastic_cost ?? 0.00),
+        lace_cost: Number(c.lace_cost ?? 0.00),
+        logistics_cost: Number(c.logistics_cost ?? 0.00),
       });
     }
 
@@ -163,9 +210,25 @@ export async function createBatch(req: AuthRequest, res: Response): Promise<void
     let weightedStitchSum = 0;
 
     for (const it of parsedItems) {
-      const cfg = configMap.get((it.category || '').toLowerCase()) || { cut_rate: 5.00, stitch_rate: 15.00 };
+      const cfg = configMap.get((it.category || '').toLowerCase()) || {
+        cut_rate: 5.00,
+        stitch_rate: 15.00,
+        zip_cost: 0,
+        thread_cost: 0,
+        canvas_cost: 0,
+        plastic_cost: 0,
+        lace_cost: 0,
+        logistics_cost: 0,
+      };
       if (it.cut_rate === undefined || isNaN(it.cut_rate)) it.cut_rate = cfg.cut_rate;
       if (it.stitch_rate === undefined || isNaN(it.stitch_rate)) it.stitch_rate = cfg.stitch_rate;
+      if (it.zip_cost === undefined || isNaN(it.zip_cost)) it.zip_cost = cfg.zip_cost;
+      if (it.thread_cost === undefined || isNaN(it.thread_cost)) it.thread_cost = cfg.thread_cost;
+      if (it.canvas_cost === undefined || isNaN(it.canvas_cost)) it.canvas_cost = cfg.canvas_cost;
+      if (it.plastic_cost === undefined || isNaN(it.plastic_cost)) it.plastic_cost = cfg.plastic_cost;
+      if (it.lace_cost === undefined || isNaN(it.lace_cost)) it.lace_cost = cfg.lace_cost;
+      if (it.logistics_cost === undefined || isNaN(it.logistics_cost)) it.logistics_cost = cfg.logistics_cost;
+
       totalQuantity += it.quantity;
       weightedCutSum += (it.cut_rate || 0) * (it.quantity || 1);
       weightedStitchSum += (it.stitch_rate || 0) * (it.quantity || 1);
@@ -182,11 +245,34 @@ export async function createBatch(req: AuthRequest, res: Response): Promise<void
 
     // Insert batch items
     for (const it of parsedItems) {
-      await conn.execute(
-        `INSERT INTO production_batch_items (tenant_id, batch_id, category, size, quantity, cut_rate, stitch_rate)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [tenantId, batchId, it.category, it.size || null, it.quantity, it.cut_rate, it.stitch_rate]
-      );
+      try {
+        await conn.execute(
+          `INSERT INTO production_batch_items (tenant_id, batch_id, category, size, quantity, cut_rate, stitch_rate, zip_cost, thread_cost, canvas_cost, plastic_cost, lace_cost, logistics_cost)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            tenantId,
+            batchId,
+            it.category,
+            it.size || null,
+            it.quantity,
+            it.cut_rate || 0,
+            it.stitch_rate || 0,
+            it.zip_cost || 0,
+            it.thread_cost || 0,
+            it.canvas_cost || 0,
+            it.plastic_cost || 0,
+            it.lace_cost || 0,
+            it.logistics_cost || 0,
+          ]
+        );
+      } catch {
+        // Fallback for older schema without accessory columns
+        await conn.execute(
+          `INSERT INTO production_batch_items (tenant_id, batch_id, category, size, quantity, cut_rate, stitch_rate)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [tenantId, batchId, it.category, it.size || null, it.quantity, it.cut_rate || 0, it.stitch_rate || 0]
+        );
+      }
 
       // stock: mark as allocated
       if (it.quantity > 0) {
@@ -228,7 +314,20 @@ export async function getBatchDetail(req: AuthRequest, res: Response): Promise<v
       batch: {
         ...batches[0],
         items: items.length > 0 ? items : [
-          { id: null, category: batches[0].category, size: null, quantity: batches[0].quantity, cut_rate: batches[0].cut_rate, stitch_rate: batches[0].stitch_rate }
+          {
+            id: null,
+            category: batches[0].category,
+            size: null,
+            quantity: batches[0].quantity,
+            cut_rate: batches[0].cut_rate,
+            stitch_rate: batches[0].stitch_rate,
+            zip_cost: 0,
+            thread_cost: 0,
+            canvas_cost: 0,
+            plastic_cost: 0,
+            lace_cost: 0,
+            logistics_cost: 0,
+          }
         ]
       },
       workLogs: []
@@ -302,11 +401,33 @@ export async function updateBatch(req: AuthRequest, res: Response): Promise<void
       // Replace batch items
       await conn.execute('DELETE FROM production_batch_items WHERE batch_id=? AND tenant_id=?', [id, tenantId]);
       for (const it of validItems) {
-        await conn.execute(
-          `INSERT INTO production_batch_items (tenant_id, batch_id, category, size, quantity, cut_rate, stitch_rate)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [tenantId, id, it.category, it.size ? String(it.size).trim() : null, Number(it.quantity) || 0, Number(it.cut_rate) || 0, Number(it.stitch_rate) || 0]
-        );
+        try {
+          await conn.execute(
+            `INSERT INTO production_batch_items (tenant_id, batch_id, category, size, quantity, cut_rate, stitch_rate, zip_cost, thread_cost, canvas_cost, plastic_cost, lace_cost, logistics_cost)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              tenantId,
+              id,
+              it.category,
+              it.size ? String(it.size).trim() : null,
+              Number(it.quantity) || 0,
+              Number(it.cut_rate) || 0,
+              Number(it.stitch_rate) || 0,
+              Number(it.zip_cost) || 0,
+              Number(it.thread_cost) || 0,
+              Number(it.canvas_cost) || 0,
+              Number(it.plastic_cost) || 0,
+              Number(it.lace_cost) || 0,
+              Number(it.logistics_cost) || 0,
+            ]
+          );
+        } catch {
+          await conn.execute(
+            `INSERT INTO production_batch_items (tenant_id, batch_id, category, size, quantity, cut_rate, stitch_rate)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [tenantId, id, it.category, it.size ? String(it.size).trim() : null, Number(it.quantity) || 0, Number(it.cut_rate) || 0, Number(it.stitch_rate) || 0]
+          );
+        }
       }
     } else {
       if (quantity !== undefined)    { sets.push('quantity=?');    vals.push(Number(quantity)); }
