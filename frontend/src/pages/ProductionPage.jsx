@@ -223,6 +223,250 @@ function CostCard({ cfg, cardQty, totalPcs, rent, electricity, onQtyChange, fabr
   );
 }
 
+function BatchItemRowEditor({ item, idx, configs, onUpdate, onRemove, onResetRates, canRemove }) {
+  const currentCfg = configs.find(c => (c.category || '').toLowerCase() === (item.category || '').toLowerCase()) || {};
+  const configuredSizes = (currentCfg?.size_rates || []).map(s => s.size_label).filter(Boolean);
+  const sizeOptions = configuredSizes.length > 0 ? configuredSizes : ['Free Size', 'S', 'M', 'L', 'XL', 'XXL', '38', '40', '42', '44'];
+
+  const cut = Number(item.cut_rate ?? currentCfg.cut_rate ?? 5.00);
+  const stitch = Number(item.stitch_rate ?? currentCfg.stitch_rate ?? 15.00);
+  const zip = Number(item.zip_cost ?? currentCfg.zip_cost ?? 0);
+  const thread = Number(item.thread_cost ?? currentCfg.thread_cost ?? 0);
+  const canvas = Number(item.canvas_cost ?? currentCfg.canvas_cost ?? 0);
+  const plastic = Number(item.plastic_cost ?? currentCfg.plastic_cost ?? 0);
+  const lace = Number(item.lace_cost ?? currentCfg.lace_cost ?? 0);
+  const logistics = Number(item.logistics_cost ?? currentCfg.logistics_cost ?? 0);
+
+  const labourTotal = cut + stitch;
+  const accTotal = zip + thread + canvas + plastic + lace + logistics;
+
+  return (
+    <div style={{
+      background: '#f8fafc',
+      border: '1px solid #e2e8f0',
+      borderRadius: 10,
+      padding: '12px 14px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 10,
+    }}>
+      {/* Primary Row */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr)) 36px',
+        gap: 10,
+        alignItems: 'center'
+      }}>
+        <div>
+          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 3 }}>Product Category</label>
+          <select value={item.category} onChange={e => onUpdate('category', e.target.value)} style={{ width: '100%', fontWeight: 600 }}>
+            {configs.map(c => <option key={c.category} value={c.category}>{c.display_name || c.name || getProductLabel(c.category, configs)}</option>)}
+          </select>
+        </div>
+
+        <div>
+          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 3 }}>Size (Optional)</label>
+          <input
+            type="text"
+            placeholder="e.g. M, L, XL, Free"
+            value={item.size || ''}
+            onChange={e => onUpdate('size', e.target.value)}
+            style={{ width: '100%' }}
+          />
+        </div>
+
+        <div>
+          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 3 }}>Qty (pcs) *</label>
+          <input
+            type="number"
+            placeholder="0"
+            value={item.quantity}
+            onChange={e => onUpdate('quantity', e.target.value)}
+            style={{ width: '100%', fontWeight: 800, color: 'var(--accent)' }}
+          />
+        </div>
+
+        <div>
+          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 3 }}>Cut Rate (₹)</label>
+          <input
+            type="number"
+            step="0.01"
+            value={item.cut_rate}
+            onChange={e => onUpdate('cut_rate', e.target.value)}
+            style={{ width: '100%' }}
+          />
+        </div>
+
+        <div>
+          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 3 }}>Stitch Rate (₹)</label>
+          <input
+            type="number"
+            step="0.01"
+            value={item.stitch_rate}
+            onChange={e => onUpdate('stitch_rate', e.target.value)}
+            style={{ width: '100%' }}
+          />
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 14 }}>
+          <button
+            type="button"
+            onClick={onRemove}
+            disabled={!canRemove}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: canRemove ? '#ef4444' : '#cbd5e1',
+              cursor: canRemove ? 'pointer' : 'not-allowed',
+              fontSize: 18
+            }}
+            title="Remove Line"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+
+      {/* Quick Size Chips Selection */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Quick Size:</span>
+        {sizeOptions.map(sz => (
+          <button
+            key={sz}
+            type="button"
+            onClick={() => onUpdate('size', (item.size || '') === sz ? '' : sz)}
+            style={{
+              padding: '2px 8px',
+              borderRadius: 6,
+              fontSize: 11,
+              fontWeight: 600,
+              border: '1px solid',
+              borderColor: (item.size || '') === sz ? 'var(--accent)' : '#cbd5e1',
+              background: (item.size || '') === sz ? '#ede9fe' : '#ffffff',
+              color: (item.size || '') === sz ? '#6d28d9' : '#475569',
+              cursor: 'pointer',
+              transition: 'all 0.15s'
+            }}
+          >
+            {sz}
+          </button>
+        ))}
+      </div>
+
+      {/* Custom Accessories & Labour Toggle Bar */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        background: '#f1f5f9',
+        borderRadius: 8,
+        padding: '6px 10px',
+        fontSize: 12,
+        flexWrap: 'wrap',
+        gap: 6
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#475569', fontSize: 11 }}>
+          <span>👷 Labour: <b>₹{labourTotal.toFixed(2)}</b>/pc</span>
+          <span>·</span>
+          <span>🧰 Accessories: <b>₹{accTotal.toFixed(2)}</b>/pc</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <button
+            type="button"
+            onClick={() => onUpdate('showCustomRates', !item.showCustomRates)}
+            style={{
+              background: item.showCustomRates ? 'var(--accent)' : '#fff',
+              color: item.showCustomRates ? '#fff' : 'var(--accent)',
+              border: '1px solid var(--accent)',
+              borderRadius: 6,
+              padding: '3px 8px',
+              fontSize: 11,
+              fontWeight: 700,
+              cursor: 'pointer',
+            }}
+          >
+            {item.showCustomRates ? '▲ Hide Accessories & Labour' : '⚙️ Edit Accessories & Labour Rates'}
+          </button>
+        </div>
+      </div>
+
+      {/* Expanded Accessories & Labour Editor */}
+      {item.showCustomRates && (
+        <div style={{
+          background: '#fff',
+          border: '1px solid #cbd5e1',
+          borderRadius: 8,
+          padding: 12,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase' }}>
+              Custom Labour &amp; Accessories Rates (per piece for this item)
+            </span>
+            <button
+              type="button"
+              onClick={onResetRates}
+              style={{
+                background: '#f8fafc',
+                border: '1px solid #cbd5e1',
+                borderRadius: 4,
+                padding: '2px 8px',
+                fontSize: 10,
+                fontWeight: 700,
+                color: 'var(--muted)',
+                cursor: 'pointer'
+              }}
+            >
+              ↺ Reset to Defaults
+            </button>
+          </div>
+
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))',
+            gap: 8
+          }}>
+            <div>
+              <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>✂️ Cut Rate (₹)</label>
+              <input type="number" step="0.01" value={item.cut_rate} onChange={e => onUpdate('cut_rate', e.target.value)} style={{ width: '100%', fontSize: 12, padding: '4px 6px' }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>🧵 Stitch Rate (₹)</label>
+              <input type="number" step="0.01" value={item.stitch_rate} onChange={e => onUpdate('stitch_rate', e.target.value)} style={{ width: '100%', fontSize: 12, padding: '4px 6px' }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>🤐 Zip Cost (₹)</label>
+              <input type="number" step="0.01" value={item.zip_cost} onChange={e => onUpdate('zip_cost', e.target.value)} style={{ width: '100%', fontSize: 12, padding: '4px 6px' }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>🧵 Thread (₹)</label>
+              <input type="number" step="0.01" value={item.thread_cost} onChange={e => onUpdate('thread_cost', e.target.value)} style={{ width: '100%', fontSize: 12, padding: '4px 6px' }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>📜 Canvas (₹)</label>
+              <input type="number" step="0.01" value={item.canvas_cost} onChange={e => onUpdate('canvas_cost', e.target.value)} style={{ width: '100%', fontSize: 12, padding: '4px 6px' }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>📦 Packaging (₹)</label>
+              <input type="number" step="0.01" value={item.plastic_cost} onChange={e => onUpdate('plastic_cost', e.target.value)} style={{ width: '100%', fontSize: 12, padding: '4px 6px' }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>🎀 Lace (₹)</label>
+              <input type="number" step="0.01" value={item.lace_cost} onChange={e => onUpdate('lace_cost', e.target.value)} style={{ width: '100%', fontSize: 12, padding: '4px 6px' }} />
+            </div>
+            <div>
+              <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>🚚 Other/Logistics (₹)</label>
+              <input type="number" step="0.01" value={item.logistics_cost} onChange={e => onUpdate('logistics_cost', e.target.value)} style={{ width: '100%', fontSize: 12, padding: '4px 6px' }} />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ProductionPage() {
   const [batches, setBatches]         = useState([]);
   const [activeBatches, setActiveBatches] = useState([]);
@@ -260,6 +504,13 @@ export default function ProductionPage() {
       quantity: '',
       cut_rate: cfg.cut_rate ?? 5.00,
       stitch_rate: cfg.stitch_rate ?? 15.00,
+      zip_cost: cfg.zip_cost ?? 0.00,
+      thread_cost: cfg.thread_cost ?? 0.00,
+      canvas_cost: cfg.canvas_cost ?? 0.00,
+      plastic_cost: cfg.plastic_cost ?? 0.00,
+      lace_cost: cfg.lace_cost ?? 0.00,
+      logistics_cost: cfg.logistics_cost ?? 0.00,
+      showCustomRates: false,
     };
   };
 
@@ -288,16 +539,22 @@ export default function ProductionPage() {
       const c = cfgs.find(cfg => (cfg.category || '').toLowerCase() === (it.category || '').toLowerCase()) || {};
       const cCut = it.cut_rate !== undefined && it.cut_rate !== '' ? parseFloat(it.cut_rate) : Number(c.cut_rate || 5.00);
       const cStitch = it.stitch_rate !== undefined && it.stitch_rate !== '' ? parseFloat(it.stitch_rate) : Number(c.stitch_rate || 15.00);
+      const cZip = it.zip_cost !== undefined && it.zip_cost !== '' ? parseFloat(it.zip_cost) : Number(c.zip_cost || 0);
+      const cThread = it.thread_cost !== undefined && it.thread_cost !== '' ? parseFloat(it.thread_cost) : Number(c.thread_cost || 0);
+      const cCanvas = it.canvas_cost !== undefined && it.canvas_cost !== '' ? parseFloat(it.canvas_cost) : Number(c.canvas_cost || 0);
+      const cPlastic = it.plastic_cost !== undefined && it.plastic_cost !== '' ? parseFloat(it.plastic_cost) : Number(c.plastic_cost || 0);
+      const cLace = it.lace_cost !== undefined && it.lace_cost !== '' ? parseFloat(it.lace_cost) : Number(c.lace_cost || 0);
+      const cLogistics = it.logistics_cost !== undefined && it.logistics_cost !== '' ? parseFloat(it.logistics_cost) : Number(c.logistics_cost || 0);
 
       totalQty += q;
       cutTotal += q * cCut;
       stitchTotal += q * cStitch;
-      zipTotal += q * Number(c.zip_cost || 0);
-      threadTotal += q * Number(c.thread_cost || 0);
-      canvasTotal += q * Number(c.canvas_cost || 0);
-      plasticTotal += q * Number(c.plastic_cost || 0);
-      laceTotal += q * Number(c.lace_cost || 0);
-      logisticsTotal += q * Number(c.logistics_cost || 0);
+      zipTotal += q * cZip;
+      threadTotal += q * cThread;
+      canvasTotal += q * cCanvas;
+      plasticTotal += q * cPlastic;
+      laceTotal += q * cLace;
+      logisticsTotal += q * cLogistics;
     });
 
     const labourTotal = cutTotal + stitchTotal;
@@ -403,7 +660,34 @@ export default function ProductionPage() {
         const cfg = configs.find(c => (c.category || '').toLowerCase() === (value || '').toLowerCase()) || {};
         updated[idx].cut_rate = cfg.cut_rate ?? 5.00;
         updated[idx].stitch_rate = cfg.stitch_rate ?? 15.00;
+        updated[idx].zip_cost = cfg.zip_cost ?? 0.00;
+        updated[idx].thread_cost = cfg.thread_cost ?? 0.00;
+        updated[idx].canvas_cost = cfg.canvas_cost ?? 0.00;
+        updated[idx].plastic_cost = cfg.plastic_cost ?? 0.00;
+        updated[idx].lace_cost = cfg.lace_cost ?? 0.00;
+        updated[idx].logistics_cost = cfg.logistics_cost ?? 0.00;
       }
+      return { ...prev, items: updated };
+    });
+  };
+
+  const handleResetItemRatesToDefault = (idx, isEdit = false) => {
+    const setter = isEdit ? setEditBatch : setForm;
+    setter(prev => {
+      const updated = [...prev.items];
+      const item = updated[idx];
+      const cfg = configs.find(c => (c.category || '').toLowerCase() === (item.category || '').toLowerCase()) || {};
+      updated[idx] = {
+        ...item,
+        cut_rate: cfg.cut_rate ?? 5.00,
+        stitch_rate: cfg.stitch_rate ?? 15.00,
+        zip_cost: cfg.zip_cost ?? 0.00,
+        thread_cost: cfg.thread_cost ?? 0.00,
+        canvas_cost: cfg.canvas_cost ?? 0.00,
+        plastic_cost: cfg.plastic_cost ?? 0.00,
+        lace_cost: cfg.lace_cost ?? 0.00,
+        logistics_cost: cfg.logistics_cost ?? 0.00,
+      };
       return { ...prev, items: updated };
     });
   };
@@ -431,6 +715,12 @@ export default function ProductionPage() {
         quantity: parseFloat(it.quantity) || 0,
         cut_rate: parseFloat(it.cut_rate) || 0,
         stitch_rate: parseFloat(it.stitch_rate) || 0,
+        zip_cost: parseFloat(it.zip_cost) || 0,
+        thread_cost: parseFloat(it.thread_cost) || 0,
+        canvas_cost: parseFloat(it.canvas_cost) || 0,
+        plastic_cost: parseFloat(it.plastic_cost) || 0,
+        lace_cost: parseFloat(it.lace_cost) || 0,
+        logistics_cost: parseFloat(it.logistics_cost) || 0,
       }))
     });
     setShowNew(false);
@@ -461,21 +751,25 @@ export default function ProductionPage() {
 
   const openEditBatchModal = (b) => {
     const batchItems = Array.isArray(b.items) && b.items.length > 0
-      ? b.items.map(it => ({
-          category: it.category,
-          size: it.size || '',
-          quantity: it.quantity,
-          cut_rate: it.cut_rate ?? b.cut_rate ?? 5.00,
-          stitch_rate: it.stitch_rate ?? b.stitch_rate ?? 15.00,
-        }))
+      ? b.items.map(it => {
+          const cfg = configs.find(c => (c.category || '').toLowerCase() === (it.category || '').toLowerCase()) || {};
+          return {
+            category: it.category,
+            size: it.size || '',
+            quantity: it.quantity,
+            cut_rate: it.cut_rate !== undefined && it.cut_rate !== null ? it.cut_rate : (b.cut_rate ?? cfg.cut_rate ?? 5.00),
+            stitch_rate: it.stitch_rate !== undefined && it.stitch_rate !== null ? it.stitch_rate : (b.stitch_rate ?? cfg.stitch_rate ?? 15.00),
+            zip_cost: it.zip_cost !== undefined && it.zip_cost !== null ? it.zip_cost : (cfg.zip_cost ?? 0),
+            thread_cost: it.thread_cost !== undefined && it.thread_cost !== null ? it.thread_cost : (cfg.thread_cost ?? 0),
+            canvas_cost: it.canvas_cost !== undefined && it.canvas_cost !== null ? it.canvas_cost : (cfg.canvas_cost ?? 0),
+            plastic_cost: it.plastic_cost !== undefined && it.plastic_cost !== null ? it.plastic_cost : (cfg.plastic_cost ?? 0),
+            lace_cost: it.lace_cost !== undefined && it.lace_cost !== null ? it.lace_cost : (cfg.lace_cost ?? 0),
+            logistics_cost: it.logistics_cost !== undefined && it.logistics_cost !== null ? it.logistics_cost : (cfg.logistics_cost ?? 0),
+            showCustomRates: false,
+          };
+        })
       : [
-          {
-            category: b.category,
-            size: '',
-            quantity: b.quantity,
-            cut_rate: b.cut_rate || 5.00,
-            stitch_rate: b.stitch_rate || 15.00,
-          }
+          defaultItemRow(b.category, configs)
         ];
 
     setEditBatch({
@@ -503,6 +797,12 @@ export default function ProductionPage() {
         const cfg = configs.find(c => (c.category || '').toLowerCase() === (value || '').toLowerCase()) || {};
         updated[idx].cut_rate = cfg.cut_rate ?? 5.00;
         updated[idx].stitch_rate = cfg.stitch_rate ?? 15.00;
+        updated[idx].zip_cost = cfg.zip_cost ?? 0.00;
+        updated[idx].thread_cost = cfg.thread_cost ?? 0.00;
+        updated[idx].canvas_cost = cfg.canvas_cost ?? 0.00;
+        updated[idx].plastic_cost = cfg.plastic_cost ?? 0.00;
+        updated[idx].lace_cost = cfg.lace_cost ?? 0.00;
+        updated[idx].logistics_cost = cfg.logistics_cost ?? 0.00;
       }
       return { ...prev, items: updated };
     });
@@ -528,6 +828,12 @@ export default function ProductionPage() {
         quantity: parseFloat(it.quantity) || 0,
         cut_rate: parseFloat(it.cut_rate) || 0,
         stitch_rate: parseFloat(it.stitch_rate) || 0,
+        zip_cost: parseFloat(it.zip_cost) || 0,
+        thread_cost: parseFloat(it.thread_cost) || 0,
+        canvas_cost: parseFloat(it.canvas_cost) || 0,
+        plastic_cost: parseFloat(it.plastic_cost) || 0,
+        lace_cost: parseFloat(it.lace_cost) || 0,
+        logistics_cost: parseFloat(it.logistics_cost) || 0,
       }))
     });
     setEditBatch(null);
@@ -915,11 +1221,19 @@ export default function ProductionPage() {
                     <th style={{ textAlign: 'right' }}>Qty</th>
                     <th style={{ textAlign: 'right' }}>Cut Rate</th>
                     <th style={{ textAlign: 'right' }}>Stitch Rate</th>
+                    <th style={{ textAlign: 'right' }}>Acc. / pc</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(detail.batch?.items || [{ category: detail.batch?.category, size: null, quantity: detail.batch?.quantity, cut_rate: detail.batch?.cut_rate, stitch_rate: detail.batch?.stitch_rate }]).map((it, idx) => {
                     const itCfg = configs.find(c => (c.category || '').toLowerCase() === (it.category || '').toLowerCase()) || {};
+                    const itAcc = (it.zip_cost !== undefined ? Number(it.zip_cost) : Number(itCfg.zip_cost || 0)) +
+                      (it.thread_cost !== undefined ? Number(it.thread_cost) : Number(itCfg.thread_cost || 0)) +
+                      (it.canvas_cost !== undefined ? Number(it.canvas_cost) : Number(itCfg.canvas_cost || 0)) +
+                      (it.plastic_cost !== undefined ? Number(it.plastic_cost) : Number(itCfg.plastic_cost || 0)) +
+                      (it.lace_cost !== undefined ? Number(it.lace_cost) : Number(itCfg.lace_cost || 0)) +
+                      (it.logistics_cost !== undefined ? Number(it.logistics_cost) : Number(itCfg.logistics_cost || 0));
+
                     return (
                       <tr key={idx}>
                         <td style={{ fontWeight: 600 }}>{itCfg.display_name || itCfg.name || getProductLabel(it.category, configs)}</td>
@@ -927,6 +1241,7 @@ export default function ProductionPage() {
                         <td style={{ textAlign: 'right', fontWeight: 700 }}>{it.quantity} pcs</td>
                         <td style={{ textAlign: 'right', color: 'var(--accent)' }}>₹{Number(it.cut_rate || 0).toFixed(2)}</td>
                         <td style={{ textAlign: 'right', color: 'var(--cyan)' }}>₹{Number(it.stitch_rate || 0).toFixed(2)}</td>
+                        <td style={{ textAlign: 'right', color: 'var(--green)' }}>₹{itAcc.toFixed(2)}</td>
                       </tr>
                     );
                   })}
@@ -1031,89 +1346,25 @@ export default function ProductionPage() {
             <div style={{ marginBottom: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                 <label style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: 'var(--muted)', letterSpacing: '.5px' }}>
-                  📦 Batch Items (Categories & Optional Sizes)
+                  📦 Batch Items (Categories, Sizes &amp; Custom Rates)
                 </label>
                 <button type="button" className="btn btn-ghost btn-sm" onClick={handleAddItemRow} style={{ color: 'var(--accent)', fontWeight: 700 }}>
                   + Add Item / Size Line
                 </button>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {form.items.map((it, idx) => (
-                  <div key={idx} style={{
-                    background: '#f8fafc',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: 8,
-                    padding: 12,
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr)) 36px',
-                    gap: 8,
-                    alignItems: 'center'
-                  }}>
-                    <div>
-                      <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Product Category</label>
-                      <select value={it.category} onChange={e => handleUpdateItemRow(idx, 'category', e.target.value)} style={{ width: '100%' }}>
-                        {configs.map(c => <option key={c.category} value={c.category}>{c.display_name || c.name || getProductLabel(c.category, configs)}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Size (Optional)</label>
-                      <input
-                        type="text"
-                        placeholder="e.g. M, L, XL, Free"
-                        value={it.size}
-                        onChange={e => handleUpdateItemRow(idx, 'size', e.target.value)}
-                        style={{ width: '100%' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Qty (pcs) *</label>
-                      <input
-                        type="number"
-                        placeholder="0"
-                        value={it.quantity}
-                        onChange={e => handleUpdateItemRow(idx, 'quantity', e.target.value)}
-                        style={{ width: '100%', fontWeight: 700 }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Cut Rate (₹)</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={it.cut_rate}
-                        onChange={e => handleUpdateItemRow(idx, 'cut_rate', e.target.value)}
-                        style={{ width: '100%' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Stitch Rate (₹)</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={it.stitch_rate}
-                        onChange={e => handleUpdateItemRow(idx, 'stitch_rate', e.target.value)}
-                        style={{ width: '100%' }}
-                      />
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 14 }}>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveItemRow(idx)}
-                        disabled={form.items.length <= 1}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          color: form.items.length > 1 ? '#ef4444' : '#cbd5e1',
-                          cursor: form.items.length > 1 ? 'pointer' : 'not-allowed',
-                          fontSize: 18
-                        }}
-                        title="Remove Line"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  </div>
+                  <BatchItemRowEditor
+                    key={idx}
+                    item={it}
+                    idx={idx}
+                    configs={configs}
+                    onUpdate={(field, val) => handleUpdateItemRow(idx, field, val)}
+                    onRemove={() => handleRemoveItemRow(idx)}
+                    onResetRates={() => handleResetItemRatesToDefault(idx, false)}
+                    canRemove={form.items.length > 1}
+                  />
                 ))}
               </div>
             </div>
@@ -1190,88 +1441,25 @@ export default function ProductionPage() {
             <div style={{ marginBottom: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                 <label style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: 'var(--muted)', letterSpacing: '.5px' }}>
-                  📦 Batch Items (Categories & Sizes)
+                  📦 Batch Items (Categories, Sizes &amp; Custom Rates)
                 </label>
                 <button type="button" className="btn btn-ghost btn-sm" onClick={handleAddEditBatchItem} style={{ color: 'var(--accent)', fontWeight: 700 }}>
                   + Add Item / Size Line
                 </button>
               </div>
 
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {editBatch.items.map((it, idx) => (
-                  <div key={idx} style={{
-                    background: '#f8fafc',
-                    border: '1px solid #e2e8f0',
-                    borderRadius: 8,
-                    padding: 12,
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr)) 36px',
-                    gap: 8,
-                    alignItems: 'center'
-                  }}>
-                    <div>
-                      <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Product Category</label>
-                      <select value={it.category} onChange={e => handleUpdateEditBatchItem(idx, 'category', e.target.value)} style={{ width: '100%' }}>
-                        {configs.map(c => <option key={c.category} value={c.category}>{c.display_name || c.name || getProductLabel(c.category, configs)}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Size (Optional)</label>
-                      <input
-                        type="text"
-                        placeholder="e.g. M, L, XL"
-                        value={it.size}
-                        onChange={e => handleUpdateEditBatchItem(idx, 'size', e.target.value)}
-                        style={{ width: '100%' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Qty (pcs) *</label>
-                      <input
-                        type="number"
-                        value={it.quantity}
-                        onChange={e => handleUpdateEditBatchItem(idx, 'quantity', e.target.value)}
-                        style={{ width: '100%', fontWeight: 700 }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Cut Rate (₹)</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={it.cut_rate}
-                        onChange={e => handleUpdateEditBatchItem(idx, 'cut_rate', e.target.value)}
-                        style={{ width: '100%' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Stitch Rate (₹)</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={it.stitch_rate}
-                        onChange={e => handleUpdateEditBatchItem(idx, 'stitch_rate', e.target.value)}
-                        style={{ width: '100%' }}
-                      />
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 14 }}>
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveEditBatchItem(idx)}
-                        disabled={editBatch.items.length <= 1}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          color: editBatch.items.length > 1 ? '#ef4444' : '#cbd5e1',
-                          cursor: editBatch.items.length > 1 ? 'pointer' : 'not-allowed',
-                          fontSize: 18
-                        }}
-                        title="Remove Line"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  </div>
+                  <BatchItemRowEditor
+                    key={idx}
+                    item={it}
+                    idx={idx}
+                    configs={configs}
+                    onUpdate={(field, val) => handleUpdateEditBatchItem(idx, field, val)}
+                    onRemove={() => handleRemoveEditBatchItem(idx)}
+                    onResetRates={() => handleResetItemRatesToDefault(idx, true)}
+                    canRemove={editBatch.items.length > 1}
+                  />
                 ))}
               </div>
             </div>
