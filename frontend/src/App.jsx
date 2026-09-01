@@ -36,7 +36,7 @@ const TITLES = {
   '/quotations': 'Quotations & Estimates',
   '/delivery-notes': 'Delivery Notes & Logistics Challans',
   '/staff':      'Staff & Payroll',
-  '/staff-log':  'Staff',
+  '/staff-log':  'Daily Staff Work Log',
   '/finance':    'Finance',
   '/settings':   'Settings',
   '/party-ledger': 'Party Ledger',
@@ -59,10 +59,7 @@ function Guard({ children, path, staffAdminOnly, superAdminOnly }) {
   if (!isSuperAdmin && superAdminOnly) return <Navigate to="/" replace />;
 
   // Staff admin trying to reach an owner/manager page → back to their log
-  if (isStaffAdmin && !staffAdminOnly) return <Navigate to="/staff-log" replace />;
-
-  // Owner/manager trying to reach a staff-admin-only page → back to dashboard
-  if (!isStaffAdmin && staffAdminOnly) return <Navigate to="/" replace />;
+  if (isStaffAdmin && path !== '/staff-log') return <Navigate to="/staff-log" replace />;
 
   return <Layout title={TITLES[path] || ''}>{children}</Layout>;
 }
@@ -78,7 +75,7 @@ export default function App() {
           <Route path="/onboard" element={<OnboardPage />} />
           <Route path="/register" element={<OnboardPage />} />
 
-          {/* Owner / partner / manager routes */}
+          {/* Owner / partner / manager / admin routes */}
           <Route path="/"           element={<Guard path="/"><DashboardPage /></Guard>} />
           <Route path="/items"      element={<Guard path="/items"><ItemsPage /></Guard>} />
           <Route path="/products"   element={<Guard path="/items"><ItemsPage /></Guard>} />
@@ -92,14 +89,13 @@ export default function App() {
           <Route path="/quotations" element={<Guard path="/quotations"><QuotationsPage /></Guard>} />
           <Route path="/delivery-notes" element={<Guard path="/delivery-notes"><DeliveryNotesPage /></Guard>} />
           <Route path="/staff"      element={<Guard path="/staff"><StaffPage /></Guard>} />
+          <Route path="/staff-log"  element={<Guard path="/staff-log"><StaffLogPage /></Guard>} />
           <Route path="/finance"    element={<Guard path="/finance"><FinancePage /></Guard>} />
           <Route path="/settings"   element={<Guard path="/settings"><SettingsPage /></Guard>} />
           <Route path="/party-ledger" element={<Guard path="/party-ledger"><PartyLedgerPage /></Guard>} />
           <Route path="/zatca"      element={<Guard path="/zatca"><ZatcaPage /></Guard>} />
           <Route path="/platform-tenants" element={<Guard path="/platform-tenants" superAdminOnly><PlatformTenantsPage /></Guard>} />
 
-          {/* Staff admin routes */}
-          <Route path="/staff-log"  element={<Guard path="/staff-log" staffAdminOnly><StaffLogPage /></Guard>} />
           <Route path="/staff-dir"  element={<Navigate to="/staff-log" replace />} />
 
           <Route path="*" element={<Navigate to="/" replace />} />

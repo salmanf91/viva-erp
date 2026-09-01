@@ -31,16 +31,29 @@ export default function StaffPage() {
   const [toggling, setToggling]   = useState(null);
   const [editingStaff, setEditingStaff] = useState(null);
 
-  // Work Entries state for Owner/Manager viewing and editing
+  // Work Entries state for Owner/Manager viewing, logging and editing
   const [historyRows, setHistoryRows] = useState([]);
   const [historyStaffFilter, setHistoryStaffFilter] = useState('');
   const [historyLoading, setHistoryLoading] = useState(false);
   const [editingEntry, setEditingEntry] = useState(null);
+  const [showAddEntry, setShowAddEntry] = useState(false);
+  const [configs, setConfigs] = useState([]);
   const [entryForm, setEntryForm] = useState({
     entry_date: '',
     completion_date: '',
-    category: 'shawl_nighty',
-    work_type: 'stitching',
+    category: 'ordinary_nighty',
+    size: '',
+    work_type: 'cutting',
+    allocated_pcs: '',
+    completed_pcs: '',
+  });
+  const [addEntryForm, setAddEntryForm] = useState({
+    staff_id: '',
+    entry_date: new Date().toISOString().slice(0, 10),
+    completion_date: new Date().toISOString().slice(0, 10),
+    category: 'ordinary_nighty',
+    size: '',
+    work_type: 'cutting',
     allocated_pcs: '',
     completed_pcs: '',
   });
@@ -55,6 +68,7 @@ export default function StaffPage() {
   ]);
   const loadAdmins   = () => api.get('/staff/admins').then(r => setAdmins(r.data));
   const loadPayroll  = () => api.get(`/staff/payroll?month=${month}&year=${year}`).then(r => setPayroll(r.data));
+  const loadConfigs  = () => api.get('/production/configs').then(r => setConfigs(r.data)).catch(() => []);
 
   const loadHistory = useCallback(() => {
     setHistoryLoading(true);
@@ -66,7 +80,7 @@ export default function StaffPage() {
   }, [month, year, historyStaffFilter]);
 
   useEffect(() => {
-    Promise.all([loadStaff(), loadAdmins()]).finally(() => setLoading(false));
+    Promise.all([loadStaff(), loadAdmins(), loadConfigs()]).finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
@@ -108,8 +122,9 @@ export default function StaffPage() {
     setEntryForm({
       entry_date: entry.entry_date || '',
       completion_date: entry.completion_date || entry.entry_date || '',
-      category: entry.category || 'shawl_nighty',
-      work_type: entry.work_type || 'stitching',
+      category: entry.category || 'ordinary_nighty',
+      size: entry.size || '',
+      work_type: entry.work_type || 'cutting',
       allocated_pcs: String(entry.allocated_pcs || 0),
       completed_pcs: String(entry.completed_pcs || 0),
     });
@@ -122,6 +137,7 @@ export default function StaffPage() {
         entry_date: entryForm.entry_date,
         completion_date: entryForm.completed_pcs > 0 ? (entryForm.completion_date || entryForm.entry_date) : null,
         category: entryForm.category,
+        size: entryForm.size || null,
         work_type: entryForm.work_type,
         allocated_pcs: +entryForm.allocated_pcs || 0,
         completed_pcs: +entryForm.completed_pcs || 0,
@@ -132,6 +148,40 @@ export default function StaffPage() {
       loadStaff();
     } catch (e) {
       alert(e.response?.data?.message || 'Failed to update entry');
+    }
+  };
+
+  const saveAddEntry = async () => {
+    if (!addEntryForm.staff_id) return alert('Please select a staff member');
+    if (!addEntryForm.allocated_pcs && !addEntryForm.completed_pcs) return alert('Please enter allocated or completed pieces');
+
+    try {
+      await api.post('/staff/work-entries', {
+        staff_id: Number(addEntryForm.staff_id),
+        category: addEntryForm.category,
+        size: addEntryForm.size || null,
+        work_type: addEntryForm.work_type,
+        allocated_pcs: Number(addEntryForm.allocated_pcs) || 0,
+        completed_pcs: Number(addEntryForm.completed_pcs) || 0,
+        entry_date: addEntryForm.entry_date,
+        completion_date: addEntryForm.completed_pcs > 0 ? (addEntryForm.completion_date || addEntryForm.entry_date) : null,
+      });
+      setShowAddEntry(false);
+      setAddEntryForm({
+        staff_id: '',
+        entry_date: new Date().toISOString().slice(0, 10),
+        completion_date: new Date().toISOString().slice(0, 10),
+        category: 'ordinary_nighty',
+        size: '',
+        work_type: 'cutting',
+        allocated_pcs: '',
+        completed_pcs: '',
+      });
+      loadHistory();
+      loadPayroll();
+      loadStaff();
+    } catch (err) {
+      alert('Failed to save work entry: ' + (err.response?.data?.message || err.message));
     }
   };
 
@@ -235,39 +285,69 @@ export default function StaffPage() {
       </div>
 
       {/* ── Month/Year selector for Payroll & Entries tabs ── */}
-      {(activeTab === 'payroll' || activeTab === 'entries') && (
-        <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-          {activeTab === 'entries' && (
-            <select
-              value={historyStaffFilter}
-              onChange={e => setHistoryStaffFilter(e.target.value)}
-              style={{ fontSize: 13, border: '1.5px solid var(--border)', borderRadius: 8, padding: '6px 12px', background: 'var(--white)', color: 'var(--text)', outline: 'none' }}
-            >
-              <option value="">All Staff Members</option>
-              {staff.map(s => <option key={s.id} value={s.id}>{s.name} ({s.role === 'cutting_master' ? 'Cutter' : 'Tailor'})</option>)}
-            </select>
-          )}
-          <select value={month} onChange={e => setMonth(+e.target.value)}
-            style={{ fontSize: 13, border: '1.5px solid var(--border)', borderRadius: 8, padding: '6px 12px', background: 'var(--white)', color: 'var(--text)', outline: 'none' }}>
-            {MONTHS.map((m, i) => <option key={i} value={i+1}>{m}</option>)}
-          </select>
-          <select value={year} onChange={e => setYear(+e.target.value)}
-            style={{ fontSize: 13, border: '1.5px solid var(--border)', borderRadius: 8, padding: '6px 12px', background: 'var(--white)', color: 'var(--text)', outline: 'none' }}>
-            {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
-          </select>
-        </div>
-      )}
+      {(activeTab === 'payroll' || activeTab === 'entries') && (() => {
+        const prevM = month === 1 ? 12 : month - 1;
+        const prevY = month === 1 ? year - 1 : year;
+        const cycleLabel = `21 ${MONTHS[prevM - 1]} ${prevY !== year ? prevY : ''} – 20 ${MONTHS[month - 1]} ${year}`;
+
+        return (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f8fafc', border: '1px solid #e2e8f0', padding: '6px 12px', borderRadius: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>💰 Salary Cycle:</span>
+              <span style={{ fontSize: 13, fontWeight: 800, color: '#334155' }}>{cycleLabel}</span>
+              <span className="badge b-cyan" style={{ fontSize: 10, padding: '2px 8px' }}>Payout: 20th {MONTHS[month - 1]}</span>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              {activeTab === 'entries' && (
+                <select
+                  value={historyStaffFilter}
+                  onChange={e => setHistoryStaffFilter(e.target.value)}
+                  style={{ fontSize: 13, border: '1.5px solid var(--border)', borderRadius: 8, padding: '6px 12px', background: 'var(--white)', color: 'var(--text)', outline: 'none' }}
+                >
+                  <option value="">All Staff Members</option>
+                  {staff.map(s => <option key={s.id} value={s.id}>{s.name} ({s.role === 'cutting_master' ? 'Cutter' : 'Tailor'})</option>)}
+                </select>
+              )}
+              <select value={month} onChange={e => setMonth(+e.target.value)}
+                style={{ fontSize: 13, border: '1.5px solid var(--border)', borderRadius: 8, padding: '6px 12px', background: 'var(--white)', color: 'var(--text)', outline: 'none' }}>
+                {MONTHS.map((m, i) => {
+                  const mNum = i + 1;
+                  const prevMName = MONTHS[mNum === 1 ? 11 : mNum - 2];
+                  return (
+                    <option key={i} value={mNum}>
+                      {m} (21 {prevMName} – 20 {m})
+                    </option>
+                  );
+                })}
+              </select>
+              <select value={year} onChange={e => setYear(+e.target.value)}
+                style={{ fontSize: 13, border: '1.5px solid var(--border)', borderRadius: 8, padding: '6px 12px', background: 'var(--white)', color: 'var(--text)', outline: 'none' }}>
+                {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Payroll tab ── */}
-      {activeTab === 'payroll' && (
-        <div className="card">
-          <div className="card-hd" style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <span>{MONTHS[month-1]} {year} Payroll</span>
-            {pendingTotal > 0 && <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--red)' }}>{fmt(pendingTotal)} pending</span>}
-          </div>
-          {payroll.length === 0
-            ? <div className="empty-state">No payroll records for {MONTHS[month-1]} {year}.</div>
-            : (
+      {activeTab === 'payroll' && (() => {
+        const prevM = month === 1 ? 12 : month - 1;
+        const prevY = month === 1 ? year - 1 : year;
+        const cycleLabel = `21 ${MONTHS[prevM - 1]} – 20 ${MONTHS[month - 1]} ${year}`;
+
+        return (
+          <div className="card">
+            <div className="card-hd" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+              <div>
+                <span>{MONTHS[month-1]} {year} Payroll</span>
+                <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginLeft: 10 }}>({cycleLabel} · Payout: 20th {MONTHS[month-1]})</span>
+              </div>
+              {pendingTotal > 0 && <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--red)' }}>{fmt(pendingTotal)} pending</span>}
+            </div>
+            {payroll.length === 0
+              ? <div className="empty-state">No payroll records for {MONTHS[month-1]} {year} ({cycleLabel}).</div>
+              : (
               <table>
                 <thead>
                   <tr>
@@ -352,19 +432,35 @@ export default function StaffPage() {
                 </tbody>
               </table>
             )}
-        </div>
-      )}
+          </div>
+        );
+      })()}
 
       {/* ── Work Entries Tab (View, Filter, Edit, Delete any Entry) ── */}
       {activeTab === 'entries' && (
         <div className="card">
-          <div className="card-hd" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>Work Entries Log — {MONTHS[month-1]} {year}</span>
-            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{historyRows.length} entries</span>
+          <div className="card-hd" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 16, fontWeight: 700 }}>Work Entries Log — {MONTHS[month-1]} {year}</span>
+              <span className="badge b-accent" style={{ fontSize: 11 }}>{historyRows.length} entries</span>
+            </div>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <a href="/staff-log" className="btn btn-ghost btn-sm" style={{ textDecoration: 'none', border: '1px solid var(--border)', background: 'var(--white)' }}>
+                📋 Open Daily Log View →
+              </a>
+              <button className="btn btn-primary btn-sm" onClick={() => setShowAddEntry(true)}>
+                + Log Work Entry
+              </button>
+            </div>
           </div>
 
           {historyLoading ? <div className="spinner">Loading entries…</div> : historyRows.length === 0 ? (
-            <div className="empty-state">No work entries logged for {MONTHS[month-1]} {year}.</div>
+            <div className="empty-state">
+              <p>No work entries logged for {MONTHS[month-1]} {year}.</p>
+              <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={() => setShowAddEntry(true)}>
+                + Log First Work Entry
+              </button>
+            </div>
           ) : (
             <table>
               <thead>
@@ -372,7 +468,7 @@ export default function StaffPage() {
                   <th>Allocation Date</th>
                   <th>Completion Date</th>
                   <th>Staff Member</th>
-                  <th>Category</th>
+                  <th>Category / Size</th>
                   <th>Work Type</th>
                   <th style={{ textAlign: 'right' }}>Allocated</th>
                   <th style={{ textAlign: 'right' }}>Completed</th>
@@ -392,7 +488,16 @@ export default function StaffPage() {
                         {r.staff_role === 'tailor' ? 'Tailor' : 'Cutter'}
                       </span>
                     </td>
-                    <td style={{ fontWeight: 600 }}>{getProductLabel(r.category)}</td>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 600 }}>{getProductLabel(r.category)}</span>
+                        {r.size && (
+                          <span className="badge" style={{ fontSize: 10, background: '#ede9fe', color: '#6d28d9', border: '1px solid #ddd6fe', fontWeight: 700, padding: '1px 5px' }}>
+                            📏 {r.size}
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td>
                       <span className={`badge ${r.work_type === 'stitching' ? 'b-cyan' : 'b-accent'}`} style={{ fontSize: 10 }}>
                         {r.work_type === 'stitching' ? '🧵 Stitching' : '✂️ Cutting'}
@@ -609,70 +714,260 @@ export default function StaffPage() {
         <StaffReportTab />
       )}
 
-      {/* ── Edit Work Entry Modal (Allocation/Completion Dates, Category, Pcs) ── */}
-      {editingEntry && (
-        <div className="modal-overlay" onClick={() => setEditingEntry(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <h2>✏️ Edit Staff Work Entry</h2>
-            <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14 }}>
-              Staff Member: <b>{editingEntry.staff_name}</b> ({editingEntry.staff_role})
-            </div>
-            <div className="form-grid">
-              <div className="field">
-                <label>Allocation Date</label>
-                <input
-                  type="date"
-                  value={entryForm.entry_date}
-                  onChange={e => setEntryForm(f => ({ ...f, entry_date: e.target.value }))}
-                />
+      {/* ── Edit Work Entry Modal (Allocation/Completion Dates, Category, Size, Pcs) ── */}
+      {editingEntry && (() => {
+        const currentProd = configs.find(p => (p.category || '').toLowerCase() === (entryForm.category || '').toLowerCase() || (p.name || '').toLowerCase() === (entryForm.category || '').toLowerCase());
+        const configuredSizes = (currentProd?.size_rates || []).map(s => s.size_label).filter(Boolean);
+        const allSizeOptions = configuredSizes.length > 0 ? configuredSizes : ['Free Size', 'S', 'M', 'L', 'XL', 'XXL', '38', '40', '42', '44'];
+
+        return (
+          <div className="modal-overlay" onClick={() => setEditingEntry(null)}>
+            <div className="modal" onClick={e => e.stopPropagation()}>
+              <h2>✏️ Edit Staff Work Entry</h2>
+              <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14 }}>
+                Staff Member: <b>{editingEntry.staff_name}</b> ({editingEntry.staff_role})
               </div>
-              <div className="field">
-                <label>Completion Date (if finished)</label>
-                <input
-                  type="date"
-                  value={entryForm.completion_date}
-                  onChange={e => setEntryForm(f => ({ ...f, completion_date: e.target.value }))}
-                />
+              <div className="form-grid">
+                <div className="field">
+                  <label>Allocation Date</label>
+                  <input
+                    type="date"
+                    value={entryForm.entry_date}
+                    onChange={e => setEntryForm(f => ({ ...f, entry_date: e.target.value }))}
+                  />
+                </div>
+                <div className="field">
+                  <label>Completion Date (if finished)</label>
+                  <input
+                    type="date"
+                    value={entryForm.completion_date}
+                    onChange={e => setEntryForm(f => ({ ...f, completion_date: e.target.value }))}
+                  />
+                </div>
+                <div className="field">
+                  <label>Product Category</label>
+                  <select value={entryForm.category} onChange={e => setEntryForm(f => ({ ...f, category: e.target.value }))}>
+                    {configs.length > 0
+                      ? configs.map(c => <option key={c.category} value={c.category}>{c.display_name || c.name || getProductLabel(c.category)}</option>)
+                      : CATEGORIES.map(c => <option key={c} value={c}>{getProductLabel(c)}</option>)}
+                  </select>
+                </div>
+                <div className="field">
+                  <label>Work Type</label>
+                  <select value={entryForm.work_type} onChange={e => setEntryForm(f => ({ ...f, work_type: e.target.value }))}>
+                    <option value="cutting">✂️ Cutting</option>
+                    <option value="stitching">🧵 Stitching</option>
+                  </select>
+                </div>
+
+                {/* Size Selector in Edit */}
+                <div className="field form-full">
+                  <label>Size / Variation</label>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 4 }}>
+                    {allSizeOptions.map(sz => (
+                      <button
+                        key={sz}
+                        type="button"
+                        onClick={() => setEntryForm(f => ({ ...f, size: f.size === sz ? '' : sz }))}
+                        style={{
+                          padding: '3px 8px',
+                          borderRadius: 6,
+                          fontSize: 11,
+                          fontWeight: 600,
+                          border: '1px solid',
+                          borderColor: entryForm.size === sz ? 'var(--accent)' : '#cbd5e1',
+                          background: entryForm.size === sz ? '#ede9fe' : '#ffffff',
+                          color: entryForm.size === sz ? '#6d28d9' : '#334155',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {sz}
+                      </button>
+                    ))}
+                    <input
+                      type="text"
+                      placeholder="Or custom size"
+                      value={entryForm.size}
+                      onChange={e => setEntryForm(f => ({ ...f, size: e.target.value }))}
+                      style={{ padding: '4px 8px', fontSize: 12, minWidth: 140 }}
+                    />
+                  </div>
+                </div>
+
+                <div className="field">
+                  <label>Allocated (pcs)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={entryForm.allocated_pcs}
+                    onChange={e => setEntryForm(f => ({ ...f, allocated_pcs: e.target.value }))}
+                  />
+                </div>
+                <div className="field">
+                  <label>Completed (pcs)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={entryForm.completed_pcs}
+                    onChange={e => setEntryForm(f => ({ ...f, completed_pcs: e.target.value }))}
+                  />
+                </div>
               </div>
-              <div className="field">
-                <label>Product Category</label>
-                <select value={entryForm.category} onChange={e => setEntryForm(f => ({ ...f, category: e.target.value }))}>
-                  {CATEGORIES.map(c => <option key={c} value={c}>{getProductLabel(c)}</option>)}
-                </select>
+              <div className="modal-actions">
+                <button className="btn btn-ghost" onClick={() => setEditingEntry(null)}>Cancel</button>
+                <button className="btn btn-primary" onClick={saveEditEntry}>Save Changes</button>
               </div>
-              <div className="field">
-                <label>Work Type</label>
-                <select value={entryForm.work_type} onChange={e => setEntryForm(f => ({ ...f, work_type: e.target.value }))}>
-                  <option value="cutting">✂️ Cutting</option>
-                  <option value="stitching">🧵 Stitching</option>
-                </select>
-              </div>
-              <div className="field">
-                <label>Allocated (pcs)</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={entryForm.allocated_pcs}
-                  onChange={e => setEntryForm(f => ({ ...f, allocated_pcs: e.target.value }))}
-                />
-              </div>
-              <div className="field">
-                <label>Completed (pcs)</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={entryForm.completed_pcs}
-                  onChange={e => setEntryForm(f => ({ ...f, completed_pcs: e.target.value }))}
-                />
-              </div>
-            </div>
-            <div className="modal-actions">
-              <button className="btn btn-ghost" onClick={() => setEditingEntry(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={saveEditEntry}>Save Changes</button>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
+
+      {/* ── Add Work Entry Modal for Admin / Manager / Owner ── */}
+      {showAddEntry && (() => {
+        const currentStaff = staff.find(s => String(s.id) === String(addEntryForm.staff_id));
+        const isCutter = currentStaff?.role === 'cutting_master';
+        const currentProd = configs.find(p => (p.category || '').toLowerCase() === (addEntryForm.category || '').toLowerCase() || (p.name || '').toLowerCase() === (addEntryForm.category || '').toLowerCase());
+        const configuredSizes = (currentProd?.size_rates || []).map(s => s.size_label).filter(Boolean);
+        const allSizeOptions = configuredSizes.length > 0 ? configuredSizes : ['Free Size', 'S', 'M', 'L', 'XL', 'XXL', '38', '40', '42', '44'];
+
+        return (
+          <div className="modal-overlay" onClick={() => setShowAddEntry(false)}>
+            <div className="modal" onClick={e => e.stopPropagation()}>
+              <h2>➕ Log Staff Work Entry</h2>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
+                Record daily piece-rate allocation and completed production for any staff member.
+              </div>
+              <div className="form-grid">
+                <div className="field form-full">
+                  <label>Staff Member *</label>
+                  <select
+                    value={addEntryForm.staff_id}
+                    onChange={e => {
+                      const selectedId = e.target.value;
+                      const selectedStaff = staff.find(s => String(s.id) === String(selectedId));
+                      const defaultWorkType = selectedStaff?.role === 'cutting_master' ? 'cutting' : 'stitching';
+                      setAddEntryForm(f => ({ ...f, staff_id: selectedId, work_type: defaultWorkType }));
+                    }}
+                    autoFocus
+                  >
+                    <option value="">-- Select Staff Member --</option>
+                    {activeStaff.map(s => (
+                      <option key={s.id} value={s.id}>
+                        {s.name} ({s.role === 'cutting_master' ? '✂️ Cutting Master' : '🧵 Tailor'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="field">
+                  <label>Allocation Date</label>
+                  <input
+                    type="date"
+                    value={addEntryForm.entry_date}
+                    onChange={e => setAddEntryForm(f => ({ ...f, entry_date: e.target.value }))}
+                  />
+                </div>
+                <div className="field">
+                  <label>Completion Date</label>
+                  <input
+                    type="date"
+                    value={addEntryForm.completion_date}
+                    onChange={e => setAddEntryForm(f => ({ ...f, completion_date: e.target.value }))}
+                  />
+                </div>
+
+                <div className="field">
+                  <label>Product Category</label>
+                  <select
+                    value={addEntryForm.category}
+                    onChange={e => setAddEntryForm(f => ({ ...f, category: e.target.value }))}
+                  >
+                    {configs.length > 0
+                      ? configs.map(c => <option key={c.category} value={c.category}>{c.display_name || c.name || getProductLabel(c.category)}</option>)
+                      : CATEGORIES.map(c => <option key={c} value={c}>{getProductLabel(c)}</option>)}
+                  </select>
+                </div>
+
+                <div className="field">
+                  <label>Work Type</label>
+                  <select
+                    value={addEntryForm.work_type}
+                    onChange={e => setAddEntryForm(f => ({ ...f, work_type: e.target.value }))}
+                  >
+                    <option value="cutting">✂️ Cutting</option>
+                    <option value="stitching">🧵 Stitching</option>
+                  </select>
+                </div>
+
+                {/* Size Selector in Add Entry */}
+                <div className="field form-full">
+                  <label>Size / Variation (Optional)</label>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 4 }}>
+                    {allSizeOptions.map(sz => (
+                      <button
+                        key={sz}
+                        type="button"
+                        onClick={() => setAddEntryForm(f => ({ ...f, size: f.size === sz ? '' : sz }))}
+                        style={{
+                          padding: '4px 10px',
+                          borderRadius: 6,
+                          fontSize: 11,
+                          fontWeight: 600,
+                          border: '1px solid',
+                          borderColor: addEntryForm.size === sz ? 'var(--accent)' : '#cbd5e1',
+                          background: addEntryForm.size === sz ? '#ede9fe' : '#ffffff',
+                          color: addEntryForm.size === sz ? '#6d28d9' : '#334155',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {sz}
+                      </button>
+                    ))}
+                    <input
+                      type="text"
+                      placeholder="Or custom size (e.g. 42, XL)"
+                      value={addEntryForm.size}
+                      onChange={e => setAddEntryForm(f => ({ ...f, size: e.target.value }))}
+                      style={{ padding: '6px 10px', fontSize: 12, minWidth: 150 }}
+                    />
+                  </div>
+                </div>
+
+                <div className="field">
+                  <label>Allocated (pcs)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="e.g. 50"
+                    value={addEntryForm.allocated_pcs}
+                    onChange={e => setAddEntryForm(f => ({ ...f, allocated_pcs: e.target.value }))}
+                  />
+                </div>
+                <div className="field">
+                  <label>Completed (pcs)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="e.g. 45"
+                    value={addEntryForm.completed_pcs}
+                    onChange={e => setAddEntryForm(f => ({ ...f, completed_pcs: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div className="modal-actions">
+                <button className="btn btn-ghost" onClick={() => setShowAddEntry(false)}>Cancel</button>
+                <button
+                  className="btn btn-primary"
+                  onClick={saveAddEntry}
+                  disabled={!addEntryForm.staff_id || (!addEntryForm.allocated_pcs && !addEntryForm.completed_pcs)}
+                >
+                  Save Entry
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Add Staff modal */}
       {showAdd && (
