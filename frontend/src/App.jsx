@@ -6,6 +6,7 @@ import SuperAdminLoginPage from './pages/SuperAdminLoginPage';
 import OnboardPage    from './pages/OnboardPage';
 import DashboardPage  from './pages/DashboardPage';
 import PartnersPage   from './pages/PartnersPage';
+import PersonalAccountsPage from './pages/PersonalAccountsPage';
 import PurchasesPage  from './pages/PurchasesPage';
 import ExpensesPage   from './pages/ExpensesPage';
 import ProductionPage from './pages/ProductionPage';
@@ -27,6 +28,7 @@ const TITLES = {
   '/':           'Dashboard',
   '/items':      'Products & Services Master',
   '/reports':    'Reports & Analytics',
+  '/personal-accounts': 'Partner Personal Accounts',
   '/partners':   'Capital & Partners',
   '/purchases':  'Purchases',
   '/expenses':   'Expenses',
@@ -80,6 +82,7 @@ export default function App() {
           <Route path="/items"      element={<Guard path="/items"><ItemsPage /></Guard>} />
           <Route path="/products"   element={<Guard path="/items"><ItemsPage /></Guard>} />
           <Route path="/reports"    element={<Guard path="/reports"><ReportsPage /></Guard>} />
+          <Route path="/personal-accounts" element={<Guard path="/personal-accounts"><PersonalAccountsPage /></Guard>} />
           <Route path="/partners"   element={<Guard path="/partners"><PartnersPage /></Guard>} />
           <Route path="/purchases"  element={<Guard path="/purchases"><PurchasesPage /></Guard>} />
           <Route path="/expenses"   element={<Guard path="/expenses"><ExpensesPage /></Guard>} />
