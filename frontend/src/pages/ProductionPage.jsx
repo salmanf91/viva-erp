@@ -230,12 +230,12 @@ function BatchItemRowEditor({ item, idx, configs, onUpdate, onRemove, onResetRat
 
   const cut = Number(item.cut_rate ?? currentCfg.cut_rate ?? 5.00);
   const stitch = Number(item.stitch_rate ?? currentCfg.stitch_rate ?? 15.00);
-  const zip = Number(item.zip_cost ?? currentCfg.zip_cost ?? 0);
-  const thread = Number(item.thread_cost ?? currentCfg.thread_cost ?? 0);
-  const canvas = Number(item.canvas_cost ?? currentCfg.canvas_cost ?? 0);
-  const plastic = Number(item.plastic_cost ?? currentCfg.plastic_cost ?? 0);
-  const lace = Number(item.lace_cost ?? currentCfg.lace_cost ?? 0);
-  const logistics = Number(item.logistics_cost ?? currentCfg.logistics_cost ?? 0);
+  const zip = Number(currentCfg.zip_cost ?? item.zip_cost ?? 0);
+  const thread = Number(currentCfg.thread_cost ?? item.thread_cost ?? 0);
+  const canvas = Number(currentCfg.canvas_cost ?? item.canvas_cost ?? 0);
+  const plastic = Number(currentCfg.plastic_cost ?? item.plastic_cost ?? 0);
+  const lace = Number(currentCfg.lace_cost ?? item.lace_cost ?? 0);
+  const logistics = Number(currentCfg.logistics_cost ?? item.logistics_cost ?? 0);
 
   const labourTotal = cut + stitch;
   const accTotal = zip + thread + canvas + plastic + lace + logistics;
@@ -368,7 +368,7 @@ function BatchItemRowEditor({ item, idx, configs, onUpdate, onRemove, onResetRat
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#475569', fontSize: 11 }}>
           <span>👷 Labour: <b>₹{labourTotal.toFixed(2)}</b>/pc</span>
           <span>·</span>
-          <span>🧰 Accessories: <b>₹{accTotal.toFixed(2)}</b>/pc</span>
+          <span>🧰 Accessories: <b>₹{accTotal.toFixed(2)}</b>/pc <span style={{ color: 'var(--muted)', fontSize: 10 }}>(from Items &amp; Products)</span></span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <button
@@ -385,12 +385,12 @@ function BatchItemRowEditor({ item, idx, configs, onUpdate, onRemove, onResetRat
               cursor: 'pointer',
             }}
           >
-            {item.showCustomRates ? '▲ Hide Accessories & Labour' : '⚙️ Edit Accessories & Labour Rates'}
+            {item.showCustomRates ? '▲ Hide Accessories & Labour' : '⚙️ View Accessories & Labour Rates'}
           </button>
         </div>
       </div>
 
-      {/* Expanded Accessories & Labour Editor */}
+      {/* Expanded Accessories & Labour View */}
       {item.showCustomRates && (
         <div style={{
           background: '#fff',
@@ -401,26 +401,29 @@ function BatchItemRowEditor({ item, idx, configs, onUpdate, onRemove, onResetRat
           flexDirection: 'column',
           gap: 10
         }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase' }}>
-              Custom Labour &amp; Accessories Rates (per piece for this item)
+              Labour Rates &amp; Product Accessories Breakdown (per piece)
             </span>
-            <button
-              type="button"
-              onClick={onResetRates}
-              style={{
-                background: '#f8fafc',
-                border: '1px solid #cbd5e1',
-                borderRadius: 4,
-                padding: '2px 8px',
-                fontSize: 10,
-                fontWeight: 700,
-                color: 'var(--muted)',
-                cursor: 'pointer'
-              }}
-            >
-              ↺ Reset to Defaults
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span className="badge b-cyan" style={{ fontSize: 10 }}>🔒 Accessories: Read-Only from Catalog</span>
+              <button
+                type="button"
+                onClick={onResetRates}
+                style={{
+                  background: '#f8fafc',
+                  border: '1px solid #cbd5e1',
+                  borderRadius: 4,
+                  padding: '2px 8px',
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: 'var(--muted)',
+                  cursor: 'pointer'
+                }}
+              >
+                ↺ Reset Labour
+              </button>
+            </div>
           </div>
 
           <div style={{
@@ -429,37 +432,52 @@ function BatchItemRowEditor({ item, idx, configs, onUpdate, onRemove, onResetRat
             gap: 8
           }}>
             <div>
-              <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>✂️ Cut Rate (₹)</label>
+              <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--accent)', display: 'block', marginBottom: 2 }}>✂️ Cut Rate (₹)</label>
               <input type="number" step="0.01" value={item.cut_rate} onChange={e => onUpdate('cut_rate', e.target.value)} style={{ width: '100%', fontSize: 12, padding: '4px 6px' }} />
             </div>
             <div>
-              <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>🧵 Stitch Rate (₹)</label>
+              <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--accent)', display: 'block', marginBottom: 2 }}>🧵 Stitch Rate (₹)</label>
               <input type="number" step="0.01" value={item.stitch_rate} onChange={e => onUpdate('stitch_rate', e.target.value)} style={{ width: '100%', fontSize: 12, padding: '4px 6px' }} />
             </div>
-            <div>
-              <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>🤐 Zip Cost (₹)</label>
-              <input type="number" step="0.01" value={item.zip_cost} onChange={e => onUpdate('zip_cost', e.target.value)} style={{ width: '100%', fontSize: 12, padding: '4px 6px' }} />
+            <div title="Configured in Items & Products catalog">
+              <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 3, marginBottom: 2 }}>
+                🤐 Zip Cost (₹) <span style={{ fontSize: 9 }}>🔒</span>
+              </label>
+              <input type="number" readOnly value={zip.toFixed(2)} style={{ width: '100%', fontSize: 12, padding: '4px 6px', background: '#f1f5f9', color: '#475569', cursor: 'not-allowed', border: '1px solid #e2e8f0' }} />
             </div>
-            <div>
-              <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>🧵 Thread (₹)</label>
-              <input type="number" step="0.01" value={item.thread_cost} onChange={e => onUpdate('thread_cost', e.target.value)} style={{ width: '100%', fontSize: 12, padding: '4px 6px' }} />
+            <div title="Configured in Items & Products catalog">
+              <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 3, marginBottom: 2 }}>
+                🧵 Thread (₹) <span style={{ fontSize: 9 }}>🔒</span>
+              </label>
+              <input type="number" readOnly value={thread.toFixed(2)} style={{ width: '100%', fontSize: 12, padding: '4px 6px', background: '#f1f5f9', color: '#475569', cursor: 'not-allowed', border: '1px solid #e2e8f0' }} />
             </div>
-            <div>
-              <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>📜 Canvas (₹)</label>
-              <input type="number" step="0.01" value={item.canvas_cost} onChange={e => onUpdate('canvas_cost', e.target.value)} style={{ width: '100%', fontSize: 12, padding: '4px 6px' }} />
+            <div title="Configured in Items & Products catalog">
+              <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 3, marginBottom: 2 }}>
+                📜 Canvas (₹) <span style={{ fontSize: 9 }}>🔒</span>
+              </label>
+              <input type="number" readOnly value={canvas.toFixed(2)} style={{ width: '100%', fontSize: 12, padding: '4px 6px', background: '#f1f5f9', color: '#475569', cursor: 'not-allowed', border: '1px solid #e2e8f0' }} />
             </div>
-            <div>
-              <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>📦 Packaging (₹)</label>
-              <input type="number" step="0.01" value={item.plastic_cost} onChange={e => onUpdate('plastic_cost', e.target.value)} style={{ width: '100%', fontSize: 12, padding: '4px 6px' }} />
+            <div title="Configured in Items & Products catalog">
+              <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 3, marginBottom: 2 }}>
+                📦 Packaging (₹) <span style={{ fontSize: 9 }}>🔒</span>
+              </label>
+              <input type="number" readOnly value={plastic.toFixed(2)} style={{ width: '100%', fontSize: 12, padding: '4px 6px', background: '#f1f5f9', color: '#475569', cursor: 'not-allowed', border: '1px solid #e2e8f0' }} />
             </div>
-            <div>
-              <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>🎀 Lace (₹)</label>
-              <input type="number" step="0.01" value={item.lace_cost} onChange={e => onUpdate('lace_cost', e.target.value)} style={{ width: '100%', fontSize: 12, padding: '4px 6px' }} />
+            <div title="Configured in Items & Products catalog">
+              <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 3, marginBottom: 2 }}>
+                🎀 Lace (₹) <span style={{ fontSize: 9 }}>🔒</span>
+              </label>
+              <input type="number" readOnly value={lace.toFixed(2)} style={{ width: '100%', fontSize: 12, padding: '4px 6px', background: '#f1f5f9', color: '#475569', cursor: 'not-allowed', border: '1px solid #e2e8f0' }} />
             </div>
-            <div>
-              <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>🚚 Other/Logistics (₹)</label>
-              <input type="number" step="0.01" value={item.logistics_cost} onChange={e => onUpdate('logistics_cost', e.target.value)} style={{ width: '100%', fontSize: 12, padding: '4px 6px' }} />
+            <div title="Configured in Items & Products catalog">
+              <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 3, marginBottom: 2 }}>
+                🚚 Other/Logistics (₹) <span style={{ fontSize: 9 }}>🔒</span>
+              </label>
+              <input type="number" readOnly value={logistics.toFixed(2)} style={{ width: '100%', fontSize: 12, padding: '4px 6px', background: '#f1f5f9', color: '#475569', cursor: 'not-allowed', border: '1px solid #e2e8f0' }} />
             </div>
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', background: '#f8fafc', padding: '5px 8px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
+            ℹ️ Accessory costs are automatically synced from <b>Items &amp; Products</b>. To adjust accessories rates, visit the Items &amp; Products catalog.
           </div>
         </div>
       )}
@@ -759,12 +777,12 @@ export default function ProductionPage() {
             quantity: it.quantity,
             cut_rate: it.cut_rate !== undefined && it.cut_rate !== null ? it.cut_rate : (b.cut_rate ?? cfg.cut_rate ?? 5.00),
             stitch_rate: it.stitch_rate !== undefined && it.stitch_rate !== null ? it.stitch_rate : (b.stitch_rate ?? cfg.stitch_rate ?? 15.00),
-            zip_cost: it.zip_cost !== undefined && it.zip_cost !== null ? it.zip_cost : (cfg.zip_cost ?? 0),
-            thread_cost: it.thread_cost !== undefined && it.thread_cost !== null ? it.thread_cost : (cfg.thread_cost ?? 0),
-            canvas_cost: it.canvas_cost !== undefined && it.canvas_cost !== null ? it.canvas_cost : (cfg.canvas_cost ?? 0),
-            plastic_cost: it.plastic_cost !== undefined && it.plastic_cost !== null ? it.plastic_cost : (cfg.plastic_cost ?? 0),
-            lace_cost: it.lace_cost !== undefined && it.lace_cost !== null ? it.lace_cost : (cfg.lace_cost ?? 0),
-            logistics_cost: it.logistics_cost !== undefined && it.logistics_cost !== null ? it.logistics_cost : (cfg.logistics_cost ?? 0),
+            zip_cost: cfg.zip_cost ?? it.zip_cost ?? 0,
+            thread_cost: cfg.thread_cost ?? it.thread_cost ?? 0,
+            canvas_cost: cfg.canvas_cost ?? it.canvas_cost ?? 0,
+            plastic_cost: cfg.plastic_cost ?? it.plastic_cost ?? 0,
+            lace_cost: cfg.lace_cost ?? it.lace_cost ?? 0,
+            logistics_cost: cfg.logistics_cost ?? it.logistics_cost ?? 0,
             showCustomRates: false,
           };
         })

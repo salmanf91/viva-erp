@@ -236,12 +236,24 @@ export async function createBatch(req: AuthRequest, res: Response): Promise<void
 
     const avgCutRate = totalQuantity > 0 ? (weightedCutSum / totalQuantity) : (parsedItems[0]?.cut_rate || 5.00);
     const avgStitchRate = totalQuantity > 0 ? (weightedStitchSum / totalQuantity) : (parsedItems[0]?.stitch_rate || 15.00);
-
-    const [bRes] = await conn.execute(
-      'INSERT INTO production_batches (tenant_id,batch_number,category,quantity,cut_rate,stitch_rate,batch_date,notes) VALUES (?,?,?,?,?,?,?,?)',
-      [tenantId, batchNumber, primaryCategory, totalQuantity, avgCutRate, avgStitchRate, batch_date, notes || null]
-    );
-    const batchId = (bRes as any).insertId;
+    let batchId: number;
+    try {
+      const [bRes] = await conn.execute(
+        'INSERT INTO production_batches (tenant_id,batch_number,category,quantity,cut_rate,stitch_rate,batch_date,notes) VALUES (?,?,?,?,?,?,?,?)',
+        [tenantId, batchNumber, primaryCategory, totalQuantity, avgCutRate, avgStitchRate, batch_date, notes || null]
+      );
+      batchId = (bRes as any).insertId;
+    } catch (e: any) {
+      if (e?.message && e.message.includes('notes')) {
+        const [bRes] = await conn.execute(
+          'INSERT INTO production_batches (tenant_id,batch_number,category,quantity,cut_rate,stitch_rate,batch_date) VALUES (?,?,?,?,?,?,?)',
+          [tenantId, batchNumber, primaryCategory, totalQuantity, avgCutRate, avgStitchRate, batch_date]
+        );
+        batchId = (bRes as any).insertId;
+      } else {
+        throw e;
+      }
+    }
 
     // Insert batch items
     for (const it of parsedItems) {
@@ -371,6 +383,22 @@ export async function updateBatch(req: AuthRequest, res: Response): Promise<void
   try {
     await conn.beginTransaction();
 
+    // Fetch product configs for accessories fallback
+    const [configs] = await conn.execute('SELECT * FROM product_config WHERE tenant_id = ?', [tenantId]) as any[];
+    const configMap = new Map<string, any>();
+    for (const c of (configs as any[] || [])) {
+      configMap.set((c.category || '').toLowerCase(), {
+        cut_rate: Number(c.cut_rate ?? 5.00),
+        stitch_rate: Number(c.stitch_rate ?? 15.00),
+        zip_cost: Number(c.zip_cost ?? 0.00),
+        thread_cost: Number(c.thread_cost ?? 0.00),
+        canvas_cost: Number(c.canvas_cost ?? 0.00),
+        plastic_cost: Number(c.plastic_cost ?? 0.00),
+        lace_cost: Number(c.lace_cost ?? 0.00),
+        logistics_cost: Number(c.logistics_cost ?? 0.00),
+      });
+    }
+
     const sets: string[] = [];
     const vals: any[] = [];
     if (status !== undefined)      { sets.push('status=?');      vals.push(status); }
@@ -385,9 +413,29 @@ export async function updateBatch(req: AuthRequest, res: Response): Promise<void
       let weightedStitch = 0;
 
       for (const it of validItems) {
+        const cfg = configMap.get((it.category || '').toLowerCase()) || {
+          cut_rate: 5.00,
+          stitch_rate: 15.00,
+          zip_cost: 0,
+          thread_cost: 0,
+          canvas_cost: 0,
+          plastic_cost: 0,
+          lace_cost: 0,
+          logistics_cost: 0,
+        };
+
+        const itCut = (it.cut_rate !== undefined && !isNaN(Number(it.cut_rate))) ? Number(it.cut_rate) : cfg.cut_rate;
+        const itStitch = (it.stitch_rate !== undefined && !isNaN(Number(it.stitch_rate))) ? Number(it.stitch_rate) : cfg.stitch_rate;
+        const itZip = (it.zip_cost !== undefined && !isNaN(Number(it.zip_cost))) ? Number(it.zip_cost) : cfg.zip_cost;
+        const itThread = (it.thread_cost !== undefined && !isNaN(Number(it.thread_cost))) ? Number(it.thread_cost) : cfg.thread_cost;
+        const itCanvas = (it.canvas_cost !== undefined && !isNaN(Number(it.canvas_cost))) ? Number(it.canvas_cost) : cfg.canvas_cost;
+        const itPlastic = (it.plastic_cost !== undefined && !isNaN(Number(it.plastic_cost))) ? Number(it.plastic_cost) : cfg.plastic_cost;
+        const itLace = (it.lace_cost !== undefined && !isNaN(Number(it.lace_cost))) ? Number(it.lace_cost) : cfg.lace_cost;
+        const itLogistics = (it.logistics_cost !== undefined && !isNaN(Number(it.logistics_cost))) ? Number(it.logistics_cost) : cfg.logistics_cost;
+
         totalQty += Number(it.quantity) || 0;
-        weightedCut += (Number(it.cut_rate) || 0) * (Number(it.quantity) || 1);
-        weightedStitch += (Number(it.stitch_rate) || 0) * (Number(it.quantity) || 1);
+        weightedCut += itCut * (Number(it.quantity) || 1);
+        weightedStitch += itStitch * (Number(it.quantity) || 1);
       }
 
       const avgCut = totalQty > 0 ? (weightedCut / totalQty) : (cut_rate || 0);
@@ -401,6 +449,26 @@ export async function updateBatch(req: AuthRequest, res: Response): Promise<void
       // Replace batch items
       await conn.execute('DELETE FROM production_batch_items WHERE batch_id=? AND tenant_id=?', [id, tenantId]);
       for (const it of validItems) {
+        const cfg = configMap.get((it.category || '').toLowerCase()) || {
+          cut_rate: 5.00,
+          stitch_rate: 15.00,
+          zip_cost: 0,
+          thread_cost: 0,
+          canvas_cost: 0,
+          plastic_cost: 0,
+          lace_cost: 0,
+          logistics_cost: 0,
+        };
+
+        const itCut = (it.cut_rate !== undefined && !isNaN(Number(it.cut_rate))) ? Number(it.cut_rate) : cfg.cut_rate;
+        const itStitch = (it.stitch_rate !== undefined && !isNaN(Number(it.stitch_rate))) ? Number(it.stitch_rate) : cfg.stitch_rate;
+        const itZip = (it.zip_cost !== undefined && !isNaN(Number(it.zip_cost))) ? Number(it.zip_cost) : cfg.zip_cost;
+        const itThread = (it.thread_cost !== undefined && !isNaN(Number(it.thread_cost))) ? Number(it.thread_cost) : cfg.thread_cost;
+        const itCanvas = (it.canvas_cost !== undefined && !isNaN(Number(it.canvas_cost))) ? Number(it.canvas_cost) : cfg.canvas_cost;
+        const itPlastic = (it.plastic_cost !== undefined && !isNaN(Number(it.plastic_cost))) ? Number(it.plastic_cost) : cfg.plastic_cost;
+        const itLace = (it.lace_cost !== undefined && !isNaN(Number(it.lace_cost))) ? Number(it.lace_cost) : cfg.lace_cost;
+        const itLogistics = (it.logistics_cost !== undefined && !isNaN(Number(it.logistics_cost))) ? Number(it.logistics_cost) : cfg.logistics_cost;
+
         try {
           await conn.execute(
             `INSERT INTO production_batch_items (tenant_id, batch_id, category, size, quantity, cut_rate, stitch_rate, zip_cost, thread_cost, canvas_cost, plastic_cost, lace_cost, logistics_cost)
@@ -411,21 +479,21 @@ export async function updateBatch(req: AuthRequest, res: Response): Promise<void
               it.category,
               it.size ? String(it.size).trim() : null,
               Number(it.quantity) || 0,
-              Number(it.cut_rate) || 0,
-              Number(it.stitch_rate) || 0,
-              Number(it.zip_cost) || 0,
-              Number(it.thread_cost) || 0,
-              Number(it.canvas_cost) || 0,
-              Number(it.plastic_cost) || 0,
-              Number(it.lace_cost) || 0,
-              Number(it.logistics_cost) || 0,
+              itCut,
+              itStitch,
+              itZip,
+              itThread,
+              itCanvas,
+              itPlastic,
+              itLace,
+              itLogistics,
             ]
           );
         } catch {
           await conn.execute(
             `INSERT INTO production_batch_items (tenant_id, batch_id, category, size, quantity, cut_rate, stitch_rate)
              VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [tenantId, id, it.category, it.size ? String(it.size).trim() : null, Number(it.quantity) || 0, Number(it.cut_rate) || 0, Number(it.stitch_rate) || 0]
+            [tenantId, id, it.category, it.size ? String(it.size).trim() : null, Number(it.quantity) || 0, itCut, itStitch]
           );
         }
       }
@@ -437,7 +505,22 @@ export async function updateBatch(req: AuthRequest, res: Response): Promise<void
     }
 
     if (sets.length > 0) {
-      await conn.execute(`UPDATE production_batches SET ${sets.join(',')} WHERE id=? AND tenant_id=?`, [...vals, id, tenantId]);
+      try {
+        await conn.execute(`UPDATE production_batches SET ${sets.join(',')} WHERE id=? AND tenant_id=?`, [...vals, id, tenantId]);
+      } catch (err: any) {
+        if (err?.message && err.message.includes('notes')) {
+          const notesIdx = sets.findIndex(s => s.startsWith('notes='));
+          if (notesIdx !== -1) {
+            sets.splice(notesIdx, 1);
+            vals.splice(notesIdx, 1);
+          }
+          if (sets.length > 0) {
+            await conn.execute(`UPDATE production_batches SET ${sets.join(',')} WHERE id=? AND tenant_id=?`, [...vals, id, tenantId]);
+          }
+        } else {
+          throw err;
+        }
+      }
     }
 
     await conn.commit();

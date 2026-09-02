@@ -5,6 +5,7 @@ import { apiLimiter } from './middleware/rateLimiter';
 
 import authRoutes       from './routes/auth.routes';
 import partnerRoutes    from './routes/partner.routes';
+import partnerPersonalRoutes from './routes/partnerPersonal.routes';
 import purchaseRoutes   from './routes/purchase.routes';
 import expenseRoutes    from './routes/expense.routes';
 import productionRoutes from './routes/production.routes';
@@ -36,6 +37,7 @@ app.use('/api/tenants',        tenantRoutes);
 app.use('/api/items',          itemRoutes);
 app.use('/api/quotations',     quotationRoutes);
 app.use('/api/delivery-notes', deliveryNoteRoutes);
+app.use('/api/partners/personal', partnerPersonalRoutes);
 app.use('/api/partners',       partnerRoutes);
 app.use('/api/purchases',      purchaseRoutes);
 app.use('/api/expenses',       expenseRoutes);
