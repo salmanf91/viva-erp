@@ -20,14 +20,14 @@ const SOURCE_LABEL = Object.fromEntries([...INV_SOURCES, ...DRW_SOURCES].map(s =
 const PARTNER_COLORS = ['var(--accent)', 'var(--cyan)', 'var(--green)'];
 
 const PERSONAL_CATEGORIES = [
-  { value: 'personal_expense', label: 'Personal Expense' },
-  { value: 'loan_advance',     label: 'Loan / Advance' },
-  { value: 'repayment',        label: 'Repayment' },
-  { value: 'profit_draw',      label: 'Profit / Salary Draw' },
-  { value: 'fuel_travel',      label: 'Fuel & Travel' },
-  { value: 'household',        label: 'Household' },
-  { value: 'adjustment',       label: 'Adjustment' },
-  { value: 'other',            label: 'Other' },
+  { value: 'personal_payment',   label: 'Personal Payment (Paid by Partner)' },
+  { value: 'personal_expense',   label: 'Personal Expense' },
+  { value: 'partner_transfer',   label: 'Transfer to Other Partner' },
+  { value: 'personal_loan',      label: 'Personal Loan / Advance' },
+  { value: 'personal_repayment', label: 'Personal Repayment / Settlement' },
+  { value: 'vehicle_fuel',       label: 'Vehicle & Fuel' },
+  { value: 'household',          label: 'Household' },
+  { value: 'other_personal',     label: 'Other Personal' },
 ];
 const PERS_CAT_LABEL = Object.fromEntries(PERSONAL_CATEGORIES.map(c => [c.value, c.label]));
 
@@ -214,7 +214,7 @@ export default function PartnersPage() {
       partner_id: partnerId || (persActivePid !== 'all' ? persActivePid : partners[0]?.id || ''),
       entry_date: new Date().toISOString().slice(0, 10),
       type: defaultType,
-      category: defaultType === 'credit' ? 'personal_expense' : 'profit_draw',
+      category: defaultType === 'credit' ? 'personal_payment' : 'personal_expense',
       amount: '',
       payment_mode: 'cash',
       reference_no: '',
@@ -312,6 +312,25 @@ export default function PartnersPage() {
       ════════════════════════════════════════════════════════════════════════ */}
       {tab === 'personal' && (
         <>
+          {/* Independence Info Banner */}
+          <div style={{
+            background: '#f8fafc',
+            border: '1px solid #cbd5e1',
+            borderRadius: 10,
+            padding: '10px 16px',
+            marginBottom: 16,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            fontSize: 12,
+            color: '#475569'
+          }}>
+            <span style={{ fontSize: 18 }}>🛡️</span>
+            <div>
+              <strong>Independent Personal Ledger:</strong> This module tracks payments and transactions made personally by partners. It is 100% separate from company books and does not affect company accounts, expenses, P&amp;L, or capital equity.
+            </div>
+          </div>
+
           {/* Partner Personal Cards */}
           <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.max(persSummary.partners.length + 1, 3)}, 1fr)`, gap: 14, marginBottom: 20 }}>
             {persSummary.partners.map((p, i) => {
@@ -921,7 +940,7 @@ export default function PartnersPage() {
             <div style={{ display: 'flex', gap: 0, marginBottom: 16, border: '1.5px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
               <button
                 type="button"
-                onClick={() => setPersForm(f => ({ ...f, type: 'credit', category: f.category || 'personal_expense' }))}
+                onClick={() => setPersForm(f => ({ ...f, type: 'credit', category: f.category || 'personal_payment' }))}
                 style={{
                   flex: 1, padding: '10px 0', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700,
                   background: persForm.type === 'credit' ? 'var(--green)' : 'var(--white)',
@@ -929,11 +948,11 @@ export default function PartnersPage() {
                   transition: 'all .15s',
                 }}
               >
-                🟢 [+] Credit (Personal In / Owed)
+                🟢 [+] Credit (Personal Payment / Given)
               </button>
               <button
                 type="button"
-                onClick={() => setPersForm(f => ({ ...f, type: 'debit', category: f.category || 'profit_draw' }))}
+                onClick={() => setPersForm(f => ({ ...f, type: 'debit', category: f.category || 'personal_expense' }))}
                 style={{
                   flex: 1, padding: '10px 0', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700,
                   background: persForm.type === 'debit' ? 'var(--red)' : 'var(--white)',
@@ -941,7 +960,7 @@ export default function PartnersPage() {
                   transition: 'all .15s',
                 }}
               >
-                🔴 [−] Debit (Personal Out / Paid)
+                🔴 [−] Debit (Personal Expense / Spent)
               </button>
             </div>
 
