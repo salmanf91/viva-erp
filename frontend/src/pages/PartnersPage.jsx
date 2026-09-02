@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import api from '../api/client';
 
-const fmt  = n => '₹' + Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const fmtInt = n => '₹' + Math.round(Number(n || 0)).toLocaleString('en-IN');
+const fmt  = n => '₹' + Number(n || 0).toLocaleString('en-IN');
 const fmtD = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
 
 const INV_SOURCES = [
@@ -19,18 +18,6 @@ const DRW_SOURCES = [
 const SOURCE_LABEL = Object.fromEntries([...INV_SOURCES, ...DRW_SOURCES].map(s => [s.value, s.label]));
 const PARTNER_COLORS = ['var(--accent)', 'var(--cyan)', 'var(--green)'];
 
-const PERSONAL_CATEGORIES = [
-  { value: 'personal_payment',   label: 'Personal Payment (Paid by Partner)' },
-  { value: 'personal_expense',   label: 'Personal Expense' },
-  { value: 'partner_transfer',   label: 'Transfer to Other Partner' },
-  { value: 'personal_loan',      label: 'Personal Loan / Advance' },
-  { value: 'personal_repayment', label: 'Personal Repayment / Settlement' },
-  { value: 'vehicle_fuel',       label: 'Vehicle & Fuel' },
-  { value: 'household',          label: 'Household' },
-  { value: 'other_personal',     label: 'Other Personal' },
-];
-const PERS_CAT_LABEL = Object.fromEntries(PERSONAL_CATEGORIES.map(c => [c.value, c.label]));
-
 const TAB_STYLE = (active) => ({
   padding: '9px 20px', fontSize: 13, fontWeight: 700, border: 'none', cursor: 'pointer',
   background: 'none', color: active ? 'var(--accent)' : 'var(--muted)',
@@ -40,7 +27,7 @@ const TAB_STYLE = (active) => ({
 });
 
 export default function PartnersPage() {
-  const [tab, setTab]             = useState('personal');   // 'personal' | 'overview' | 'ledger' | 'reminders'
+  const [tab, setTab]             = useState('overview');   // 'overview' | 'ledger' | 'reminders'
   const [partners, setPartners]   = useState([]);
   const [reminders, setReminders] = useState([]);
   const [ledger, setLedger]       = useState({});           // { [partnerId]: [...rows] }
@@ -57,67 +44,17 @@ export default function PartnersPage() {
   });
   const [form, setForm] = useState(emptyForm());
 
-  // ── Personal Accounts State ──
-  const [persSummary, setPersSummary]   = useState({ partners: [], combined: { total_credit: 0, total_debit: 0, net_balance: 0, tx_count: 0 } });
-  const [persLedger, setPersLedger]     = useState([]);
-  const [persActivePid, setPersActivePid] = useState('all'); // 'all' or partner id
-  const [persTypeFilter, setPersTypeFilter] = useState('all'); // 'all' | 'credit' | 'debit'
-  const [persCatFilter, setPersCatFilter] = useState('all');
-  const [persSearch, setPersSearch]     = useState('');
-  const [showPersModal, setShowPersModal] = useState(false);
-  const [editingPersEntry, setEditingPersEntry] = useState(null);
-  const [showStatementModal, setShowStatementModal] = useState(false);
-  const [persForm, setPersForm] = useState({
-    partner_id: '',
-    entry_date: new Date().toISOString().slice(0, 10),
-    type: 'credit',
-    category: 'personal_expense',
-    amount: '',
-    payment_mode: 'cash',
-    reference_no: '',
-    description: '',
-  });
-
   const load = () => Promise.all([
     api.get('/partners').then(r => setPartners(r.data)),
     api.get('/partners/reminders').then(r => setReminders(r.data)),
-    loadPersonalSummary(),
   ]).finally(() => setLoading(false));
-
-  const loadPersonalSummary = async () => {
-    try {
-      const r = await api.get('/partners/personal/summary');
-      setPersSummary(r.data);
-    } catch (e) {
-      console.error('Failed to load personal accounts summary', e);
-    }
-  };
-
-  const loadPersonalLedger = async () => {
-    try {
-      const pId = persActivePid || 'all';
-      let url = `/partners/personal/ledger/${pId}?type=${persTypeFilter}&category=${persCatFilter}`;
-      const r = await api.get(url);
-      setPersLedger(r.data || []);
-    } catch (e) {
-      console.error('Failed to load personal ledger', e);
-    }
-  };
 
   useEffect(() => { load(); }, []);
 
   // auto-select first partner for capital ledger tab
   useEffect(() => {
     if (partners.length && !activePid) setActivePid(partners[0].id);
-    if (partners.length && !persForm.partner_id) setPersForm(f => ({ ...f, partner_id: partners[0].id }));
   }, [partners]);
-
-  useEffect(() => {
-    if (tab === 'personal') {
-      loadPersonalSummary();
-      loadPersonalLedger();
-    }
-  }, [tab, persActivePid, persTypeFilter, persCatFilter]);
 
   const loadLedger = async id => {
     const r = await api.get(`/partners/${id}/ledger`);
@@ -143,99 +80,6 @@ export default function PartnersPage() {
     }
   };
 
-  const savePersonalEntry = async () => {
-    if (!persForm.partner_id || !persForm.amount || Number(persForm.amount) <= 0) {
-      alert('Please select a partner and enter a valid amount.');
-      return;
-    }
-    try {
-      if (editingPersEntry) {
-        await api.put(`/partners/personal/entries/${editingPersEntry.id}`, {
-          partner_id: +persForm.partner_id,
-          entry_date: persForm.entry_date,
-          type: persForm.type,
-          category: persForm.category,
-          amount: +persForm.amount,
-          payment_mode: persForm.payment_mode,
-          reference_no: persForm.reference_no,
-          description: persForm.description,
-        });
-      } else {
-        await api.post('/partners/personal/entries', {
-          partner_id: +persForm.partner_id,
-          entry_date: persForm.entry_date,
-          type: persForm.type,
-          category: persForm.category,
-          amount: +persForm.amount,
-          payment_mode: persForm.payment_mode,
-          reference_no: persForm.reference_no,
-          description: persForm.description,
-        });
-      }
-      setShowPersModal(false);
-      setEditingPersEntry(null);
-      resetPersForm();
-      loadPersonalSummary();
-      loadPersonalLedger();
-    } catch (e) {
-      alert(e.response?.data?.message || 'Failed to save personal entry');
-    }
-  };
-
-  const deletePersonalEntry = async (id) => {
-    if (!confirm('Are you sure you want to delete this personal entry?')) return;
-    try {
-      await api.delete(`/partners/personal/entries/${id}`);
-      loadPersonalSummary();
-      loadPersonalLedger();
-    } catch (e) {
-      alert('Failed to delete personal entry');
-    }
-  };
-
-  const openEditPersonalModal = (entry) => {
-    setEditingPersEntry(entry);
-    setPersForm({
-      partner_id: entry.partner_id,
-      entry_date: entry.entry_date ? entry.entry_date.slice(0, 10) : new Date().toISOString().slice(0, 10),
-      type: entry.type,
-      category: entry.category,
-      amount: entry.amount,
-      payment_mode: entry.payment_mode || 'cash',
-      reference_no: entry.reference_no || '',
-      description: entry.description || '',
-    });
-    setShowPersModal(true);
-  };
-
-  const openNewPersonalModal = (defaultType = 'credit', partnerId = null) => {
-    setEditingPersEntry(null);
-    setPersForm({
-      partner_id: partnerId || (persActivePid !== 'all' ? persActivePid : partners[0]?.id || ''),
-      entry_date: new Date().toISOString().slice(0, 10),
-      type: defaultType,
-      category: defaultType === 'credit' ? 'personal_payment' : 'personal_expense',
-      amount: '',
-      payment_mode: 'cash',
-      reference_no: '',
-      description: '',
-    });
-    setShowPersModal(true);
-  };
-
-  const resetPersForm = () => {
-    setPersForm({
-      partner_id: partners[0]?.id || '',
-      entry_date: new Date().toISOString().slice(0, 10),
-      type: 'credit',
-      category: 'personal_expense',
-      amount: '',
-      payment_mode: 'cash',
-      reference_no: '',
-      description: '',
-    });
-  };
-
   const addReminder = async () => {
     if (!remForm.note.trim()) return;
     await api.post('/partners/reminders', { note: remForm.note, type: remForm.type });
@@ -254,48 +98,20 @@ export default function PartnersPage() {
   const pendingReminders = reminders.filter(r => !r.is_resolved);
   const sources = form.type === 'investment' ? INV_SOURCES : DRW_SOURCES;
 
-  // Filtered personal ledger rows for search
-  const filteredPersLedger = persLedger.filter(r => {
-    if (!persSearch.trim()) return true;
-    const q = persSearch.toLowerCase();
-    return (
-      (r.partner_name || '').toLowerCase().includes(q) ||
-      (r.description || '').toLowerCase().includes(q) ||
-      (r.reference_no || '').toLowerCase().includes(q) ||
-      (PERS_CAT_LABEL[r.category] || r.category || '').toLowerCase().includes(q)
-    );
-  });
-
   return (
     <>
       {/* Header */}
       <div className="sec-hd mb16">
         <div>
-          <div className="sec-title">Partners &amp; Capital</div>
+          <div className="sec-title">Capital &amp; Partners</div>
           <div className="sec-sub">
-            Personal Credit/Debit Accounts, Capital Equity &amp; Reminders
+            Equity Investment, Drawings &amp; Partner Capital Ledgers
           </div>
         </div>
-        {tab === 'personal' && (
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn btn-ghost btn-sm" onClick={() => setShowStatementModal(true)}>
-              🖨️ Statement
-            </button>
-            <button className="btn btn-primary btn-sm" onClick={() => openNewPersonalModal('credit')}>
-              + Record Personal Credit
-            </button>
-            <button className="btn btn-red btn-sm" onClick={() => openNewPersonalModal('debit')}>
-              − Record Personal Debit
-            </button>
-          </div>
-        )}
       </div>
 
       {/* Tab bar */}
       <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: '2px solid var(--border)' }}>
-        <button style={TAB_STYLE(tab === 'personal')} onClick={() => setTab('personal')}>
-          👤 Personal Accounts
-        </button>
         <button style={TAB_STYLE(tab === 'overview')} onClick={() => setTab('overview')}>
           💼 Capital Overview
         </button>
@@ -306,345 +122,6 @@ export default function PartnersPage() {
           🔔 Reminders {pendingReminders.length > 0 && <span className="badge b-yellow" style={{ fontSize: 10, marginLeft: 4 }}>{pendingReminders.length}</span>}
         </button>
       </div>
-
-      {/* ════════════════════════════════════════════════════════════════════════
-          TAB: 👤 PERSONAL ACCOUNTS (CREDIT & DEBIT SEPARATE KHATA)
-      ════════════════════════════════════════════════════════════════════════ */}
-      {tab === 'personal' && (
-        <>
-          {/* Independence Info Banner */}
-          <div style={{
-            background: '#f8fafc',
-            border: '1px solid #cbd5e1',
-            borderRadius: 10,
-            padding: '10px 16px',
-            marginBottom: 16,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 10,
-            fontSize: 12,
-            color: '#475569'
-          }}>
-            <span style={{ fontSize: 18 }}>🛡️</span>
-            <div>
-              <strong>Independent Personal Ledger:</strong> This module tracks payments and transactions made personally by partners. It is 100% separate from company books and does not affect company accounts, expenses, P&amp;L, or capital equity.
-            </div>
-          </div>
-
-          {/* Partner Personal Cards */}
-          <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.max(persSummary.partners.length + 1, 3)}, 1fr)`, gap: 14, marginBottom: 20 }}>
-            {persSummary.partners.map((p, i) => {
-              const color = PARTNER_COLORS[i % PARTNER_COLORS.length];
-              const isSelected = String(persActivePid) === String(p.id);
-              const netBal = Number(p.net_balance || 0);
-
-              return (
-                <div
-                  key={p.id}
-                  className="card"
-                  onClick={() => setPersActivePid(p.id)}
-                  style={{
-                    borderTop: `4px solid ${color}`,
-                    padding: '16px 18px',
-                    cursor: 'pointer',
-                    background: isSelected ? '#f5f3ff' : '#fff',
-                    boxShadow: isSelected ? '0 0 0 2px var(--accent)' : 'none',
-                    transition: 'all .15s'
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-                    <div>
-                      <div style={{ fontWeight: 800, fontSize: 16, color }}>{p.name}</div>
-                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{p.tx_count} personal entries</div>
-                    </div>
-                    <span className="badge" style={{ background: '#ede9fe', color: 'var(--accent)', fontSize: 11, fontWeight: 700 }}>
-                      {isSelected ? '✓ Selected' : 'Personal Khata'}
-                    </span>
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                      <span style={{ color: 'var(--muted)' }}>Total Credit (+)</span>
-                      <span style={{ fontWeight: 700, color: 'var(--green)' }}>{fmt(p.total_credit)}</span>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                      <span style={{ color: 'var(--muted)' }}>Total Debit (−)</span>
-                      <span style={{ fontWeight: 700, color: 'var(--red)' }}>{fmt(p.total_debit)}</span>
-                    </div>
-                    <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
-                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, alignItems: 'center' }}>
-                      <span style={{ fontWeight: 700 }}>Net Balance</span>
-                      <span style={{
-                        fontWeight: 800,
-                        fontSize: 15,
-                        color: netBal > 0 ? 'var(--green)' : netBal < 0 ? 'var(--red)' : 'var(--text)'
-                      }}>
-                        {netBal > 0 ? '+' : ''}{fmt(netBal)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'flex', gap: 6, marginTop: 14 }}>
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      style={{ flex: 1, fontSize: 11, padding: '4px 6px', color: 'var(--green)', borderColor: '#86efac' }}
-                      onClick={(e) => { e.stopPropagation(); openNewPersonalModal('credit', p.id); }}
-                    >
-                      + Credit
-                    </button>
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      style={{ flex: 1, fontSize: 11, padding: '4px 6px', color: 'var(--red)', borderColor: '#fca5a5' }}
-                      onClick={(e) => { e.stopPropagation(); openNewPersonalModal('debit', p.id); }}
-                    >
-                      − Debit
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-
-            {/* Combined Card */}
-            <div
-              className="card"
-              onClick={() => setPersActivePid('all')}
-              style={{
-                borderTop: '4px solid #64748b',
-                padding: '16px 18px',
-                background: persActivePid === 'all' ? '#f1f5f9' : 'var(--light)',
-                cursor: 'pointer',
-                boxShadow: persActivePid === 'all' ? '0 0 0 2px #64748b' : 'none',
-                transition: 'all .15s'
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-                <div>
-                  <div style={{ fontWeight: 800, fontSize: 16, color: '#475569' }}>Combined Personal</div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{persSummary.combined.tx_count} total entries</div>
-                </div>
-                <span className="badge b-gray" style={{ fontSize: 11, fontWeight: 700 }}>
-                  {persActivePid === 'all' ? '✓ Selected' : 'Both Partners'}
-                </span>
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                  <span style={{ color: 'var(--muted)' }}>Combined Credit (+)</span>
-                  <span style={{ fontWeight: 700, color: 'var(--green)' }}>{fmt(persSummary.combined.total_credit)}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
-                  <span style={{ color: 'var(--muted)' }}>Combined Debit (−)</span>
-                  <span style={{ fontWeight: 700, color: 'var(--red)' }}>{fmt(persSummary.combined.total_debit)}</span>
-                </div>
-                <div style={{ height: 1, background: 'var(--border)', margin: '4px 0' }} />
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, alignItems: 'center' }}>
-                  <span style={{ fontWeight: 700 }}>Combined Net</span>
-                  <span style={{
-                    fontWeight: 800,
-                    fontSize: 15,
-                    color: persSummary.combined.net_balance > 0 ? 'var(--green)' : persSummary.combined.net_balance < 0 ? 'var(--red)' : 'var(--text)'
-                  }}>
-                    {persSummary.combined.net_balance > 0 ? '+' : ''}{fmt(persSummary.combined.net_balance)}
-                  </span>
-                </div>
-              </div>
-
-              <button
-                className="btn btn-ghost btn-sm"
-                style={{ width: '100%', marginTop: 14, fontSize: 11, color: '#475569' }}
-                onClick={(e) => { e.stopPropagation(); setPersActivePid('all'); }}
-              >
-                View All Transactions
-              </button>
-            </div>
-          </div>
-
-          {/* Personal Account Ledger */}
-          <div className="card">
-            {/* Filter Bar */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 16 }}>
-              {/* Partner pills */}
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                <button
-                  onClick={() => setPersActivePid('all')}
-                  style={{
-                    padding: '6px 14px', borderRadius: 20, border: '1px solid',
-                    borderColor: persActivePid === 'all' ? 'var(--accent)' : 'var(--border)',
-                    background: persActivePid === 'all' ? 'var(--accent)' : '#fff',
-                    color: persActivePid === 'all' ? '#fff' : 'var(--text)',
-                    fontSize: 12, fontWeight: 700, cursor: 'pointer'
-                  }}
-                >
-                  All Partners
-                </button>
-                {partners.map(p => (
-                  <button
-                    key={p.id}
-                    onClick={() => setPersActivePid(p.id)}
-                    style={{
-                      padding: '6px 14px', borderRadius: 20, border: '1px solid',
-                      borderColor: String(persActivePid) === String(p.id) ? 'var(--accent)' : 'var(--border)',
-                      background: String(persActivePid) === String(p.id) ? 'var(--accent)' : '#fff',
-                      color: String(persActivePid) === String(p.id) ? '#fff' : 'var(--text)',
-                      fontSize: 12, fontWeight: 700, cursor: 'pointer'
-                    }}
-                  >
-                    👤 {p.name}
-                  </button>
-                ))}
-              </div>
-
-              {/* Type and Category dropdowns */}
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <select
-                  value={persTypeFilter}
-                  onChange={e => setPersTypeFilter(e.target.value)}
-                  style={{ fontSize: 12, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)' }}
-                >
-                  <option value="all">All Types (Credit &amp; Debit)</option>
-                  <option value="credit">🟢 Credit (+) Only</option>
-                  <option value="debit">🔴 Debit (−) Only</option>
-                </select>
-
-                <select
-                  value={persCatFilter}
-                  onChange={e => setPersCatFilter(e.target.value)}
-                  style={{ fontSize: 12, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)' }}
-                >
-                  <option value="all">All Categories</option>
-                  {PERSONAL_CATEGORIES.map(c => (
-                    <option key={c.value} value={c.value}>{c.label}</option>
-                  ))}
-                </select>
-
-                <input
-                  type="text"
-                  placeholder="🔍 Search notes, ref..."
-                  value={persSearch}
-                  onChange={e => setPersSearch(e.target.value)}
-                  style={{ fontSize: 12, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', width: 160 }}
-                />
-              </div>
-            </div>
-
-            {/* Ledger Table */}
-            {filteredPersLedger.length === 0 ? (
-              <div className="empty-state">
-                <div style={{ fontSize: 28, marginBottom: 6 }}>📑</div>
-                <div style={{ fontWeight: 700, color: 'var(--text)' }}>No personal account entries found</div>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-                  Use <b>+ Record Personal Credit</b> or <b>− Record Personal Debit</b> above to add a transaction.
-                </div>
-              </div>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th style={{ width: 40 }}>#</th>
-                      <th>Date</th>
-                      <th>Partner</th>
-                      <th>Type</th>
-                      <th>Category</th>
-                      <th>Payment Mode</th>
-                      <th>Description / Ref</th>
-                      <th style={{ textAlign: 'right', color: 'var(--green)' }}>Credit (+)</th>
-                      <th style={{ textAlign: 'right', color: 'var(--red)' }}>Debit (−)</th>
-                      <th style={{ textAlign: 'right' }}>Running Balance</th>
-                      <th style={{ width: 80, textAlign: 'center' }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredPersLedger.map((r, idx) => {
-                      const isCredit = r.type === 'credit';
-                      return (
-                        <tr key={r.id} style={{ background: isCredit ? 'inherit' : 'rgba(239, 68, 68, 0.02)' }}>
-                          <td style={{ color: 'var(--muted)', fontSize: 11 }}>{idx + 1}</td>
-                          <td style={{ whiteSpace: 'nowrap', fontSize: 12, fontWeight: 600 }}>{fmtD(r.entry_date?.slice(0, 10))}</td>
-                          <td style={{ fontWeight: 700, fontSize: 12 }}>{r.partner_name}</td>
-                          <td>
-                            {isCredit ? (
-                              <span className="badge b-green" style={{ fontSize: 11 }}>🟢 Credit</span>
-                            ) : (
-                              <span className="badge b-red" style={{ fontSize: 11 }}>🔴 Debit</span>
-                            )}
-                          </td>
-                          <td>
-                            <span style={{ background: '#f1f5f9', padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600 }}>
-                              {PERS_CAT_LABEL[r.category] || r.category}
-                            </span>
-                          </td>
-                          <td style={{ fontSize: 12, textTransform: 'capitalize', color: 'var(--muted)' }}>
-                            {r.payment_mode === 'bank_transfer' ? 'Bank' : r.payment_mode || 'cash'}
-                          </td>
-                          <td style={{ fontSize: 12 }}>
-                            {r.description || '—'}
-                            {r.reference_no && (
-                              <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>Ref: {r.reference_no}</div>
-                            )}
-                          </td>
-                          <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--green)', fontSize: 13 }}>
-                            {isCredit ? fmt(r.amount) : '—'}
-                          </td>
-                          <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--red)', fontSize: 13 }}>
-                            {!isCredit ? fmt(r.amount) : '—'}
-                          </td>
-                          <td style={{
-                            textAlign: 'right',
-                            fontWeight: 800,
-                            fontSize: 13,
-                            color: r.running_balance > 0 ? 'var(--green)' : r.running_balance < 0 ? 'var(--red)' : 'var(--text)'
-                          }}>
-                            {r.running_balance > 0 ? '+' : ''}{fmt(r.running_balance)}
-                          </td>
-                          <td style={{ textAlign: 'center' }}>
-                            <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
-                              <button
-                                className="btn btn-ghost btn-sm"
-                                style={{ padding: '2px 6px', fontSize: 11 }}
-                                onClick={() => openEditPersonalModal(r)}
-                                title="Edit"
-                              >
-                                ✏️
-                              </button>
-                              <button
-                                className="btn btn-ghost btn-sm"
-                                style={{ padding: '2px 6px', fontSize: 11, color: '#ef4444' }}
-                                onClick={() => deletePersonalEntry(r.id)}
-                                title="Delete"
-                              >
-                                🗑️
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                  <tfoot>
-                    <tr style={{ background: '#f8fafc', fontWeight: 800 }}>
-                      <td colSpan={7} style={{ fontSize: 13, color: 'var(--muted)' }}>Page Totals ({filteredPersLedger.length} entries)</td>
-                      <td style={{ textAlign: 'right', color: 'var(--green)', fontSize: 13 }}>
-                        {fmt(filteredPersLedger.filter(x => x.type === 'credit').reduce((s, x) => s + Number(x.amount || 0), 0))}
-                      </td>
-                      <td style={{ textAlign: 'right', color: 'var(--red)', fontSize: 13 }}>
-                        {fmt(filteredPersLedger.filter(x => x.type === 'debit').reduce((s, x) => s + Number(x.amount || 0), 0))}
-                      </td>
-                      <td style={{ textAlign: 'right', fontSize: 14 }}>
-                        {fmt(
-                          filteredPersLedger.filter(x => x.type === 'credit').reduce((s, x) => s + Number(x.amount || 0), 0) -
-                          filteredPersLedger.filter(x => x.type === 'debit').reduce((s, x) => s + Number(x.amount || 0), 0)
-                        )}
-                      </td>
-                      <td></td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
-            )}
-          </div>
-        </>
-      )}
 
       {/* ════════════════════════════════════════════════════════════════════════
           TAB: 💼 CAPITAL OVERVIEW
@@ -920,224 +397,6 @@ export default function PartnersPage() {
                 )}
               </div>
             ))}
-          </div>
-        </div>
-      )}
-
-      {/* ════════════════════════════════════════════════════════════════════════
-          MODAL: RECORD / EDIT PERSONAL ACCOUNT ENTRY
-      ════════════════════════════════════════════════════════════════════════ */}
-      {showPersModal && (
-        <div className="modal-overlay" onClick={() => setShowPersModal(false)}>
-          <div className="modal" style={{ width: 560, maxWidth: '95vw' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <h2 style={{ margin: 0 }}>
-                {editingPersEntry ? '✏️ Edit Personal Entry' : '👤 Record Partner Personal Entry'}
-              </h2>
-            </div>
-
-            {/* Toggle Credit vs Debit */}
-            <div style={{ display: 'flex', gap: 0, marginBottom: 16, border: '1.5px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-              <button
-                type="button"
-                onClick={() => setPersForm(f => ({ ...f, type: 'credit', category: f.category || 'personal_payment' }))}
-                style={{
-                  flex: 1, padding: '10px 0', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700,
-                  background: persForm.type === 'credit' ? 'var(--green)' : 'var(--white)',
-                  color: persForm.type === 'credit' ? '#fff' : 'var(--muted)',
-                  transition: 'all .15s',
-                }}
-              >
-                🟢 [+] Credit (Personal Payment / Given)
-              </button>
-              <button
-                type="button"
-                onClick={() => setPersForm(f => ({ ...f, type: 'debit', category: f.category || 'personal_expense' }))}
-                style={{
-                  flex: 1, padding: '10px 0', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700,
-                  background: persForm.type === 'debit' ? 'var(--red)' : 'var(--white)',
-                  color: persForm.type === 'debit' ? '#fff' : 'var(--muted)',
-                  transition: 'all .15s',
-                }}
-              >
-                🔴 [−] Debit (Personal Expense / Spent)
-              </button>
-            </div>
-
-            <div className="form-grid">
-              <div className="field">
-                <label>Partner *</label>
-                <select
-                  value={persForm.partner_id}
-                  onChange={e => setPersForm(f => ({ ...f, partner_id: e.target.value }))}
-                >
-                  {partners.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="field">
-                <label>Entry Date *</label>
-                <input
-                  type="date"
-                  value={persForm.entry_date}
-                  onChange={e => setPersForm(f => ({ ...f, entry_date: e.target.value }))}
-                />
-              </div>
-
-              <div className="field">
-                <label>Amount (₹) *</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  placeholder="e.g. 5000"
-                  value={persForm.amount}
-                  onChange={e => setPersForm(f => ({ ...f, amount: e.target.value }))}
-                  autoFocus
-                />
-              </div>
-
-              <div className="field">
-                <label>Category</label>
-                <select
-                  value={persForm.category}
-                  onChange={e => setPersForm(f => ({ ...f, category: e.target.value }))}
-                >
-                  {PERSONAL_CATEGORIES.map(c => (
-                    <option key={c.value} value={c.value}>{c.label}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="field">
-                <label>Payment Mode</label>
-                <select
-                  value={persForm.payment_mode}
-                  onChange={e => setPersForm(f => ({ ...f, payment_mode: e.target.value }))}
-                >
-                  <option value="cash">Cash</option>
-                  <option value="bank_transfer">Bank Transfer / NEFT</option>
-                  <option value="upi">UPI / GPay / PhonePe</option>
-                  <option value="cheque">Cheque</option>
-                </select>
-              </div>
-
-              <div className="field">
-                <label>Reference No. / Cheque #</label>
-                <input
-                  type="text"
-                  placeholder="e.g. UPI-98234 / CHQ-102"
-                  value={persForm.reference_no}
-                  onChange={e => setPersForm(f => ({ ...f, reference_no: e.target.value }))}
-                />
-              </div>
-
-              <div className="field form-full">
-                <label>Description / Particulars</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Paid for factory diesel from personal account"
-                  value={persForm.description}
-                  onChange={e => setPersForm(f => ({ ...f, description: e.target.value }))}
-                />
-              </div>
-            </div>
-
-            {persForm.partner_id && persForm.amount && (
-              <div className="calc-box mt12" style={{
-                borderColor: persForm.type === 'credit' ? '#86efac' : '#fca5a5',
-                background:  persForm.type === 'credit' ? '#f0fdf4'  : '#fef2f2',
-              }}>
-                <div className="calc-row">
-                  <span className="cl">{partners.find(p => p.id === +persForm.partner_id)?.name}</span>
-                  <span className="cv">{persForm.type === 'credit' ? '🟢 Personal Credit' : '🔴 Personal Debit'}</span>
-                </div>
-                <div className="calc-row">
-                  <span className="cl">{PERS_CAT_LABEL[persForm.category] || persForm.category}</span>
-                  <span className="cv" style={{ color: persForm.type === 'credit' ? 'var(--green)' : 'var(--red)', fontWeight: 800 }}>
-                    {persForm.type === 'credit' ? '+' : '−'}{fmt(+persForm.amount)}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            <div className="modal-actions" style={{ marginTop: 16 }}>
-              <button className="btn btn-ghost" onClick={() => setShowPersModal(false)}>Cancel</button>
-              <button
-                className="btn btn-primary"
-                onClick={savePersonalEntry}
-                disabled={!persForm.partner_id || !persForm.amount || Number(persForm.amount) <= 0}
-              >
-                {editingPersEntry ? 'Save Changes' : 'Record Entry'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ════════════════════════════════════════════════════════════════════════
-          MODAL: PRINTABLE STATEMENT VIEW
-      ════════════════════════════════════════════════════════════════════════ */}
-      {showStatementModal && (
-        <div className="modal-overlay" onClick={() => setShowStatementModal(false)}>
-          <div className="modal" style={{ width: 720, maxWidth: '95vw' }} onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-              <h2 style={{ margin: 0 }}>🖨️ Partner Personal Statement</h2>
-              <button className="btn btn-primary btn-sm" onClick={() => window.print()}>
-                Print / Save PDF
-              </button>
-            </div>
-
-            <div style={{ background: '#fff', border: '1px solid #cbd5e1', borderRadius: 8, padding: 16 }}>
-              <div style={{ textAlign: 'center', borderBottom: '2px solid #e2e8f0', paddingBottom: 12, marginBottom: 14 }}>
-                <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--accent)' }}>VIVA STUDIO ERP</div>
-                <div style={{ fontSize: 13, fontWeight: 700, marginTop: 2 }}>
-                  Partner Personal Account Statement — {persActivePid === 'all' ? 'All Partners Combined' : partners.find(p => p.id === +persActivePid)?.name}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                  Generated on {new Date().toLocaleDateString('en-IN', { dateStyle: 'full' })}
-                </div>
-              </div>
-
-              {/* Statement Summary Table */}
-              <table style={{ width: '100%', marginBottom: 16, fontSize: 12 }}>
-                <thead>
-                  <tr style={{ background: '#f1f5f9' }}>
-                    <th>Date</th>
-                    <th>Partner</th>
-                    <th>Particulars</th>
-                    <th>Category</th>
-                    <th style={{ textAlign: 'right' }}>Credit (₹)</th>
-                    <th style={{ textAlign: 'right' }}>Debit (₹)</th>
-                    <th style={{ textAlign: 'right' }}>Balance (₹)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredPersLedger.map((r) => (
-                    <tr key={r.id}>
-                      <td>{fmtD(r.entry_date?.slice(0, 10))}</td>
-                      <td style={{ fontWeight: 600 }}>{r.partner_name}</td>
-                      <td>{r.description || '—'} {r.reference_no ? `(${r.reference_no})` : ''}</td>
-                      <td>{PERS_CAT_LABEL[r.category] || r.category}</td>
-                      <td style={{ textAlign: 'right', color: 'var(--green)', fontWeight: 600 }}>
-                        {r.type === 'credit' ? Number(r.amount).toFixed(2) : '—'}
-                      </td>
-                      <td style={{ textAlign: 'right', color: 'var(--red)', fontWeight: 600 }}>
-                        {r.type === 'debit' ? Number(r.amount).toFixed(2) : '—'}
-                      </td>
-                      <td style={{ textAlign: 'right', fontWeight: 800 }}>
-                        {Number(r.running_balance).toFixed(2)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="modal-actions" style={{ marginTop: 14 }}>
-              <button className="btn btn-ghost" onClick={() => setShowStatementModal(false)}>Close</button>
-            </div>
           </div>
         </div>
       )}

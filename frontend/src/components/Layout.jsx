@@ -41,7 +41,10 @@ function getNavItems(user) {
 
   // Finance Section
   const financeItems = [];
-  if (m.feature_accounting || m.feature_expenses) financeItems.push({ to: '/partners', label: 'Partners & Personal Accounts', icon: '🤝' });
+  if (m.feature_accounting || m.feature_expenses) {
+    financeItems.push({ to: '/personal-accounts', label: 'Personal Accounts', icon: '👤' });
+    financeItems.push({ to: '/partners', label: 'Capital & Partners', icon: '🤝' });
+  }
   if (m.feature_accounting) financeItems.push({ to: '/finance', label: 'Finance', icon: '📈' });
   if (m.feature_expenses) financeItems.push({ to: '/expenses', label: 'Expenses', icon: '🧾' });
   if (m.feature_party_ledger) financeItems.push({ to: '/party-ledger', label: 'Party Ledger', icon: '📒' });
