@@ -907,97 +907,162 @@ export default function StaffPage() {
                   </button>
                 </div>
 
-                {/* Items & Sizes Multi-Row Table */}
+                {/* Items & Sizes Multi-Row Container */}
                 <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden', marginBottom: 14 }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                    <thead>
-                      <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', textAlign: 'left' }}>
-                        <th style={{ padding: '8px 10px', fontWeight: 700, color: '#475569' }}>Product Category</th>
-                        <th style={{ padding: '8px 10px', fontWeight: 700, color: '#475569', width: '22%' }}>Size / Variation</th>
-                        <th style={{ padding: '8px 10px', fontWeight: 700, color: '#475569', width: '18%', textAlign: 'right' }}>Allocated (pcs)</th>
-                        <th style={{ padding: '8px 10px', fontWeight: 700, color: '#475569', width: '18%', textAlign: 'right' }}>Completed (pcs)</th>
-                        <th style={{ padding: '8px 6px', width: '40px', textAlign: 'center' }}></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {entryForm.items.map((item, idx) => (
-                        <tr key={item.id || idx} style={{ borderBottom: idx < entryForm.items.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
-                          <td style={{ padding: '6px 10px' }}>
+                  {/* Desktop Table View */}
+                  <div className="desktop-only" style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                      <thead>
+                        <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', textAlign: 'left' }}>
+                          <th style={{ padding: '8px 10px', fontWeight: 700, color: '#475569' }}>Product Category</th>
+                          <th style={{ padding: '8px 10px', fontWeight: 700, color: '#475569', width: '22%' }}>Size / Variation</th>
+                          <th style={{ padding: '8px 10px', fontWeight: 700, color: '#475569', width: '18%', textAlign: 'right' }}>Allocated (pcs)</th>
+                          <th style={{ padding: '8px 10px', fontWeight: 700, color: '#475569', width: '18%', textAlign: 'right' }}>Completed (pcs)</th>
+                          <th style={{ padding: '8px 6px', width: '40px', textAlign: 'center' }}></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {entryForm.items.map((item, idx) => (
+                          <tr key={item.id || idx} style={{ borderBottom: idx < entryForm.items.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
+                            <td style={{ padding: '6px 10px' }}>
+                              <select
+                                value={item.category}
+                                onChange={e => updateEditItemRow(item.id, 'category', e.target.value)}
+                                style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12 }}
+                              >
+                                {configs.length > 0
+                                  ? configs.map(c => <option key={c.category} value={c.category}>{c.display_name || c.name || getProductLabel(c.category)}</option>)
+                                  : CATEGORIES.map(c => <option key={c} value={c}>{getProductLabel(c)}</option>)}
+                              </select>
+                            </td>
+                            <td style={{ padding: '6px 10px' }}>
+                              <input
+                                type="text"
+                                placeholder="e.g. 38, XL"
+                                value={item.size}
+                                onChange={e => updateEditItemRow(item.id, 'size', e.target.value)}
+                                style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12 }}
+                              />
+                            </td>
+                            <td style={{ padding: '6px 10px', textAlign: 'right' }}>
+                              <input
+                                type="number"
+                                min="0"
+                                placeholder="0"
+                                value={item.allocated_pcs}
+                                onChange={e => updateEditItemRow(item.id, 'allocated_pcs', e.target.value)}
+                                style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12, textAlign: 'right', fontWeight: 600 }}
+                              />
+                            </td>
+                            <td style={{ padding: '6px 10px', textAlign: 'right' }}>
+                              <input
+                                type="number"
+                                min="0"
+                                placeholder="0"
+                                value={item.completed_pcs}
+                                onChange={e => updateEditItemRow(item.id, 'completed_pcs', e.target.value)}
+                                style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12, textAlign: 'right', fontWeight: 600, color: 'var(--green)' }}
+                              />
+                            </td>
+                            <td style={{ padding: '6px 6px', textAlign: 'center' }}>
+                              <button
+                                type="button"
+                                onClick={() => removeEditItemRow(item.id)}
+                                disabled={entryForm.items.length === 1}
+                                style={{
+                                  background: 'transparent',
+                                  border: 'none',
+                                  color: entryForm.items.length > 1 ? '#ef4444' : '#cbd5e1',
+                                  cursor: entryForm.items.length > 1 ? 'pointer' : 'default',
+                                  fontSize: 14,
+                                  padding: '2px 4px'
+                                }}
+                                title="Remove size row"
+                              >
+                                ✕
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Mobile Cards View */}
+                  <div className="mobile-only" style={{ padding: 8 }}>
+                    {entryForm.items.map((item, idx) => (
+                      <div key={item.id || idx} className="line-item-card" style={{ padding: '10px 12px', marginBottom: 8 }}>
+                        <div className="line-item-card-header">
+                          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>Item #{idx + 1}</span>
+                          {entryForm.items.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => removeEditItemRow(item.id)}
+                              style={{ background: '#fee2e2', border: 'none', color: '#ef4444', borderRadius: 4, width: 20, height: 20, cursor: 'pointer', fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          <div>
+                            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Product Category</label>
                             <select
                               value={item.category}
                               onChange={e => updateEditItemRow(item.id, 'category', e.target.value)}
-                              style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12 }}
+                              style={{ width: '100%', padding: '6px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12 }}
                             >
                               {configs.length > 0
                                 ? configs.map(c => <option key={c.category} value={c.category}>{c.display_name || c.name || getProductLabel(c.category)}</option>)
                                 : CATEGORIES.map(c => <option key={c} value={c}>{getProductLabel(c)}</option>)}
                             </select>
-                          </td>
-                          <td style={{ padding: '6px 10px' }}>
-                            <input
-                              type="text"
-                              placeholder="e.g. 38, XL"
-                              value={item.size}
-                              onChange={e => updateEditItemRow(item.id, 'size', e.target.value)}
-                              style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12 }}
-                            />
-                          </td>
-                          <td style={{ padding: '6px 10px', textAlign: 'right' }}>
-                            <input
-                              type="number"
-                              min="0"
-                              placeholder="0"
-                              value={item.allocated_pcs}
-                              onChange={e => updateEditItemRow(item.id, 'allocated_pcs', e.target.value)}
-                              style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12, textAlign: 'right', fontWeight: 600 }}
-                            />
-                          </td>
-                          <td style={{ padding: '6px 10px', textAlign: 'right' }}>
+                          </div>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                            <div>
+                              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Size / Variation</label>
+                              <input
+                                type="text"
+                                placeholder="e.g. 38, XL"
+                                value={item.size}
+                                onChange={e => updateEditItemRow(item.id, 'size', e.target.value)}
+                                style={{ width: '100%', padding: '6px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12, boxSizing: 'border-box' }}
+                              />
+                            </div>
+
+                            <div>
+                              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Allocated (pcs)</label>
+                              <input
+                                type="number"
+                                min="0"
+                                placeholder="0"
+                                value={item.allocated_pcs}
+                                onChange={e => updateEditItemRow(item.id, 'allocated_pcs', e.target.value)}
+                                style={{ width: '100%', padding: '6px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12, textAlign: 'right', fontWeight: 600, boxSizing: 'border-box' }}
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Completed (pcs)</label>
                             <input
                               type="number"
                               min="0"
                               placeholder="0"
                               value={item.completed_pcs}
                               onChange={e => updateEditItemRow(item.id, 'completed_pcs', e.target.value)}
-                              style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12, textAlign: 'right', fontWeight: 600, color: 'var(--green)' }}
+                              style={{ width: '100%', padding: '6px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12, textAlign: 'right', fontWeight: 600, color: 'var(--green)', boxSizing: 'border-box' }}
                             />
-                          </td>
-                          <td style={{ padding: '6px 6px', textAlign: 'center' }}>
-                            <button
-                              type="button"
-                              onClick={() => removeEditItemRow(item.id)}
-                              disabled={entryForm.items.length === 1}
-                              style={{
-                                background: 'transparent',
-                                border: 'none',
-                                color: entryForm.items.length > 1 ? '#ef4444' : '#cbd5e1',
-                                cursor: entryForm.items.length > 1 ? 'pointer' : 'default',
-                                fontSize: 14,
-                                padding: '2px 4px'
-                              }}
-                              title="Remove size row"
-                            >
-                              ✕
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr style={{ background: '#f8fafc', borderTop: '1.5px solid #e2e8f0', fontWeight: 700 }}>
-                        <td colSpan={2} style={{ padding: '8px 10px', color: '#475569' }}>
-                          Total ({entryForm.items.length} size{entryForm.items.length !== 1 ? 's' : ''})
-                        </td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--text)' }}>
-                          {totalAllocPcs} pcs
-                        </td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--green)' }}>
-                          {totalCompPcs} pcs
-                        </td>
-                        <td></td>
-                      </tr>
-                    </tfoot>
-                  </table>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    <div style={{ padding: '6px 10px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700 }}>
+                      <span>Total ({entryForm.items.length} sizes)</span>
+                      <span>Alloc: {totalAllocPcs} pcs · Done: <span style={{ color: 'var(--green)' }}>{totalCompPcs} pcs</span></span>
+                    </div>
+                  </div>
                 </div>
 
                 <button
@@ -1190,97 +1255,176 @@ export default function StaffPage() {
                   </button>
                 </div>
 
-                {/* Items & Sizes Multi-Row Table */}
+                {/* Items & Sizes Multi-Row Container */}
                 <div style={{ border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden', marginBottom: 14 }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                    <thead>
-                      <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', textAlign: 'left' }}>
-                        <th style={{ padding: '8px 10px', fontWeight: 700, color: '#475569' }}>Product Category</th>
-                        <th style={{ padding: '8px 10px', fontWeight: 700, color: '#475569', width: '22%' }}>Size / Variation</th>
-                        <th style={{ padding: '8px 10px', fontWeight: 700, color: '#475569', width: '18%', textAlign: 'right' }}>Allocated (pcs)</th>
-                        <th style={{ padding: '8px 10px', fontWeight: 700, color: '#475569', width: '18%', textAlign: 'right' }}>Completed (pcs)</th>
-                        <th style={{ padding: '8px 6px', width: '40px', textAlign: 'center' }}></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {addEntryForm.items.map((item, idx) => (
-                        <tr key={item.id || idx} style={{ borderBottom: idx < addEntryForm.items.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
-                          <td style={{ padding: '6px 10px' }}>
+                  {/* Desktop Table View */}
+                  <div className="desktop-only" style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                      <thead>
+                        <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', textAlign: 'left' }}>
+                          <th style={{ padding: '8px 10px', fontWeight: 700, color: '#475569' }}>Product Category</th>
+                          <th style={{ padding: '8px 10px', fontWeight: 700, color: '#475569', width: '22%' }}>Size / Variation</th>
+                          <th style={{ padding: '8px 10px', fontWeight: 700, color: '#475569', width: '18%', textAlign: 'right' }}>Allocated (pcs)</th>
+                          <th style={{ padding: '8px 10px', fontWeight: 700, color: '#475569', width: '18%', textAlign: 'right' }}>Completed (pcs)</th>
+                          <th style={{ padding: '8px 6px', width: '40px', textAlign: 'center' }}></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {addEntryForm.items.map((item, idx) => (
+                          <tr key={item.id || idx} style={{ borderBottom: idx < addEntryForm.items.length - 1 ? '1px solid #f1f5f9' : 'none' }}>
+                            <td style={{ padding: '6px 10px' }}>
+                              <select
+                                value={item.category}
+                                onChange={e => updateItemRow(item.id, 'category', e.target.value)}
+                                style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12 }}
+                              >
+                                {configs.length > 0
+                                  ? configs.map(c => <option key={c.category} value={c.category}>{c.display_name || c.name || getProductLabel(c.category)}</option>)
+                                  : CATEGORIES.map(c => <option key={c} value={c}>{getProductLabel(c)}</option>)}
+                              </select>
+                            </td>
+                            <td style={{ padding: '6px 10px' }}>
+                              <input
+                                type="text"
+                                placeholder="e.g. 38, XL"
+                                value={item.size}
+                                onChange={e => updateItemRow(item.id, 'size', e.target.value)}
+                                style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12 }}
+                              />
+                            </td>
+                            <td style={{ padding: '6px 10px', textAlign: 'right' }}>
+                              <input
+                                type="number"
+                                min="0"
+                                placeholder="0"
+                                value={item.allocated_pcs}
+                                onChange={e => updateItemRow(item.id, 'allocated_pcs', e.target.value)}
+                                style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12, textAlign: 'right', fontWeight: 600 }}
+                              />
+                            </td>
+                            <td style={{ padding: '6px 10px', textAlign: 'right' }}>
+                              <input
+                                type="number"
+                                min="0"
+                                placeholder="0"
+                                value={item.completed_pcs}
+                                onChange={e => updateItemRow(item.id, 'completed_pcs', e.target.value)}
+                                style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12, textAlign: 'right', fontWeight: 600, color: 'var(--green)' }}
+                              />
+                            </td>
+                            <td style={{ padding: '6px 6px', textAlign: 'center' }}>
+                              <button
+                                type="button"
+                                onClick={() => removeItemRow(item.id)}
+                                disabled={addEntryForm.items.length === 1}
+                                style={{
+                                  background: 'transparent',
+                                  border: 'none',
+                                  color: addEntryForm.items.length > 1 ? '#ef4444' : '#cbd5e1',
+                                  cursor: addEntryForm.items.length > 1 ? 'pointer' : 'default',
+                                  fontSize: 14,
+                                  padding: '2px 4px'
+                                }}
+                                title="Remove size row"
+                              >
+                                ✕
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr style={{ background: '#f8fafc', borderTop: '1.5px solid #e2e8f0', fontWeight: 700 }}>
+                          <td colSpan={2} style={{ padding: '8px 10px', color: '#475569' }}>
+                            Total ({addEntryForm.items.length} size{addEntryForm.items.length !== 1 ? 's' : ''})
+                          </td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--text)' }}>
+                            {totalAllocPcs} pcs
+                          </td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--green)' }}>
+                            {totalCompPcs} pcs
+                          </td>
+                          <td></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+
+                  {/* Mobile Cards View */}
+                  <div className="mobile-only" style={{ padding: 8 }}>
+                    {addEntryForm.items.map((item, idx) => (
+                      <div key={item.id || idx} className="line-item-card" style={{ padding: '10px 12px', marginBottom: 8 }}>
+                        <div className="line-item-card-header">
+                          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>Item #{idx + 1}</span>
+                          {addEntryForm.items.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => removeItemRow(item.id)}
+                              style={{ background: '#fee2e2', border: 'none', color: '#ef4444', borderRadius: 4, width: 20, height: 20, cursor: 'pointer', fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          <div>
+                            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Product Category</label>
                             <select
                               value={item.category}
                               onChange={e => updateItemRow(item.id, 'category', e.target.value)}
-                              style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12 }}
+                              style={{ width: '100%', padding: '6px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12 }}
                             >
                               {configs.length > 0
                                 ? configs.map(c => <option key={c.category} value={c.category}>{c.display_name || c.name || getProductLabel(c.category)}</option>)
                                 : CATEGORIES.map(c => <option key={c} value={c}>{getProductLabel(c)}</option>)}
                             </select>
-                          </td>
-                          <td style={{ padding: '6px 10px' }}>
-                            <input
-                              type="text"
-                              placeholder="e.g. 38, XL"
-                              value={item.size}
-                              onChange={e => updateItemRow(item.id, 'size', e.target.value)}
-                              style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12 }}
-                            />
-                          </td>
-                          <td style={{ padding: '6px 10px', textAlign: 'right' }}>
-                            <input
-                              type="number"
-                              min="0"
-                              placeholder="0"
-                              value={item.allocated_pcs}
-                              onChange={e => updateItemRow(item.id, 'allocated_pcs', e.target.value)}
-                              style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12, textAlign: 'right', fontWeight: 600 }}
-                            />
-                          </td>
-                          <td style={{ padding: '6px 10px', textAlign: 'right' }}>
+                          </div>
+
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                            <div>
+                              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Size / Variation</label>
+                              <input
+                                type="text"
+                                placeholder="e.g. 38, XL"
+                                value={item.size}
+                                onChange={e => updateItemRow(item.id, 'size', e.target.value)}
+                                style={{ width: '100%', padding: '6px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12, boxSizing: 'border-box' }}
+                              />
+                            </div>
+
+                            <div>
+                              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Allocated (pcs)</label>
+                              <input
+                                type="number"
+                                min="0"
+                                placeholder="0"
+                                value={item.allocated_pcs}
+                                onChange={e => updateItemRow(item.id, 'allocated_pcs', e.target.value)}
+                                style={{ width: '100%', padding: '6px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12, textAlign: 'right', fontWeight: 600, boxSizing: 'border-box' }}
+                              />
+                            </div>
+                          </div>
+
+                          <div>
+                            <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Completed (pcs)</label>
                             <input
                               type="number"
                               min="0"
                               placeholder="0"
                               value={item.completed_pcs}
                               onChange={e => updateItemRow(item.id, 'completed_pcs', e.target.value)}
-                              style={{ width: '100%', padding: '5px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12, textAlign: 'right', fontWeight: 600, color: 'var(--green)' }}
+                              style={{ width: '100%', padding: '6px 8px', borderRadius: 6, border: '1px solid #cbd5e1', fontSize: 12, textAlign: 'right', fontWeight: 600, color: 'var(--green)', boxSizing: 'border-box' }}
                             />
-                          </td>
-                          <td style={{ padding: '6px 6px', textAlign: 'center' }}>
-                            <button
-                              type="button"
-                              onClick={() => removeItemRow(item.id)}
-                              disabled={addEntryForm.items.length === 1}
-                              style={{
-                                background: 'transparent',
-                                border: 'none',
-                                color: addEntryForm.items.length > 1 ? '#ef4444' : '#cbd5e1',
-                                cursor: addEntryForm.items.length > 1 ? 'pointer' : 'default',
-                                fontSize: 14,
-                                padding: '2px 4px'
-                              }}
-                              title="Remove size row"
-                            >
-                              ✕
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr style={{ background: '#f8fafc', borderTop: '1.5px solid #e2e8f0', fontWeight: 700 }}>
-                        <td colSpan={2} style={{ padding: '8px 10px', color: '#475569' }}>
-                          Total ({addEntryForm.items.length} size{addEntryForm.items.length !== 1 ? 's' : ''})
-                        </td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--text)' }}>
-                          {totalAllocPcs} pcs
-                        </td>
-                        <td style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--green)' }}>
-                          {totalCompPcs} pcs
-                        </td>
-                        <td></td>
-                      </tr>
-                    </tfoot>
-                  </table>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    <div style={{ padding: '6px 10px', background: '#f8fafc', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700 }}>
+                      <span>Total ({addEntryForm.items.length} sizes)</span>
+                      <span>Alloc: {totalAllocPcs} pcs · Done: <span style={{ color: 'var(--green)' }}>{totalCompPcs} pcs</span></span>
+                    </div>
+                  </div>
                 </div>
 
                 <button

@@ -269,18 +269,18 @@ export default function ItemsPage() {
         {/* Top Action & Navigation Header */}
         <div style={{
           background: 'var(--white)',
-          padding: '16px 20px',
+          padding: '14px 16px',
           borderRadius: 12,
           border: '1px solid var(--border)',
           boxShadow: '0 1px 4px rgba(0,0,0,0.03)',
-          marginBottom: 18,
+          marginBottom: 16,
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           flexWrap: 'wrap',
           gap: 12
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '1 1 240px' }}>
             <button
               type="button"
               onClick={() => setViewMode('list')}
@@ -295,24 +295,25 @@ export default function ItemsPage() {
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 5
+                gap: 5,
+                flexShrink: 0
               }}
             >
               <span>←</span> Catalog
             </button>
-            <div>
-              <h1 style={{ fontSize: 17, fontWeight: 800, color: 'var(--text)', margin: 0 }}>
-                {isEditing ? `Edit: ${form.name || form.category}` : 'New Product or Service'}
+            <div style={{ minWidth: 0 }}>
+              <h1 style={{ fontSize: 16, fontWeight: 800, color: 'var(--text)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {isEditing ? `Edit: ${form.name || form.category}` : 'New Item / Service'}
               </h1>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                Configure item code, unit of measure, pricing, and manufacturing specs
+                Configure pricing &amp; specifications
               </div>
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             {/* iOS-Style Activity Toggle Switch */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginRight: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginRight: 4 }}>
               <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer', position: 'relative', margin: 0 }}>
                 <input
                   type="checkbox"
@@ -321,8 +322,8 @@ export default function ItemsPage() {
                   style={{ position: 'absolute', opacity: 0, width: 0, height: 0 }}
                 />
                 <div style={{
-                  width: 38,
-                  height: 22,
+                  width: 36,
+                  height: 20,
                   background: form.is_active ? 'var(--green)' : '#cbd5e1',
                   borderRadius: 20,
                   transition: 'all 0.2s ease',
@@ -331,8 +332,8 @@ export default function ItemsPage() {
                   alignItems: 'center'
                 }}>
                   <div style={{
-                    width: 16,
-                    height: 16,
+                    width: 14,
+                    height: 14,
                     background: '#fff',
                     borderRadius: '50%',
                     position: 'absolute',
@@ -342,7 +343,7 @@ export default function ItemsPage() {
                   }} />
                 </div>
               </label>
-              <span style={{ fontSize: 12, fontWeight: 600, color: form.is_active ? 'var(--green)' : 'var(--muted)' }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: form.is_active ? 'var(--green)' : 'var(--muted)' }}>
                 {form.is_active ? 'Active' : 'Inactive'}
               </span>
             </div>
@@ -354,8 +355,8 @@ export default function ItemsPage() {
                 background: 'none',
                 border: '1px solid var(--border)',
                 borderRadius: 8,
-                padding: '7px 14px',
-                fontSize: 13,
+                padding: '7px 12px',
+                fontSize: 12,
                 fontWeight: 600,
                 color: 'var(--muted)',
                 cursor: 'pointer'
@@ -371,8 +372,8 @@ export default function ItemsPage() {
                 background: 'var(--accent)',
                 border: 'none',
                 borderRadius: 8,
-                padding: '8px 20px',
-                fontSize: 13,
+                padding: '7px 16px',
+                fontSize: 12,
                 fontWeight: 700,
                 color: '#fff',
                 cursor: 'pointer',
@@ -423,30 +424,27 @@ export default function ItemsPage() {
           </div>
         )}
 
-        {/* Tab Navigation Pill Bar */}
-        <div style={{
-          display: 'flex',
-          gap: 6,
+        {/* Tab Navigation Pill Bar with smooth scrollbar */}
+        <div className="pill-tabs-scroll" style={{
           marginBottom: 16,
           background: 'var(--white)',
           padding: 5,
           borderRadius: 10,
           border: '1px solid var(--border)',
-          overflowX: 'auto'
         }}>
           {[
-            { id: 'basic', label: '1. Basic & Unit (UOM)', icon: '🏷️' },
+            { id: 'basic', label: '1. Basic & UOM', icon: '🏷️' },
             { id: 'pricing', label: '2. Pricing & Taxes', icon: '💰' },
-            { id: 'sizes', label: `3. Size Rates (${form.size_rates.length})`, icon: '📏' },
-            { id: 'manufacturing', label: '4. Manufacturing & Labour', icon: '🧵' },
-            { id: 'economics', label: '5. Commercial Economics', icon: '📊' },
+            { id: 'sizes', label: `3. Sizes (${form.size_rates.length})`, icon: '📏' },
+            { id: 'manufacturing', label: '4. Labour & Mfg', icon: '🧵' },
+            { id: 'economics', label: '5. Economics', icon: '📊' },
           ].map(tab => (
             <button
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id)}
               style={{
-                padding: '7px 14px',
+                padding: '7px 12px',
                 borderRadius: 7,
                 border: 'none',
                 fontSize: 12,
@@ -456,9 +454,10 @@ export default function ItemsPage() {
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
-                gap: 6,
+                gap: 5,
                 whiteSpace: 'nowrap',
-                transition: 'all 0.15s ease'
+                transition: 'all 0.15s ease',
+                flexShrink: 0
               }}
             >
               <span>{tab.icon}</span> {tab.label}
@@ -473,7 +472,7 @@ export default function ItemsPage() {
           {activeTab === 'basic' && (
             <div style={{
               background: 'var(--white)',
-              padding: 24,
+              padding: 20,
               borderRadius: 12,
               border: '1px solid var(--border)',
               boxShadow: '0 1px 4px rgba(0,0,0,0.02)'
@@ -481,7 +480,7 @@ export default function ItemsPage() {
               <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', marginBottom: 2 }}>
                 Item Identification &amp; Unit
               </div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 18 }}>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
                 Provide the item name, code, type, and unit of measurement.
               </div>
 
@@ -501,7 +500,9 @@ export default function ItemsPage() {
                     fontWeight: 600,
                     padding: '9px 12px',
                     borderRadius: 8,
-                    border: '1px solid var(--border)'
+                    border: '1px solid var(--border)',
+                    width: '100%',
+                    boxSizing: 'border-box'
                   }}
                 />
               </div>
@@ -509,7 +510,7 @@ export default function ItemsPage() {
               {/* Classification Cards */}
               <div className="field mb18">
                 <label style={labelStyle}>Item Type</label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
                   <div
                     onClick={() => setForm({ ...form, item_type: 'product' })}
                     style={{
@@ -569,7 +570,7 @@ export default function ItemsPage() {
                     placeholder="e.g. SKU-101"
                     value={form.item_code}
                     onChange={e => setForm({ ...form, item_code: e.target.value })}
-                    style={{ padding: '8px 12px', borderRadius: 8 }}
+                    style={{ padding: '8px 12px', borderRadius: 8, width: '100%', boxSizing: 'border-box' }}
                   />
                 </div>
                 <div className="field">
@@ -579,14 +580,14 @@ export default function ItemsPage() {
                     placeholder="e.g. cotton_tshirt"
                     value={form.category}
                     onChange={e => setForm({ ...form, category: e.target.value })}
-                    style={{ padding: '8px 12px', borderRadius: 8 }}
+                    style={{ padding: '8px 12px', borderRadius: 8, width: '100%', boxSizing: 'border-box' }}
                   />
                 </div>
               </div>
 
               {/* Unit of Measure (UOM) Pill Grid */}
               <div className="field mb18">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, flexWrap: 'wrap', gap: 4 }}>
                   <label style={{ ...labelStyle, margin: 0 }}>
                     Unit of Measure (UOM) <span style={{ color: 'var(--red)' }}>*</span>
                   </label>
@@ -595,7 +596,7 @@ export default function ItemsPage() {
 
                 <div style={{
                   display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(105px, 1fr))',
                   gap: 8,
                   marginBottom: 10
                 }}>
@@ -606,22 +607,22 @@ export default function ItemsPage() {
                         key={u.code}
                         onClick={() => setForm({ ...form, uom: u.code })}
                         style={{
-                          padding: '8px 10px',
+                          padding: '7px 9px',
                           borderRadius: 8,
                           border: `1.5px solid ${isSelected ? 'var(--accent)' : 'var(--border)'}`,
                           background: isSelected ? 'var(--accent-l)' : 'var(--bg)',
                           cursor: 'pointer',
                           display: 'flex',
                           alignItems: 'center',
-                          gap: 8
+                          gap: 6
                         }}
                       >
-                        <span style={{ fontSize: 15 }}>{u.icon}</span>
-                        <div>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: isSelected ? 'var(--accent)' : 'var(--text)' }}>
+                        <span style={{ fontSize: 14 }}>{u.icon}</span>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: isSelected ? 'var(--accent)' : 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {u.label}
                           </div>
-                          <div style={{ fontSize: 10, color: isSelected ? 'var(--accent)' : 'var(--muted)' }}>
+                          <div style={{ fontSize: 9, color: isSelected ? 'var(--accent)' : 'var(--muted)' }}>
                             {u.code.toUpperCase()}
                           </div>
                         </div>
@@ -639,7 +640,7 @@ export default function ItemsPage() {
                   placeholder="Optional item details, fabric specs, or notes..."
                   value={form.description}
                   onChange={e => setForm({ ...form, description: e.target.value })}
-                  style={{ borderRadius: 8, padding: '8px 12px' }}
+                  style={{ borderRadius: 8, padding: '8px 12px', width: '100%', boxSizing: 'border-box' }}
                 />
               </div>
             </div>
@@ -649,7 +650,7 @@ export default function ItemsPage() {
           {activeTab === 'pricing' && (
             <div style={{
               background: 'var(--white)',
-              padding: 24,
+              padding: 20,
               borderRadius: 12,
               border: '1px solid var(--border)',
               boxShadow: '0 1px 4px rgba(0,0,0,0.02)'
@@ -657,7 +658,7 @@ export default function ItemsPage() {
               <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', marginBottom: 2 }}>
                 Commercial Rates &amp; Taxes
               </div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 18 }}>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
                 Set selling rate, base purchase cost, tax percentage, and HSN code.
               </div>
 
@@ -678,7 +679,9 @@ export default function ItemsPage() {
                       fontWeight: 800,
                       color: 'var(--accent)',
                       padding: '9px 12px',
-                      borderRadius: 8
+                      borderRadius: 8,
+                      width: '100%',
+                      boxSizing: 'border-box'
                     }}
                   />
                   <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>per {form.uom.toUpperCase()}</div>
@@ -698,7 +701,9 @@ export default function ItemsPage() {
                       fontSize: 15,
                       fontWeight: 700,
                       padding: '9px 12px',
-                      borderRadius: 8
+                      borderRadius: 8,
+                      width: '100%',
+                      boxSizing: 'border-box'
                     }}
                   />
                   <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>Incurred cost per unit</div>
@@ -718,7 +723,9 @@ export default function ItemsPage() {
                       fontSize: 15,
                       fontWeight: 700,
                       padding: '9px 12px',
-                      borderRadius: 8
+                      borderRadius: 8,
+                      width: '100%',
+                      boxSizing: 'border-box'
                     }}
                   />
                   <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>e.g. 15% (KSA) or 5%/12% (IN)</div>
@@ -733,7 +740,7 @@ export default function ItemsPage() {
                     placeholder="e.g. 6208"
                     value={form.hsn_code}
                     onChange={e => setForm({ ...form, hsn_code: e.target.value })}
-                    style={{ padding: '8px 12px', borderRadius: 8 }}
+                    style={{ padding: '8px 12px', borderRadius: 8, width: '100%', boxSizing: 'border-box' }}
                   />
                   <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>Required for GST / Saudi ZATCA invoices</div>
                 </div>
@@ -746,7 +753,9 @@ export default function ItemsPage() {
                   padding: '10px 14px',
                   display: 'flex',
                   justifyContent: 'space-between',
-                  alignItems: 'center'
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: 8
                 }}>
                   <div>
                     <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>Estimated Unit Margin:</div>
@@ -757,9 +766,9 @@ export default function ItemsPage() {
                   <button
                     type="button"
                     onClick={() => setActiveTab('economics')}
-                    style={{ background: 'none', border: '1px solid var(--border)', padding: '4px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+                    style={{ background: 'var(--white)', border: '1px solid var(--border)', padding: '5px 10px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer', color: 'var(--accent)' }}
                   >
-                    View Breakdown →
+                    Breakdown →
                   </button>
                 </div>
               </div>
@@ -770,12 +779,12 @@ export default function ItemsPage() {
           {activeTab === 'sizes' && (
             <div style={{
               background: 'var(--white)',
-              padding: 24,
+              padding: 20,
               borderRadius: 12,
               border: '1px solid var(--border)',
               boxShadow: '0 1px 4px rgba(0,0,0,0.02)'
             }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2, flexWrap: 'wrap', gap: 6 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>
                   Size &amp; Variant Rates
                 </div>
@@ -783,7 +792,7 @@ export default function ItemsPage() {
                   {form.size_rates.length} custom rates
                 </span>
               </div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 18 }}>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
                 Override default selling rate for specific sizes (e.g. Size 44 or XXL).
               </div>
 
@@ -796,28 +805,28 @@ export default function ItemsPage() {
                 marginBottom: 16,
                 display: 'flex',
                 alignItems: 'center',
-                gap: 8,
+                gap: 6,
                 flexWrap: 'wrap'
               }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: '#475569' }}>Quick Add:</span>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#475569', marginRight: 2 }}>Quick Add:</span>
                 <button
                   type="button"
                   onClick={() => handleQuickAddSizes('alpha')}
-                  style={{ background: 'var(--white)', border: '1px solid var(--border)', padding: '3px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+                  style={{ background: 'var(--white)', border: '1px solid var(--border)', padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
                 >
                   <span style={{ color: 'var(--green)', fontWeight: 700 }}>+</span> S, M, L, XL, XXL
                 </button>
                 <button
                   type="button"
                   onClick={() => handleQuickAddSizes('numeric')}
-                  style={{ background: 'var(--white)', border: '1px solid var(--border)', padding: '3px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+                  style={{ background: 'var(--white)', border: '1px solid var(--border)', padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
                 >
                   <span style={{ color: 'var(--green)', fontWeight: 700 }}>+</span> 38, 40, 42, 44
                 </button>
                 <button
                   type="button"
                   onClick={() => handleQuickAddSizes('free')}
-                  style={{ background: 'var(--white)', border: '1px solid var(--border)', padding: '3px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+                  style={{ background: 'var(--white)', border: '1px solid var(--border)', padding: '4px 8px', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
                 >
                   <span style={{ color: 'var(--green)', fontWeight: 700 }}>+</span> Free Size
                 </button>
@@ -825,7 +834,7 @@ export default function ItemsPage() {
 
               {/* Table */}
               {form.size_rates.length === 0 ? (
-                <div style={{ padding: '30px 20px', textAlign: 'center', background: 'var(--bg)', borderRadius: 8, border: '1px dashed var(--border)', marginBottom: 16 }}>
+                <div style={{ padding: '24px 16px', textAlign: 'center', background: 'var(--bg)', borderRadius: 8, border: '1px dashed var(--border)', marginBottom: 16 }}>
                   <div style={{ fontSize: 24, marginBottom: 4 }}>📏</div>
                   <div style={{ fontWeight: 600, fontSize: 13 }}>No size-specific rates added</div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
@@ -834,19 +843,19 @@ export default function ItemsPage() {
                 </div>
               ) : (
                 <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', marginBottom: 16 }}>
-                  <table style={{ margin: 0 }}>
+                  <table style={{ margin: 0, width: '100%' }}>
                     <thead>
                       <tr style={{ background: 'var(--bg)' }}>
-                        <th style={{ padding: '8px 12px', fontSize: 11, color: '#475569' }}>SIZE LABEL</th>
-                        <th style={{ padding: '8px 12px', fontSize: 11, textAlign: 'right', color: '#475569' }}>SELLING RATE ({currency})</th>
-                        <th style={{ padding: '8px 12px', fontSize: 11, textAlign: 'center', width: 50 }}>ACTION</th>
+                        <th style={{ padding: '8px 10px', fontSize: 11, color: '#475569', textAlign: 'left' }}>SIZE</th>
+                        <th style={{ padding: '8px 10px', fontSize: 11, textAlign: 'right', color: '#475569' }}>SELLING RATE ({currency})</th>
+                        <th style={{ padding: '8px 6px', fontSize: 11, textAlign: 'center', width: 40 }}></th>
                       </tr>
                     </thead>
                     <tbody>
                       {form.size_rates.map((sr, idx) => (
-                        <tr key={idx}>
-                          <td style={{ padding: '8px 12px', fontWeight: 600 }}>Size {sr.size_label}</td>
-                          <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                        <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
+                          <td style={{ padding: '8px 10px', fontWeight: 600, fontSize: 13 }}>Size {sr.size_label}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right' }}>
                             <input
                               type="number"
                               step="0.01"
@@ -858,14 +867,14 @@ export default function ItemsPage() {
                                   size_rates: prev.size_rates.map((r, i) => i === idx ? { ...r, selling_rate: val } : r)
                                 }));
                               }}
-                              style={{ width: 110, textAlign: 'right', padding: '5px 8px', fontWeight: 700, color: 'var(--accent)', borderRadius: 6 }}
+                              style={{ width: '100%', maxWidth: 120, textAlign: 'right', padding: '5px 8px', fontWeight: 700, color: 'var(--accent)', borderRadius: 6, boxSizing: 'border-box' }}
                             />
                           </td>
-                          <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                          <td style={{ padding: '8px 6px', textAlign: 'center' }}>
                             <button
                               type="button"
                               onClick={() => handleRemoveSizeRate(sr.size_label)}
-                              style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', fontSize: 12 }}
+                              style={{ background: 'none', border: 'none', color: 'var(--red)', cursor: 'pointer', fontSize: 14, padding: 4 }}
                             >
                               ✕
                             </button>
@@ -878,13 +887,13 @@ export default function ItemsPage() {
               )}
 
               {/* Add Custom Size */}
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
                 <input
                   type="text"
-                  placeholder="Size (e.g. 46, Free Size)"
+                  placeholder="Size (e.g. 46, Free)"
                   value={newSizeLabel}
                   onChange={e => setNewSizeLabel(e.target.value)}
-                  style={{ flex: 1, padding: '8px 12px', borderRadius: 8 }}
+                  style={{ flex: '1 1 130px', padding: '8px 12px', borderRadius: 8, boxSizing: 'border-box' }}
                 />
                 <input
                   type="number"
@@ -892,7 +901,7 @@ export default function ItemsPage() {
                   placeholder={`Rate (${currency})`}
                   value={newSizeRate}
                   onChange={e => setNewSizeRate(e.target.value)}
-                  style={{ width: 130, padding: '8px 12px', borderRadius: 8 }}
+                  style={{ flex: '1 1 110px', padding: '8px 12px', borderRadius: 8, boxSizing: 'border-box' }}
                 />
                 <button
                   type="button"
@@ -908,7 +917,8 @@ export default function ItemsPage() {
                     cursor: 'pointer',
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 4
+                    gap: 4,
+                    flexShrink: 0
                   }}
                 >
                   <span style={{ color: '#fff', fontWeight: 800 }}>+</span> Add Size
@@ -921,12 +931,12 @@ export default function ItemsPage() {
           {activeTab === 'manufacturing' && (
             <div style={{
               background: 'var(--white)',
-              padding: 24,
+              padding: 20,
               borderRadius: 12,
               border: '1px solid var(--border)',
               boxShadow: '0 1px 4px rgba(0,0,0,0.02)'
             }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2, flexWrap: 'wrap', gap: 6 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>
                   Manufacturing, Wages &amp; Materials
                 </div>
@@ -934,7 +944,7 @@ export default function ItemsPage() {
                   Total Specs: {fmt(totalCalculatedMfg)}
                 </span>
               </div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 18 }}>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
                 Component costs used in Garment Production Logs, Tailor Settlements, and Costing.
               </div>
 
@@ -947,7 +957,7 @@ export default function ItemsPage() {
                     placeholder="0.00"
                     value={form.fabric_cost}
                     onChange={e => setForm({ ...form, fabric_cost: e.target.value })}
-                    style={{ padding: '8px 12px', borderRadius: 8 }}
+                    style={{ padding: '8px 12px', borderRadius: 8, width: '100%', boxSizing: 'border-box' }}
                   />
                 </div>
                 <div className="field">
@@ -958,7 +968,7 @@ export default function ItemsPage() {
                     placeholder="0.00"
                     value={form.cut_rate}
                     onChange={e => setForm({ ...form, cut_rate: e.target.value })}
-                    style={{ padding: '8px 12px', borderRadius: 8 }}
+                    style={{ padding: '8px 12px', borderRadius: 8, width: '100%', boxSizing: 'border-box' }}
                   />
                 </div>
                 <div className="field">
@@ -969,7 +979,7 @@ export default function ItemsPage() {
                     placeholder="0.00"
                     value={form.stitch_rate}
                     onChange={e => setForm({ ...form, stitch_rate: e.target.value })}
-                    style={{ padding: '8px 12px', borderRadius: 8 }}
+                    style={{ padding: '8px 12px', borderRadius: 8, width: '100%', boxSizing: 'border-box' }}
                   />
                 </div>
               </div>
@@ -983,7 +993,7 @@ export default function ItemsPage() {
                     placeholder="0.00"
                     value={form.logistics_cost}
                     onChange={e => setForm({ ...form, logistics_cost: e.target.value })}
-                    style={{ padding: '8px 12px', borderRadius: 8 }}
+                    style={{ padding: '8px 12px', borderRadius: 8, width: '100%', boxSizing: 'border-box' }}
                   />
                 </div>
                 <div className="field">
@@ -994,7 +1004,7 @@ export default function ItemsPage() {
                     placeholder="0.00"
                     value={form.lace_cost}
                     onChange={e => setForm({ ...form, lace_cost: e.target.value })}
-                    style={{ padding: '8px 12px', borderRadius: 8 }}
+                    style={{ padding: '8px 12px', borderRadius: 8, width: '100%', boxSizing: 'border-box' }}
                   />
                 </div>
                 <div className="field">
@@ -1005,7 +1015,7 @@ export default function ItemsPage() {
                     placeholder="0.00"
                     value={form.canvas_cost}
                     onChange={e => setForm({ ...form, canvas_cost: e.target.value })}
-                    style={{ padding: '8px 12px', borderRadius: 8 }}
+                    style={{ padding: '8px 12px', borderRadius: 8, width: '100%', boxSizing: 'border-box' }}
                   />
                 </div>
               </div>
@@ -1019,7 +1029,7 @@ export default function ItemsPage() {
                     placeholder="0.00"
                     value={form.plastic_cost}
                     onChange={e => setForm({ ...form, plastic_cost: e.target.value })}
-                    style={{ padding: '8px 12px', borderRadius: 8 }}
+                    style={{ padding: '8px 12px', borderRadius: 8, width: '100%', boxSizing: 'border-box' }}
                   />
                 </div>
                 <div className="field">
@@ -1030,7 +1040,7 @@ export default function ItemsPage() {
                     placeholder="0.00"
                     value={form.zip_cost}
                     onChange={e => setForm({ ...form, zip_cost: e.target.value })}
-                    style={{ padding: '8px 12px', borderRadius: 8 }}
+                    style={{ padding: '8px 12px', borderRadius: 8, width: '100%', boxSizing: 'border-box' }}
                   />
                 </div>
                 <div className="field">
@@ -1041,19 +1051,21 @@ export default function ItemsPage() {
                     placeholder="0.00"
                     value={form.thread_cost}
                     onChange={e => setForm({ ...form, thread_cost: e.target.value })}
-                    style={{ padding: '8px 12px', borderRadius: 8 }}
+                    style={{ padding: '8px 12px', borderRadius: 8, width: '100%', boxSizing: 'border-box' }}
                   />
                 </div>
               </div>
 
               <div style={{
-                padding: '12px 16px',
+                padding: '12px 14px',
                 background: 'var(--bg)',
                 borderRadius: 8,
                 border: '1px solid var(--border)',
                 display: 'flex',
                 justifyContent: 'space-between',
-                alignItems: 'center'
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 10
               }}>
                 <div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>Total Calculated Production Cost</div>
@@ -1083,7 +1095,7 @@ export default function ItemsPage() {
           {activeTab === 'economics' && (
             <div style={{
               background: 'var(--white)',
-              padding: 24,
+              padding: 20,
               borderRadius: 12,
               border: '1px solid var(--border)',
               boxShadow: '0 1px 4px rgba(0,0,0,0.02)'
@@ -1091,12 +1103,12 @@ export default function ItemsPage() {
               <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', marginBottom: 2 }}>
                 Commercial Economics &amp; Margin Analysis
               </div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 18 }}>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
                 Live calculation of unit profitability, gross margins, and cost distribution.
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 20 }}>
-                <div style={{ background: 'var(--bg)', padding: '14px 16px', borderRadius: 8, border: '1px solid var(--border)' }}>
+              <div className="g3 mb18">
+                <div style={{ background: 'var(--bg)', padding: '12px 14px', borderRadius: 8, border: '1px solid var(--border)' }}>
                   <div style={{ fontSize: 11, color: '#475569', fontWeight: 600 }}>BASE UNIT COST</div>
                   <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--text)', marginTop: 4 }}>
                     {fmt(effectiveCost)}
@@ -1106,7 +1118,7 @@ export default function ItemsPage() {
                   </div>
                 </div>
 
-                <div style={{ background: 'var(--bg)', padding: '14px 16px', borderRadius: 8, border: '1px solid var(--border)' }}>
+                <div style={{ background: 'var(--bg)', padding: '12px 14px', borderRadius: 8, border: '1px solid var(--border)' }}>
                   <div style={{ fontSize: 11, color: '#475569', fontWeight: 600 }}>SELLING PRICE</div>
                   <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--accent)', marginTop: 4 }}>
                     {fmt(sellingPrice)}
@@ -1118,7 +1130,7 @@ export default function ItemsPage() {
 
                 <div style={{
                   background: grossProfit >= 0 ? 'var(--green-l)' : 'var(--red-l)',
-                  padding: '14px 16px',
+                  padding: '12px 14px',
                   borderRadius: 8,
                   border: `1px solid ${grossProfit >= 0 ? '#bbf7d0' : '#fecaca'}`
                 }}>
@@ -1137,7 +1149,7 @@ export default function ItemsPage() {
               {/* Breakdown Details */}
               <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 10 }}>Summary Checklist</div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, fontSize: 12 }}>
+                <div className="g2" style={{ gap: 10, fontSize: 12 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 10px', background: 'var(--bg)', borderRadius: 6 }}>
                     <span style={{ color: 'var(--muted)' }}>Tax Rate:</span>
                     <span style={{ fontWeight: 700 }}>{Number(form.tax_rate) > 0 ? `${form.tax_rate}%` : '0%'}</span>
@@ -1167,41 +1179,41 @@ export default function ItemsPage() {
   }
 
   // ═══════════════════════════════════════════════════════════════
-  // VIEW 2: CLEAN CATALOG LIST VIEW (No harsh dark blue cards)
+  // VIEW 2: CLEAN CATALOG LIST VIEW (Desktop Table + Mobile Cards)
   // ═══════════════════════════════════════════════════════════════
   return (
     <div style={{ maxWidth: 1200, margin: '0 auto' }}>
       {/* Clean KPI Stat Row */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 14, marginBottom: 18 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10, marginBottom: 16 }}>
         <div style={{
           background: 'var(--white)',
-          padding: '16px 18px',
-          borderRadius: 12,
+          padding: '12px 14px',
+          borderRadius: 10,
           border: '1px solid var(--border)',
-          boxShadow: '0 1px 4px rgba(0,0,0,0.02)'
+          boxShadow: '0 1px 3px rgba(0,0,0,0.02)'
         }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
             Total Items
           </div>
-          <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--text)', marginTop: 4 }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--text)', marginTop: 2 }}>
             {items.length}
           </div>
           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-            {productCount} Products · {serviceCount} Services
+            {productCount} Prod · {serviceCount} Serv
           </div>
         </div>
 
         <div style={{
           background: 'var(--white)',
-          padding: '16px 18px',
-          borderRadius: 12,
+          padding: '12px 14px',
+          borderRadius: 10,
           border: '1px solid var(--border)',
-          boxShadow: '0 1px 4px rgba(0,0,0,0.02)'
+          boxShadow: '0 1px 3px rgba(0,0,0,0.02)'
         }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
             Physical Goods
           </div>
-          <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--accent)', marginTop: 4 }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--accent)', marginTop: 2 }}>
             {productCount}
           </div>
           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
@@ -1211,15 +1223,15 @@ export default function ItemsPage() {
 
         <div style={{
           background: 'var(--white)',
-          padding: '16px 18px',
-          borderRadius: 12,
+          padding: '12px 14px',
+          borderRadius: 10,
           border: '1px solid var(--border)',
-          boxShadow: '0 1px 4px rgba(0,0,0,0.02)'
+          boxShadow: '0 1px 3px rgba(0,0,0,0.02)'
         }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#475569', textTransform: 'uppercase', letterSpacing: '0.3px' }}>
             Services &amp; Labour
           </div>
-          <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--green)', marginTop: 4 }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--green)', marginTop: 2 }}>
             {serviceCount}
           </div>
           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
@@ -1227,18 +1239,18 @@ export default function ItemsPage() {
           </div>
         </div>
 
-        {/* Clean Action Card (Warm accent styling instead of harsh dark blue) */}
+        {/* Action Card */}
         <div style={{
           background: 'var(--white)',
-          padding: '16px 18px',
-          borderRadius: 12,
+          padding: '12px 14px',
+          borderRadius: 10,
           border: '1.5px dashed var(--accent)',
           display: 'flex',
           flexDirection: 'column',
           justifyContent: 'center',
           alignItems: 'flex-start'
         }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase' }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase' }}>
             Catalog Quick Action
           </div>
           <button
@@ -1248,15 +1260,15 @@ export default function ItemsPage() {
               background: 'var(--accent)',
               color: '#fff',
               border: 'none',
-              borderRadius: 8,
-              padding: '7px 14px',
-              fontSize: 12,
+              borderRadius: 6,
+              padding: '6px 12px',
+              fontSize: 11,
               fontWeight: 700,
               cursor: 'pointer',
-              marginTop: 6,
+              marginTop: 4,
               display: 'flex',
               alignItems: 'center',
-              gap: 5
+              gap: 4
             }}
           >
             <span style={{ color: '#fff', fontWeight: 800 }}>+</span> Add Product / Service
@@ -1281,31 +1293,32 @@ export default function ItemsPage() {
       }}>
         {/* Controls Bar */}
         <div style={{
-          padding: '14px 18px',
+          padding: '12px 16px',
           borderBottom: '1px solid var(--border)',
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
           flexWrap: 'wrap',
-          gap: 12
+          gap: 10
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', flex: '1 1 280px' }}>
             <input
               type="text"
-              placeholder="🔍 Search name, SKU..."
+              placeholder="🔍 Search name, SKU, code..."
               value={search}
               onChange={e => setSearch(e.target.value)}
               style={{
-                width: 220,
-                padding: '7px 12px',
+                flex: '1 1 160px',
+                padding: '7px 10px',
                 borderRadius: 8,
                 border: '1px solid var(--border)',
-                fontSize: 12
+                fontSize: 12,
+                boxSizing: 'border-box'
               }}
             />
 
             {/* Type Filter Buttons */}
-            <div style={{ display: 'flex', background: 'var(--bg)', padding: 3, borderRadius: 8, border: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', background: 'var(--bg)', padding: 2, borderRadius: 8, border: '1px solid var(--border)', flexShrink: 0 }}>
               {[
                 { id: 'all', label: 'All' },
                 { id: 'product', label: '📦 Products' },
@@ -1316,7 +1329,7 @@ export default function ItemsPage() {
                   type="button"
                   onClick={() => setTypeFilter(t.id)}
                   style={{
-                    padding: '4px 10px',
+                    padding: '4px 8px',
                     borderRadius: 6,
                     border: 'none',
                     fontSize: 11,
@@ -1336,18 +1349,18 @@ export default function ItemsPage() {
             <select
               value={uomFilter}
               onChange={e => setUomFilter(e.target.value)}
-              style={{ padding: '6px 10px', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12 }}
+              style={{ padding: '6px 8px', borderRadius: 8, border: '1px solid var(--border)', fontSize: 11, flexShrink: 0 }}
             >
-              <option value="all">All Units (UOM)</option>
+              <option value="all">All Units</option>
               {UOM_OPTIONS.map(u => (
-                <option key={u.code} value={u.code}>{u.label} ({u.code.toUpperCase()})</option>
+                <option key={u.code} value={u.code}>{u.code.toUpperCase()} ({u.label})</option>
               ))}
             </select>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-              Showing <strong>{filtered.length}</strong> of {items.length} items
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'space-between', width: 'auto' }}>
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+              <strong>{filtered.length}</strong> of {items.length} items
             </span>
             <button
               type="button"
@@ -1357,7 +1370,7 @@ export default function ItemsPage() {
                 color: '#fff',
                 border: 'none',
                 borderRadius: 8,
-                padding: '6px 14px',
+                padding: '6px 12px',
                 fontSize: 12,
                 fontWeight: 700,
                 cursor: 'pointer',
@@ -1371,14 +1384,14 @@ export default function ItemsPage() {
           </div>
         </div>
 
-        {/* Content Table */}
+        {/* Content Table / Cards */}
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: 'var(--muted)' }}>
             <div style={{ fontSize: 20, marginBottom: 6 }}>⏳</div>
             <div style={{ fontWeight: 600, fontSize: 13 }}>Loading items catalog...</div>
           </div>
         ) : filtered.length === 0 ? (
-          <div style={{ padding: 50, textAlign: 'center' }}>
+          <div style={{ padding: 40, textAlign: 'center' }}>
             <div style={{ fontSize: 32, marginBottom: 8 }}>📦</div>
             <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>No items found</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, marginBottom: 14 }}>
@@ -1402,122 +1415,312 @@ export default function ItemsPage() {
             </button>
           </div>
         ) : (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', margin: 0 }}>
-              <thead>
-                <tr style={{ background: 'var(--bg)', borderBottom: '1px solid var(--border)' }}>
-                  <th style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#475569' }}>ITEM &amp; CODE</th>
-                  <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#475569' }}>TYPE</th>
-                  <th style={{ padding: '10px 12px', textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#475569' }}>UOM</th>
-                  <th style={{ padding: '10px 14px', textAlign: 'right', fontSize: 11, fontWeight: 700, color: '#475569' }}>SELLING PRICE</th>
-                  <th style={{ padding: '10px 14px', textAlign: 'right', fontSize: 11, fontWeight: 700, color: '#475569' }}>COST / BASE</th>
-                  <th style={{ padding: '10px 12px', textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#475569' }}>TAX %</th>
-                  <th style={{ padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#475569' }}>SPECS &amp; SIZES</th>
-                  <th style={{ padding: '10px 16px', textAlign: 'right', fontSize: 11, fontWeight: 700, color: '#475569' }}>ACTIONS</th>
-                </tr>
-              </thead>
-              <tbody>
+          <>
+            {/* 1. DESKTOP VIEW: Full Structured Table */}
+            <div className="desktop-only" style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', margin: 0 }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg)', borderBottom: '1px solid var(--border)' }}>
+                    <th style={{ padding: '10px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#475569' }}>ITEM &amp; CODE</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#475569' }}>TYPE</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#475569' }}>UOM</th>
+                    <th style={{ padding: '10px 14px', textAlign: 'right', fontSize: 11, fontWeight: 700, color: '#475569' }}>SELLING PRICE</th>
+                    <th style={{ padding: '10px 14px', textAlign: 'right', fontSize: 11, fontWeight: 700, color: '#475569' }}>COST / BASE</th>
+                    <th style={{ padding: '10px 12px', textAlign: 'center', fontSize: 11, fontWeight: 700, color: '#475569' }}>TAX %</th>
+                    <th style={{ padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#475569' }}>SPECS &amp; SIZES</th>
+                    <th style={{ padding: '10px 16px', textAlign: 'right', fontSize: 11, fontWeight: 700, color: '#475569' }}>ACTIONS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map(item => {
+                    const isService = item.item_type === 'service';
+                    const uomCode = (item.uom || 'pcs').toUpperCase();
+                    const totalMfg = Number(item.fabric_cost || 0) + Number(item.cut_rate || 0) + Number(item.stitch_rate || 0) + Number(item.logistics_cost || 0);
+
+                    return (
+                      <tr
+                        key={item.id}
+                        style={{
+                          borderBottom: '1px solid var(--border)',
+                          transition: 'background 0.12s ease',
+                          opacity: item.is_active ? 1 : 0.6,
+                          cursor: 'pointer'
+                        }}
+                        onClick={() => openEditItem(item)}
+                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(244, 246, 251, 0.75)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                      >
+                        {/* Name & SKU */}
+                        <td style={{ padding: '12px 16px' }}>
+                          <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--accent)', textDecoration: 'none' }}>
+                            {item.display_name || item.name}
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', gap: 6, alignItems: 'center', marginTop: 2 }}>
+                            {item.item_code && <span>SKU: <code style={{ background: 'var(--bg)', padding: '1px 4px', borderRadius: 4 }}>{item.item_code}</code></span>}
+                            <span>Code: <code>{item.category}</code></span>
+                          </div>
+                        </td>
+
+                        {/* Type Badge */}
+                        <td style={{ padding: '12px 12px' }}>
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 3,
+                            fontSize: 10,
+                            fontWeight: 700,
+                            padding: '2px 7px',
+                            borderRadius: 6,
+                            background: isService ? 'var(--cyan-l)' : 'var(--accent-l)',
+                            color: isService ? 'var(--cyan)' : 'var(--accent)'
+                          }}>
+                            {isService ? '💼 Service' : '📦 Product'}
+                          </span>
+                        </td>
+
+                        {/* Unit (UOM) */}
+                        <td style={{ padding: '12px 12px', textAlign: 'center' }}>
+                          <span style={{
+                            display: 'inline-block',
+                            fontSize: 10,
+                            fontWeight: 800,
+                            padding: '2px 8px',
+                            borderRadius: 6,
+                            background: 'var(--bg)',
+                            border: '1px solid var(--border)',
+                            color: 'var(--text)'
+                          }}>
+                            {uomCode}
+                          </span>
+                        </td>
+
+                        {/* Selling Price */}
+                        <td style={{ padding: '12px 14px', textAlign: 'right' }}>
+                          <div style={{ fontWeight: 800, fontSize: 13, color: 'var(--accent)' }}>
+                            {fmt(item.selling_rate)}
+                          </div>
+                          <div style={{ fontSize: 10, color: 'var(--muted)' }}>per {uomCode}</div>
+                        </td>
+
+                        {/* Cost */}
+                        <td style={{ padding: '12px 14px', textAlign: 'right' }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
+                            {Number(item.purchase_cost) > 0 ? fmt(item.purchase_cost) : (totalMfg > 0 ? fmt(totalMfg) : '—')}
+                          </div>
+                          <div style={{ fontSize: 10, color: 'var(--muted)' }}>
+                            {totalMfg > 0 && !Number(item.purchase_cost) ? 'Mfg breakdown' : 'Base cost'}
+                          </div>
+                        </td>
+
+                        {/* Tax % */}
+                        <td style={{ padding: '12px 12px', textAlign: 'center' }}>
+                          <span style={{
+                            fontSize: 10,
+                            fontWeight: 700,
+                            padding: '2px 7px',
+                            borderRadius: 6,
+                            background: Number(item.tax_rate) > 0 ? 'var(--yellow-l)' : 'var(--bg)',
+                            color: Number(item.tax_rate) > 0 ? 'var(--yellow)' : 'var(--muted)'
+                          }}>
+                            {Number(item.tax_rate) > 0 ? `${item.tax_rate}%` : '0%'}
+                          </span>
+                        </td>
+
+                        {/* Variations & Specs */}
+                        <td style={{ padding: '12px 14px' }}>
+                          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
+                            {item.size_rates && item.size_rates.length > 0 && (
+                              <span style={{
+                                fontSize: 10,
+                                fontWeight: 600,
+                                background: 'var(--green-l)',
+                                color: 'var(--green)',
+                                padding: '2px 6px',
+                                borderRadius: 6
+                              }}>
+                                📏 {item.size_rates.length} sizes
+                              </span>
+                            )}
+                            {totalMfg > 0 && (
+                              <span style={{
+                                fontSize: 10,
+                                fontWeight: 600,
+                                background: 'var(--bg)',
+                                border: '1px solid var(--border)',
+                                padding: '2px 6px',
+                                borderRadius: 6
+                              }}>
+                                🧵 Labour specs
+                              </span>
+                            )}
+                            {!item.size_rates?.length && totalMfg === 0 && (
+                              <span style={{ fontSize: 11, color: 'var(--muted)' }}>Standard</span>
+                            )}
+                          </div>
+                        </td>
+
+                        {/* Actions */}
+                        <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); openEditItem(item); }}
+                              style={{
+                                background: 'var(--accent-l, #ede9fe)',
+                                border: '1px solid var(--accent, #6366f1)',
+                                borderRadius: 6,
+                                padding: '5px 11px',
+                                fontSize: 12,
+                                fontWeight: 700,
+                                color: 'var(--accent, #6366f1)',
+                                cursor: 'pointer',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4
+                              }}
+                            >
+                              ✏️ Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); handleDeleteItem(item); }}
+                              style={{
+                                background: '#fff',
+                                border: '1px solid #fca5a5',
+                                borderRadius: 6,
+                                padding: '5px 8px',
+                                fontSize: 12,
+                                color: 'var(--red, #ef4444)',
+                                cursor: 'pointer'
+                              }}
+                              title="Delete item"
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* 2. MOBILE VIEW: Rich Modern Responsive Cards List */}
+            <div className="mobile-only" style={{ padding: '10px 12px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 {filtered.map(item => {
                   const isService = item.item_type === 'service';
                   const uomCode = (item.uom || 'pcs').toUpperCase();
                   const totalMfg = Number(item.fabric_cost || 0) + Number(item.cut_rate || 0) + Number(item.stitch_rate || 0) + Number(item.logistics_cost || 0);
+                  const effectiveCostVal = Number(item.purchase_cost) > 0 ? Number(item.purchase_cost) : totalMfg;
 
                   return (
-                    <tr
+                    <div
                       key={item.id}
-                      style={{
-                        borderBottom: '1px solid var(--border)',
-                        transition: 'background 0.12s ease',
-                        opacity: item.is_active ? 1 : 0.6,
-                        cursor: 'pointer'
-                      }}
                       onClick={() => openEditItem(item)}
-                      onMouseEnter={e => e.currentTarget.style.background = 'rgba(244, 246, 251, 0.75)'}
-                      onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                      style={{
+                        background: '#ffffff',
+                        border: '1px solid var(--border)',
+                        borderRadius: 12,
+                        padding: '12px 14px',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+                        opacity: item.is_active ? 1 : 0.65,
+                        cursor: 'pointer',
+                        transition: 'transform 0.1s ease, box-shadow 0.1s ease'
+                      }}
                     >
-                      {/* Name & SKU */}
-                      <td style={{ padding: '12px 16px' }}>
-                        <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--accent)', textDecoration: 'none' }}>
-                          {item.display_name || item.name}
+                      {/* Top Header: Title, SKU & Type */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--accent)', lineHeight: 1.3 }}>
+                            {item.display_name || item.name}
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginTop: 3, flexWrap: 'wrap' }}>
+                            {item.item_code && (
+                              <span style={{ fontSize: 10, color: 'var(--muted)' }}>
+                                SKU: <code style={{ background: 'var(--bg)', padding: '1px 4px', borderRadius: 4 }}>{item.item_code}</code>
+                              </span>
+                            )}
+                            {item.category && item.category !== item.name && (
+                              <span style={{ fontSize: 10, color: 'var(--muted)' }}>
+                                Key: <code>{item.category}</code>
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <div style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', gap: 6, alignItems: 'center', marginTop: 2 }}>
-                          {item.item_code && <span>SKU: <code style={{ background: 'var(--bg)', padding: '1px 4px', borderRadius: 4 }}>{item.item_code}</code></span>}
-                          <span>Code: <code>{item.category}</code></span>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
+                          <span style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 3,
+                            fontSize: 10,
+                            fontWeight: 700,
+                            padding: '2px 7px',
+                            borderRadius: 6,
+                            background: isService ? 'var(--cyan-l)' : 'var(--accent-l)',
+                            color: isService ? 'var(--cyan)' : 'var(--accent)'
+                          }}>
+                            {isService ? '💼 Service' : '📦 Product'}
+                          </span>
+                          <span style={{
+                            fontSize: 9,
+                            fontWeight: 700,
+                            color: item.is_active ? 'var(--green)' : 'var(--muted)'
+                          }}>
+                            {item.is_active ? '● Active' : '○ Inactive'}
+                          </span>
                         </div>
-                      </td>
+                      </div>
 
-                      {/* Type Badge */}
-                      <td style={{ padding: '12px 12px' }}>
-                        <span style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 3,
-                          fontSize: 10,
-                          fontWeight: 700,
-                          padding: '2px 7px',
-                          borderRadius: 6,
-                          background: isService ? 'var(--cyan-l)' : 'var(--accent-l)',
-                          color: isService ? 'var(--cyan)' : 'var(--accent)'
-                        }}>
-                          {isService ? '💼 Service' : '📦 Product'}
-                        </span>
-                      </td>
-
-                      {/* Unit (UOM) */}
-                      <td style={{ padding: '12px 12px', textAlign: 'center' }}>
-                        <span style={{
-                          display: 'inline-block',
-                          fontSize: 10,
-                          fontWeight: 800,
-                          padding: '2px 8px',
-                          borderRadius: 6,
-                          background: 'var(--bg)',
-                          border: '1px solid var(--border)',
-                          color: 'var(--text)'
-                        }}>
-                          {uomCode}
-                        </span>
-                      </td>
-
-                      {/* Selling Price */}
-                      <td style={{ padding: '12px 14px', textAlign: 'right' }}>
-                        <div style={{ fontWeight: 800, fontSize: 13, color: 'var(--accent)' }}>
-                          {fmt(item.selling_rate)}
+                      {/* Pricing & Metric Badges Grid */}
+                      <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr',
+                        gap: 6,
+                        background: 'var(--bg)',
+                        padding: '8px 10px',
+                        borderRadius: 8,
+                        marginBottom: 10
+                      }}>
+                        <div>
+                          <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 600 }}>Selling Rate</div>
+                          <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--accent)' }}>
+                            {fmt(item.selling_rate)}
+                            <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--muted)', marginLeft: 3 }}>/ {uomCode}</span>
+                          </div>
                         </div>
-                        <div style={{ fontSize: 10, color: 'var(--muted)' }}>per {uomCode}</div>
-                      </td>
 
-                      {/* Cost */}
-                      <td style={{ padding: '12px 14px', textAlign: 'right' }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>
-                          {Number(item.purchase_cost) > 0 ? fmt(item.purchase_cost) : (totalMfg > 0 ? fmt(totalMfg) : '—')}
+                        <div>
+                          <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 600 }}>Cost / Base</div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>
+                            {effectiveCostVal > 0 ? fmt(effectiveCostVal) : '—'}
+                          </div>
                         </div>
-                        <div style={{ fontSize: 10, color: 'var(--muted)' }}>
-                          {totalMfg > 0 && !Number(item.purchase_cost) ? 'Mfg breakdown' : 'Base cost'}
+
+                        <div>
+                          <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 600 }}>Tax %</div>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: Number(item.tax_rate) > 0 ? 'var(--yellow)' : 'var(--muted)' }}>
+                            {Number(item.tax_rate) > 0 ? `${item.tax_rate}% VAT` : '0%'}
+                          </div>
                         </div>
-                      </td>
 
-                      {/* Tax % */}
-                      <td style={{ padding: '12px 12px', textAlign: 'center' }}>
-                        <span style={{
-                          fontSize: 10,
-                          fontWeight: 700,
-                          padding: '2px 7px',
-                          borderRadius: 6,
-                          background: Number(item.tax_rate) > 0 ? 'var(--yellow-l)' : 'var(--bg)',
-                          color: Number(item.tax_rate) > 0 ? 'var(--yellow)' : 'var(--muted)'
-                        }}>
-                          {Number(item.tax_rate) > 0 ? `${item.tax_rate}%` : '0%'}
-                        </span>
-                      </td>
+                        <div>
+                          <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 600 }}>Unit of Measure</div>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text)' }}>
+                            {uomCode}
+                          </div>
+                        </div>
+                      </div>
 
-                      {/* Variations & Specs */}
-                      <td style={{ padding: '12px 14px' }}>
-                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
+                      {/* Specifications and Sizes Row + Action Buttons */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
                           {item.size_rates && item.size_rates.length > 0 && (
                             <span style={{
                               fontSize: 10,
-                              fontWeight: 600,
+                              fontWeight: 700,
                               background: 'var(--green-l)',
                               color: 'var(--green)',
                               padding: '2px 6px',
@@ -1535,18 +1738,12 @@ export default function ItemsPage() {
                               padding: '2px 6px',
                               borderRadius: 6
                             }}>
-                              🧵 Labour specs
+                              🧵 Labour
                             </span>
                           )}
-                          {!item.size_rates?.length && totalMfg === 0 && (
-                            <span style={{ fontSize: 11, color: 'var(--muted)' }}>Standard</span>
-                          )}
                         </div>
-                      </td>
 
-                      {/* Actions */}
-                      <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                        <div style={{ display: 'flex', gap: 6 }}>
                           <button
                             type="button"
                             onClick={(e) => { e.stopPropagation(); openEditItem(item); }}
@@ -1554,14 +1751,11 @@ export default function ItemsPage() {
                               background: 'var(--accent-l, #ede9fe)',
                               border: '1px solid var(--accent, #6366f1)',
                               borderRadius: 6,
-                              padding: '5px 11px',
-                              fontSize: 12,
+                              padding: '5px 12px',
+                              fontSize: 11,
                               fontWeight: 700,
                               color: 'var(--accent, #6366f1)',
-                              cursor: 'pointer',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: 4
+                              cursor: 'pointer'
                             }}
                           >
                             ✏️ Edit
@@ -1574,7 +1768,7 @@ export default function ItemsPage() {
                               border: '1px solid #fca5a5',
                               borderRadius: 6,
                               padding: '5px 8px',
-                              fontSize: 12,
+                              fontSize: 11,
                               color: 'var(--red, #ef4444)',
                               cursor: 'pointer'
                             }}
@@ -1583,13 +1777,13 @@ export default function ItemsPage() {
                             🗑️
                           </button>
                         </div>
-                      </td>
-                    </tr>
+                      </div>
+                    </div>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
+              </div>
+            </div>
+          </>
         )}
       </div>
     </div>

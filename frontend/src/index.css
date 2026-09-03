@@ -730,4 +730,69 @@ label.field-label {
   .btn, .tab, .nav-item, .box-menu-item {
     min-height: 38px;
   }
+
+  /* Catalog & Item Cards on Mobile */
+  .mobile-only {
+    display: block !important;
+  }
+  .desktop-only {
+    display: none !important;
+  }
+  .mobile-flex {
+    display: flex !important;
+  }
+  .mobile-grid-1 {
+    grid-template-columns: 1fr !important;
+  }
+  .mobile-grid-2 {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* Mobile Line Item Card Editor */
+  .line-item-card {
+    background: #f8fafc;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 10px;
+    position: relative;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+  }
+  .line-item-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    padding-bottom: 6px;
+    border-bottom: 1px dashed var(--border);
+  }
+}
+
+/* Non-mobile utilities */
+@media (min-width: 769px) {
+  .mobile-only {
+    display: none !important;
+  }
+  .desktop-only {
+    display: block !important;
+  }
+  table.desktop-only {
+    display: table !important;
+  }
+  div.desktop-only-flex {
+    display: flex !important;
+  }
+}
+
+/* Horizontal pill tabs with hidden scrollbar */
+.pill-tabs-scroll {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+.pill-tabs-scroll::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
 }

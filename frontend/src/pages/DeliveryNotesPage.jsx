@@ -509,7 +509,8 @@ export default function DeliveryNotesPage() {
 
           {/* Table Container */}
           <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
-            <div style={{ overflowX: 'auto' }}>
+            {/* Desktop Table View */}
+            <div className="desktop-only" style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', margin: 0 }}>
                 <thead>
                   <tr style={{ background: 'var(--bg)', borderBottom: '1px solid var(--border)' }}>
@@ -605,6 +606,89 @@ export default function DeliveryNotesPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+
+            {/* Mobile View: Responsive Line Item Cards */}
+            <div className="mobile-only" style={{ padding: 10 }}>
+              {form.items.map((it, idx) => (
+                <div key={idx} className="line-item-card">
+                  <div className="line-item-card-header">
+                    <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>Package #{idx + 1}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--accent)' }}>
+                        {it.quantity || 0} {it.uom}
+                      </span>
+                      {form.items.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeItem(idx)}
+                          style={{ background: '#fee2e2', border: 'none', color: '#ef4444', borderRadius: 4, width: 22, height: 22, cursor: 'pointer', fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Item / Category *</label>
+                      <input
+                        type="text"
+                        list={`dn-catalog-mob-${idx}`}
+                        placeholder="e.g. Cotton Uniform"
+                        value={it.category}
+                        onChange={(e) => updateItem(idx, 'category', e.target.value)}
+                        style={{ width: '100%', padding: '7px 9px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 13, boxSizing: 'border-box' }}
+                      />
+                      <datalist id={`dn-catalog-mob-${idx}`}>
+                        {catalogItems.map(ci => (
+                          <option key={ci.id} value={ci.name || ci.category} />
+                        ))}
+                      </datalist>
+                    </div>
+
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Box / Packing Remarks</label>
+                      <input
+                        type="text"
+                        placeholder="Box #1, Bundle of 10, Polybag..."
+                        value={it.remarks}
+                        onChange={(e) => updateItem(idx, 'remarks', e.target.value)}
+                        style={{ width: '100%', padding: '7px 9px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 12, boxSizing: 'border-box' }}
+                      />
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr', gap: 8 }}>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>UOM</label>
+                        <select
+                          value={it.uom}
+                          onChange={(e) => updateItem(idx, 'uom', e.target.value)}
+                          style={{ width: '100%', padding: '7px 6px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 12, textAlign: 'center' }}
+                        >
+                          <option value="pcs">pcs</option>
+                          <option value="meters">mtrs</option>
+                          <option value="boxes">box</option>
+                          <option value="rolls">rolls</option>
+                          <option value="sets">sets</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Dispatch Qty *</label>
+                        <input
+                          type="number"
+                          min="1"
+                          value={it.quantity}
+                          onChange={(e) => updateItem(idx, 'quantity', e.target.value)}
+                          style={{ width: '100%', padding: '7px 9px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 13, textAlign: 'right', fontWeight: 700, boxSizing: 'border-box' }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
 
             <div style={{

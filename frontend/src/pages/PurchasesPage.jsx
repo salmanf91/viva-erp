@@ -540,31 +540,125 @@ export default function PurchasesPage() {
                     : 'Specify the material category, quantity, and unit rate.'}
                 </div>
 
-                {/* Line Items Table */}
+                {/* Line Items Container */}
                 <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', marginBottom: 12 }}>
-                  <table style={{ margin: 0, width: '100%' }}>
-                    <thead>
-                      <tr style={{ background: 'var(--bg)' }}>
-                        <th style={{ padding: '9px 12px', fontSize: 11, color: '#475569', textAlign: 'left' }}>CATEGORY / ITEM</th>
-                        <th style={{ padding: '9px 10px', fontSize: 11, color: '#475569', textAlign: 'right', width: 110 }}>
-                          QTY {isAdvanceEntry ? '(Opt)' : '*'}
-                        </th>
-                        <th style={{ padding: '9px 10px', fontSize: 11, color: '#475569', textAlign: 'right', width: 130 }}>
-                          RATE/PC ({currency}) {isAdvanceEntry ? '(Opt)' : '*'}
-                        </th>
-                        <th style={{ padding: '9px 12px', fontSize: 11, color: '#475569', textAlign: 'right', width: 120 }}>AMOUNT</th>
-                        <th style={{ padding: '9px 8px', width: 40 }}></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {form.items.map((it, idx) => {
-                        const lineQty = parseFloat(it.quantity) || 0;
-                        const lineRate = parseFloat(it.price_per_piece) || 0;
-                        const lineAmount = lineQty * lineRate;
+                  {/* Desktop Table */}
+                  <div className="desktop-only" style={{ overflowX: 'auto' }}>
+                    <table style={{ margin: 0, width: '100%' }}>
+                      <thead>
+                        <tr style={{ background: 'var(--bg)' }}>
+                          <th style={{ padding: '9px 12px', fontSize: 11, color: '#475569', textAlign: 'left' }}>CATEGORY / ITEM</th>
+                          <th style={{ padding: '9px 10px', fontSize: 11, color: '#475569', textAlign: 'right', width: 110 }}>
+                            QTY {isAdvanceEntry ? '(Opt)' : '*'}
+                          </th>
+                          <th style={{ padding: '9px 10px', fontSize: 11, color: '#475569', textAlign: 'right', width: 130 }}>
+                            RATE/PC ({currency}) {isAdvanceEntry ? '(Opt)' : '*'}
+                          </th>
+                          <th style={{ padding: '9px 12px', fontSize: 11, color: '#475569', textAlign: 'right', width: 120 }}>AMOUNT</th>
+                          <th style={{ padding: '9px 8px', width: 40 }}></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {form.items.map((it, idx) => {
+                          const lineQty = parseFloat(it.quantity) || 0;
+                          const lineRate = parseFloat(it.price_per_piece) || 0;
+                          const lineAmount = lineQty * lineRate;
 
-                        return (
-                          <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
-                            <td style={{ padding: '8px 12px' }}>
+                          return (
+                            <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
+                              <td style={{ padding: '8px 12px' }}>
+                                <select
+                                  value={it.category}
+                                  onChange={e => setItem(idx, 'category', e.target.value)}
+                                  style={{ width: '100%', padding: '7px 9px', borderRadius: 6, fontSize: 12 }}
+                                >
+                                  <option value="mixed">Mixed / Fabric Goods</option>
+                                  {products.map(p => (
+                                    <option key={p.category} value={p.category}>
+                                      {p.name || getProductLabel(p.category)}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+
+                              <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                                <input
+                                  type="number"
+                                  placeholder={isAdvanceEntry ? 'Optional' : '0'}
+                                  value={it.quantity}
+                                  onChange={e => setItem(idx, 'quantity', e.target.value)}
+                                  style={{ width: '100%', padding: '7px 9px', textAlign: 'right', borderRadius: 6, fontSize: 12 }}
+                                />
+                              </td>
+
+                              <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  placeholder={isAdvanceEntry ? 'Optional' : '0.00'}
+                                  value={it.price_per_piece}
+                                  onChange={e => setItem(idx, 'price_per_piece', e.target.value)}
+                                  style={{ width: '100%', padding: '7px 9px', textAlign: 'right', borderRadius: 6, fontSize: 12 }}
+                                />
+                              </td>
+
+                              <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, fontSize: 12 }}>
+                                {fmt(lineAmount)}
+                              </td>
+
+                              <td style={{ padding: '8px 8px', textAlign: 'center' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => removeItem(idx)}
+                                  disabled={form.items.length === 1}
+                                  style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    color: form.items.length === 1 ? '#cbd5e1' : 'var(--red)',
+                                    cursor: form.items.length === 1 ? 'not-allowed' : 'pointer',
+                                    fontSize: 12
+                                  }}
+                                >
+                                  ✕
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Mobile Cards */}
+                  <div className="mobile-only" style={{ padding: 8 }}>
+                    {form.items.map((it, idx) => {
+                      const lineQty = parseFloat(it.quantity) || 0;
+                      const lineRate = parseFloat(it.price_per_piece) || 0;
+                      const lineAmount = lineQty * lineRate;
+
+                      return (
+                        <div key={idx} className="line-item-card" style={{ padding: '10px 12px', marginBottom: 8 }}>
+                          <div className="line-item-card-header">
+                            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>Item #{idx + 1}</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                              <span style={{ fontSize: 12, fontWeight: 800, color: lineAmount ? 'var(--text)' : 'var(--muted)' }}>
+                                {fmt(lineAmount)}
+                              </span>
+                              {form.items.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeItem(idx)}
+                                  style={{ background: '#fee2e2', border: 'none', color: '#ef4444', borderRadius: 4, width: 20, height: 20, cursor: 'pointer', fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 12 }}
+                                >
+                                  ✕
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <div>
+                              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Category / Item</label>
                               <select
                                 value={it.category}
                                 onChange={e => setItem(idx, 'category', e.target.value)}
@@ -577,54 +671,41 @@ export default function PurchasesPage() {
                                   </option>
                                 ))}
                               </select>
-                            </td>
+                            </div>
 
-                            <td style={{ padding: '8px 10px', textAlign: 'right' }}>
-                              <input
-                                type="number"
-                                placeholder={isAdvanceEntry ? 'Optional' : '0'}
-                                value={it.quantity}
-                                onChange={e => setItem(idx, 'quantity', e.target.value)}
-                                style={{ width: '100%', padding: '7px 9px', textAlign: 'right', borderRadius: 6, fontSize: 12 }}
-                              />
-                            </td>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                              <div>
+                                <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>
+                                  Qty {isAdvanceEntry ? '(Opt)' : '*'}
+                                </label>
+                                <input
+                                  type="number"
+                                  placeholder={isAdvanceEntry ? 'Optional' : '0'}
+                                  value={it.quantity}
+                                  onChange={e => setItem(idx, 'quantity', e.target.value)}
+                                  style={{ width: '100%', padding: '7px 9px', textAlign: 'right', borderRadius: 6, fontSize: 12, boxSizing: 'border-box' }}
+                                />
+                              </div>
 
-                            <td style={{ padding: '8px 10px', textAlign: 'right' }}>
-                              <input
-                                type="number"
-                                step="0.01"
-                                placeholder={isAdvanceEntry ? 'Optional' : '0.00'}
-                                value={it.price_per_piece}
-                                onChange={e => setItem(idx, 'price_per_piece', e.target.value)}
-                                style={{ width: '100%', padding: '7px 9px', textAlign: 'right', borderRadius: 6, fontSize: 12 }}
-                              />
-                            </td>
-
-                            <td style={{ padding: '8px 12px', textAlign: 'right', fontWeight: 700, fontSize: 12 }}>
-                              {fmt(lineAmount)}
-                            </td>
-
-                            <td style={{ padding: '8px 8px', textAlign: 'center' }}>
-                              <button
-                                type="button"
-                                onClick={() => removeItem(idx)}
-                                disabled={form.items.length === 1}
-                                style={{
-                                  background: 'none',
-                                  border: 'none',
-                                  color: form.items.length === 1 ? '#cbd5e1' : 'var(--red)',
-                                  cursor: form.items.length === 1 ? 'not-allowed' : 'pointer',
-                                  fontSize: 12
-                                }}
-                              >
-                                ✕
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                              <div>
+                                <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>
+                                  Rate ({currency}) {isAdvanceEntry ? '(Opt)' : '*'}
+                                </label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  placeholder={isAdvanceEntry ? 'Optional' : '0.00'}
+                                  value={it.price_per_piece}
+                                  onChange={e => setItem(idx, 'price_per_piece', e.target.value)}
+                                  style={{ width: '100%', padding: '7px 9px', textAlign: 'right', borderRadius: 6, fontSize: 12, boxSizing: 'border-box' }}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 <button
