@@ -212,11 +212,17 @@ export async function createOrder(req: AuthRequest, res: Response): Promise<void
     const discountAmt = parseFloat(discount) || 0;
     const discountPct = subtotal > 0 ? parseFloat(((discountAmt / subtotal) * 100).toFixed(2)) : 0;
 
+    const taxable = Math.max(0, subtotal - discountAmt);
+    const total = taxable * (1 + (include_gst ? (Number(gst_percent) || 0) / 100 : 0));
+    const initialPaid = Math.min(Number(req.body.amount_paid || req.body.advance_paid || 0), total);
+    const initialStatus = initialPaid >= total && total > 0 ? 'paid' : (initialPaid > 0 ? 'partial' : 'pending');
+    const paymentMode = (req.body.payment_mode || 'cash').trim();
+
     const r = await query<any>(
-      `INSERT INTO sales_orders (tenant_id, client_id, invoice_number, order_date, notes, include_gst, gst_percent, discount_percent, discount)
-       VALUES (?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO sales_orders (tenant_id, client_id, invoice_number, order_date, notes, include_gst, gst_percent, discount_percent, discount, amount_paid, status, paid_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
       [tenantId, client_id, invoiceNumber, order_date, notes || null,
-       include_gst ? 1 : 0, include_gst ? (gst_percent || 0) : 0, discountPct, discountAmt]
+       include_gst ? 1 : 0, include_gst ? (gst_percent || 0) : 0, discountPct, discountAmt, initialPaid, initialStatus, initialStatus === 'paid' ? new Date() : null]
     );
     const orderId = r.insertId;
 
@@ -225,6 +231,20 @@ export async function createOrder(req: AuthRequest, res: Response): Promise<void
         'INSERT INTO sales_order_items (order_id, category, size, quantity, rate_per_pc) VALUES (?,?,?,?,?)',
         [orderId, item.category, item.size || null, item.quantity, item.rate_per_pc]
       );
+    }
+
+    if (initialPaid > 0) {
+      try {
+        await query(
+          'INSERT INTO sales_payments (tenant_id, order_id, amount, payment_date, payment_mode) VALUES (?,?,?,?,?)',
+          [tenantId, orderId, initialPaid, order_date, paymentMode]
+        );
+      } catch {
+        await query(
+          'INSERT INTO sales_payments (tenant_id, order_id, amount, payment_date) VALUES (?,?,?,?)',
+          [tenantId, orderId, initialPaid, order_date]
+        );
+      }
     }
 
     // Return full order

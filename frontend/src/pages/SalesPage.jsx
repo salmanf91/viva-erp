@@ -275,6 +275,8 @@ function NewOrderModal({ order, onClose, onSaved }) {
   const [discountAmount, setDiscountAmount] = useState(order ? String(Number(order.discount || 0) || '') : '');
   const [includeGst, setIncludeGst] = useState(order ? !!order.include_gst : false);
   const [gstPct, setGstPct]     = useState(order ? String(Number(order.gst_percent)) : '5');
+  const [amountReceived, setAmountReceived] = useState(order ? String(order.amount_paid || '') : '');
+  const [paymentMode, setPaymentMode] = useState('upi');
   const [items, setItems]       = useState(order && order.items ? order.items.map(it => ({ ...it, size: it.size || '' })) : [{ category: 'shawl_nighty', size: '', quantity: '', rate_per_pc: '' }]);
   const [saving, setSaving]     = useState(false);
 
@@ -338,6 +340,8 @@ function NewOrderModal({ order, onClose, onSaved }) {
         client_id: +clientId, order_date: date, notes,
         include_gst: includeGst, gst_percent: includeGst ? +gstPct : 0,
         discount: discountAmt,
+        amount_paid: parseFloat(amountReceived) || 0,
+        payment_mode: paymentMode,
         items: validItems.map(it => ({ category: it.category, size: it.size || null, quantity: +it.quantity, rate_per_pc: +it.rate_per_pc })),
       };
       if (order) {
@@ -589,6 +593,67 @@ function NewOrderModal({ order, onClose, onSaved }) {
           </div>
         </div>
 
+        {/* Initial Payment / Advance Received */}
+        <div style={{ marginTop: 14, padding: 14, background: '#f8fafc', borderRadius: 8, border: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>
+              💵 Payment Received Now (Optional)
+            </span>
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>Leave blank if unpaid</span>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 12 }}>
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Amount Received (₹)</label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="0.00"
+                value={amountReceived}
+                onChange={e => setAmountReceived(e.target.value)}
+                style={{ width: '100%', padding: '7px 10px', borderRadius: 6, border: '1.5px solid var(--border)', fontSize: 13, fontWeight: 700 }}
+              />
+            </div>
+
+            {parseFloat(amountReceived) > 0 && (
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Payment Method</label>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {[
+                    { id: 'upi',           label: '📱 UPI / GPay' },
+                    { id: 'cash',          label: '💵 Cash' },
+                    { id: 'phonepe',       label: '🟣 PhonePe' },
+                    { id: 'bank_transfer', label: '🏦 Bank' },
+                    { id: 'cheque',        label: '📝 Cheque' },
+                  ].map(pm => {
+                    const active = paymentMode === pm.id;
+                    return (
+                      <button
+                        key={pm.id}
+                        type="button"
+                        onClick={() => setPaymentMode(pm.id)}
+                        style={{
+                          padding: '5px 9px',
+                          borderRadius: 6,
+                          border: active ? '2px solid var(--accent)' : '1px solid var(--border)',
+                          background: active ? 'var(--accent-l)' : '#fff',
+                          color: active ? 'var(--accent)' : 'var(--text)',
+                          fontWeight: active ? 700 : 500,
+                          fontSize: 11,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        {pm.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Totals */}
         <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
           <div style={{ fontSize: 13, color: 'var(--muted)' }}>Subtotal: <b style={{ color: 'var(--text)' }}>{fmt(subtotal)}</b></div>
@@ -599,6 +664,11 @@ function NewOrderModal({ order, onClose, onSaved }) {
           )}
           {includeGst && <div style={{ fontSize: 13, color: 'var(--muted)' }}>GST ({gstPct}%): <b style={{ color: 'var(--text)' }}>{fmt(gstAmt)}</b></div>}
           <div style={{ fontSize: 16, fontWeight: 800 }}>Total: {fmt(total)}</div>
+          {parseFloat(amountReceived) > 0 && (
+            <div style={{ fontSize: 13, color: 'var(--green)', fontWeight: 700 }}>
+              Paid Now: {fmt(amountReceived)} ({paymentMode.toUpperCase()})
+            </div>
+          )}
         </div>
 
         <div className="modal-actions">
