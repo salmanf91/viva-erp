@@ -89,8 +89,8 @@ function OrdersTab({ onReload }) {
   const [payModal,     setPayModal]     = useState(null);
   const [receiptModal, setReceiptModal] = useState(null); // orderId
 
-  const recordPayment = async (id, amount, date) => {
-    await api.post(`/sales/${id}/payment`, { amount, payment_date: date });
+  const recordPayment = async (id, amount, date, payment_mode) => {
+    await api.post(`/sales/${id}/payment`, { amount, payment_date: date, payment_mode });
     setPayModal(null);
     setReceiptModal(id);
     load(); onReload();
@@ -619,22 +619,32 @@ function RecordPaymentModal({ info, onClose, onSave }) {
   const { id, invoiceNo, clientName, total, amtPaid, balance } = info;
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [paymentMode, setPaymentMode] = useState('upi');
   const [saving, setSaving] = useState(false);
   const amt     = Number(amount);
   const isOver  = amt > balance;
   const isFull  = amt > 0 && Math.abs(amt - balance) < 0.01;
 
+  const PAYMENT_MODES = [
+    { id: 'upi',           label: '📱 UPI / GPay' },
+    { id: 'cash',          label: '💵 Cash' },
+    { id: 'phonepe',       label: '🟣 PhonePe' },
+    { id: 'bank_transfer', label: '🏦 Bank Transfer' },
+    { id: 'cheque',        label: '📝 Cheque' },
+    { id: 'other',         label: '⚪ Other' },
+  ];
+
   const save = async () => {
     if (!amt || amt <= 0 || isOver) return;
     setSaving(true);
-    try { await onSave(id, amt, date); } finally { setSaving(false); }
+    try { await onSave(id, amt, date, paymentMode); } finally { setSaving(false); }
   };
 
   const r = n => '₹' + Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2 });
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{ width: 400 }} onClick={e => e.stopPropagation()}>
+      <div className="modal" style={{ width: 440 }} onClick={e => e.stopPropagation()}>
         <h2>Record Payment</h2>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>{invoiceNo} · {clientName}</div>
 
@@ -671,6 +681,36 @@ function RecordPaymentModal({ info, onClose, onSave }) {
         </div>
 
         <div className="field">
+          <label>Payment Method / Received Type</label>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginTop: 4 }}>
+            {PAYMENT_MODES.map(pm => {
+              const active = paymentMode === pm.id;
+              return (
+                <button
+                  key={pm.id}
+                  type="button"
+                  onClick={() => setPaymentMode(pm.id)}
+                  style={{
+                    padding: '8px 10px',
+                    borderRadius: 6,
+                    border: active ? '2px solid var(--accent)' : '1px solid var(--border)',
+                    background: active ? 'var(--accent-l)' : '#fff',
+                    color: active ? 'var(--accent)' : 'var(--text)',
+                    fontWeight: active ? 700 : 500,
+                    fontSize: 12,
+                    cursor: 'pointer',
+                    textAlign: 'center',
+                    transition: 'all .15s'
+                  }}
+                >
+                  {pm.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="field" style={{ marginTop: 14 }}>
           <label>Payment Date</label>
           <input type="date" value={date} onChange={setDate ? e => setDate(e.target.value) : undefined} />
         </div>
@@ -864,12 +904,17 @@ function PaymentReceiptModal({ orderId, onClose }) {
                   <div style={{ fontWeight: 700, color: '#C8860A', marginBottom: 4, textTransform: 'uppercase', fontSize: 10, letterSpacing: '.04em' }}>Payment History</div>
                   {order.payments.map((p, idx) => {
                     const isLatest = idx === order.payments.length - 1;
+                    const modeLabel = !p.payment_mode ? 'Cash' : p.payment_mode === 'upi' ? 'UPI / GPay' : p.payment_mode === 'phonepe' ? 'PhonePe' : p.payment_mode === 'bank_transfer' ? 'Bank Transfer' : p.payment_mode === 'cheque' ? 'Cheque' : p.payment_mode.charAt(0).toUpperCase() + p.payment_mode.slice(1);
                     return (
-                      <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', fontWeight: isLatest && balance > 0 ? 700 : 400, color: isLatest && balance > 0 ? '#1a1a1a' : '#666' }}>
+                      <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontWeight: isLatest && balance > 0 ? 700 : 400, color: isLatest && balance > 0 ? '#1a1a1a' : '#666' }}>
                         <span>
-                          {fmtD(p.payment_date)} {isLatest && balance > 0 && <span style={{ fontSize: 9, color: '#065f46', background: '#d1fae5', padding: '1px 4px', borderRadius: 3, marginLeft: 4 }}>Latest</span>}
+                          {fmtD(p.payment_date)}
+                          <span style={{ fontSize: 10, color: '#4338ca', background: '#e0e7ff', padding: '1px 6px', borderRadius: 4, marginLeft: 6, fontWeight: 700 }}>
+                            {modeLabel}
+                          </span>
+                          {isLatest && balance > 0 && <span style={{ fontSize: 9, color: '#065f46', background: '#d1fae5', padding: '1px 4px', borderRadius: 3, marginLeft: 4 }}>Latest</span>}
                         </span>
-                        <span>{m(p.amount)}</span>
+                        <span style={{ fontWeight: 700 }}>{m(p.amount)}</span>
                       </div>
                     );
                   })}

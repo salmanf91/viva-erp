@@ -50,6 +50,7 @@ export default function PurchasesPage() {
     dispute_amount: '',
     dispute_description: '',
     advance_paid: '',
+    payment_mode: 'cash',
   });
 
   const [form, setForm] = useState(emptyForm());
@@ -135,6 +136,7 @@ export default function PurchasesPage() {
       freight: freightVal ? String(freightVal) : '',
       coolie: coolieVal ? String(coolieVal) : '',
       advance_paid: p.advance_paid ? String(p.advance_paid) : '',
+      payment_mode: p.payment_mode || 'cash',
       has_dispute: false,
       dispute_amount: '',
       dispute_description: '',
@@ -205,6 +207,7 @@ export default function PurchasesPage() {
         status:       advancePaidNum >= grandTotal ? 'paid' : (advancePaidNum > 0 ? 'partial' : 'paid'),
         note:         form.notes || null,
         advance_paid: advancePaidNum,
+        payment_mode: form.payment_mode || 'cash',
         freight: freightNum,
         coolie: coolieNum,
         transport: (form.freight || form.coolie) ? { freight: freightNum, coolie: coolieNum } : undefined,
@@ -778,6 +781,23 @@ export default function PurchasesPage() {
                   </div>
                 </div>
 
+                {/* Payment Method / Type */}
+                <div className="field mb16">
+                  <label style={labelStyle}>Payment Method (Paid Via)</label>
+                  <select
+                    value={form.payment_mode || 'cash'}
+                    onChange={e => setForm({ ...form, payment_mode: e.target.value })}
+                    style={{ width: '100%', padding: '8px 10px', borderRadius: 6, fontSize: 13, fontWeight: 600, background: '#fff', border: '1px solid var(--border)' }}
+                  >
+                    <option value="cash">💵 Cash</option>
+                    <option value="upi">📱 UPI / GPay</option>
+                    <option value="phonepe">🟣 PhonePe</option>
+                    <option value="bank_transfer">🏦 Bank Transfer / NEFT</option>
+                    <option value="cheque">📝 Cheque</option>
+                    <option value="other">⚪ Other</option>
+                  </select>
+                </div>
+
                 {/* Commercials: Discount & Tax */}
                 <div className="g2 mb14">
                   <div className="field" style={{ margin: 0 }}>
@@ -1214,7 +1234,12 @@ export default function PurchasesPage() {
 
                       {/* Advance / Paid */}
                       <td style={{ padding: '12px 14px', textAlign: 'right', fontSize: 12, fontWeight: 700, color: 'var(--green)' }}>
-                        {Number(p.advance_paid) > 0 ? fmt(p.advance_paid) : (isPaid ? fmt(p.total) : '—')}
+                        <div>{Number(p.advance_paid) > 0 ? fmt(p.advance_paid) : (isPaid ? fmt(p.total) : '—')}</div>
+                        {(Number(p.advance_paid) > 0 || isPaid) && (
+                          <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 500, marginTop: 2 }}>
+                            {p.payment_mode === 'upi' ? '📱 UPI/GPay' : p.payment_mode === 'phonepe' ? '🟣 PhonePe' : p.payment_mode === 'bank_transfer' ? '🏦 Bank' : p.payment_mode === 'cheque' ? '📝 Cheque' : '💵 Cash'}
+                          </div>
+                        )}
                       </td>
 
                       {/* Total */}
@@ -1378,7 +1403,12 @@ export default function PurchasesPage() {
               {Number(detail.purchase?.advance_paid) > 0 && (
                 <>
                   <div className="calc-row" style={{ marginTop: 6 }}>
-                    <span className="cl" style={{ color: 'var(--blue, #2563eb)' }}>Advance Paid</span>
+                    <span className="cl" style={{ color: 'var(--blue, #2563eb)' }}>
+                      Advance Paid
+                      <span style={{ fontSize: 10, background: '#eff6ff', color: '#1d4ed8', padding: '1px 6px', borderRadius: 4, marginLeft: 6, fontWeight: 700 }}>
+                        {detail.purchase?.payment_mode === 'upi' ? 'UPI / GPay' : detail.purchase?.payment_mode === 'phonepe' ? 'PhonePe' : detail.purchase?.payment_mode === 'bank_transfer' ? 'Bank Transfer' : detail.purchase?.payment_mode === 'cheque' ? 'Cheque' : 'Cash'}
+                      </span>
+                    </span>
                     <span className="cv" style={{ color: 'var(--blue, #2563eb)', fontWeight: 600 }}>{fmt(detail.purchase.advance_paid)}</span>
                   </div>
                   <div className="calc-row" style={{ fontWeight: 700, fontSize: 13, marginTop: 4 }}>

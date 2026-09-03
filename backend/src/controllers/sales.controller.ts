@@ -307,10 +307,18 @@ export async function markPaid(req: AuthRequest, res: Response): Promise<void> {
     const diff = total - Number(amount_paid || 0);
 
     if (diff > 0) {
-      await query(
-        'INSERT INTO sales_payments (tenant_id, order_id, amount, payment_date) VALUES (?,?,?,CURDATE())',
-        [tenantId, id, diff]
-      );
+      const paymentMode = (req.body.payment_mode || 'cash').trim();
+      try {
+        await query(
+          'INSERT INTO sales_payments (tenant_id, order_id, amount, payment_date, payment_mode) VALUES (?,?,?,CURDATE(),?)',
+          [tenantId, id, diff, paymentMode]
+        );
+      } catch {
+        await query(
+          'INSERT INTO sales_payments (tenant_id, order_id, amount, payment_date) VALUES (?,?,?,CURDATE())',
+          [tenantId, id, diff]
+        );
+      }
     }
 
     await query(
@@ -324,10 +332,11 @@ export async function markPaid(req: AuthRequest, res: Response): Promise<void> {
 export async function recordPayment(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
   const { id } = req.params;
-  const { amount, payment_date } = req.body;
+  const { amount, payment_date, payment_mode } = req.body;
   if (!amount || Number(amount) <= 0) { res.status(400).json({ message: 'amount required' }); return; }
   try {
     const paymentDate = payment_date || new Date().toISOString().slice(0, 10);
+    const paymentMode = (payment_mode || 'cash').trim();
     // Get current amount_paid and order total
     const rows = await query<any[]>(
       `SELECT o.amount_paid,
@@ -351,11 +360,18 @@ export async function recordPayment(req: AuthRequest, res: Response): Promise<vo
        WHERE id=? AND tenant_id=?`,
       [newPaid, newStatus, id, tenantId]
     );
-    await query(
-      'INSERT INTO sales_payments (tenant_id, order_id, amount, payment_date) VALUES (?,?,?,?)',
-      [tenantId, id, amount, paymentDate]
-    );
-    res.json({ message: 'Payment recorded', amount_paid: newPaid, status: newStatus, total });
+    try {
+      await query(
+        'INSERT INTO sales_payments (tenant_id, order_id, amount, payment_date, payment_mode) VALUES (?,?,?,?,?)',
+        [tenantId, id, amount, paymentDate, paymentMode]
+      );
+    } catch {
+      await query(
+        'INSERT INTO sales_payments (tenant_id, order_id, amount, payment_date) VALUES (?,?,?,?)',
+        [tenantId, id, amount, paymentDate]
+      );
+    }
+    res.json({ message: 'Payment recorded', amount_paid: newPaid, status: newStatus, total, payment_mode: paymentMode });
   } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
