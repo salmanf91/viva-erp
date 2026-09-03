@@ -1119,7 +1119,7 @@ export default function QuotationsPage() {
         ) : (
           <div>
             <div className="tbl-wrap">
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <table style={{ width: '100%', minWidth: 700, borderCollapse: 'collapse' }}>
                 <thead>
                   <tr style={{ background: 'var(--bg)', borderBottom: '2px solid var(--border)' }}>
                     <th style={{ padding: '10px 14px', fontSize: 11, textAlign: 'left', color: '#475569' }}>QUOTE #</th>

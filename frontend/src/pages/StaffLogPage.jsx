@@ -260,7 +260,7 @@ function DailyLogTab() {
               onSetNew={v => setNewEntry(p => ({ ...p, [s.id]: v }))}
               onOpenAdd={cat => openAddEntry(s.id, cat)}
               onCloseAdd={() => closeAddEntry(s.id)}
-              onSave={(cat, wt, alloc, done, allocD, compD, sz, entryId) => saveEntry(s.id, cat, wt, alloc, done, allocD, compD, sz, entryId)}
+              onSave={(cat, wt, alloc, done, allocD, compD, sz, entryId, items) => saveEntry(s.id, cat, wt, alloc, done, allocD, compD, sz, entryId, items)}
               onStartEdit={startEdit} onCancelEdit={cancelEdit}
               onSetEdit={(key, v) => setEditEntry(p => ({ ...p, [key]: v }))}
               onDelete={deleteEntry}
@@ -280,7 +280,7 @@ function DailyLogTab() {
               onSetNew={v => setNewEntry(p => ({ ...p, [s.id]: v }))}
               onOpenAdd={cat => openAddEntry(s.id, cat)}
               onCloseAdd={() => closeAddEntry(s.id)}
-              onSave={(cat, wt, alloc, done, allocD, compD, sz, entryId) => saveEntry(s.id, cat, wt, alloc, done, allocD, compD, sz, entryId)}
+              onSave={(cat, wt, alloc, done, allocD, compD, sz, entryId, items) => saveEntry(s.id, cat, wt, alloc, done, allocD, compD, sz, entryId, items)}
               onStartEdit={startEdit} onCancelEdit={cancelEdit}
               onSetEdit={(key, v) => setEditEntry(p => ({ ...p, [key]: v }))}
               onDelete={deleteEntry}
