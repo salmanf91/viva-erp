@@ -59,21 +59,31 @@ export default function StockPage() {
   const get = (arr, cat) => {
     if (!arr || !cat) return 0;
     const target = normalize(cat);
-    const found = arr.find(r => normalize(r.category) === target);
-    return Number(found?.qty || 0);
+    return (arr || [])
+      .filter(r => normalize(r.category) === target)
+      .reduce((sum, r) => sum + Number(r.qty || 0), 0);
   };
 
   // Discover all active categories from data and configs
-  const rawSet = new Set([
-    'shawl_nighty',
-    'ordinary_nighty',
-    ...(configs || []).map(c => c.category),
-    ...(summary?.received || []).map(r => r.category),
-    ...(summary?.allocated || []).map(r => r.category),
-    ...(summary?.finished || []).map(r => r.category),
-  ].filter(Boolean));
+  const rawSet = new Set();
+  (configs || []).forEach(c => c.category && rawSet.add(c.category));
+  ['received', 'allocated', 'finished', 'sold'].forEach(key => {
+    (summary?.[key] || []).forEach(r => r.category && rawSet.add(r.category));
+  });
+  if (rawSet.size === 0) {
+    rawSet.add('shawl_nighty');
+    rawSet.add('ordinary_nighty');
+  }
 
-  const allRawCats = Array.from(rawSet);
+  // Deduplicate by normalized key
+  const uniqueCatsMap = new Map();
+  for (const cat of Array.from(rawSet)) {
+    const key = normalize(cat);
+    if (!uniqueCatsMap.has(key)) {
+      uniqueCatsMap.set(key, cat);
+    }
+  }
+  const allRawCats = Array.from(uniqueCatsMap.values());
 
   // Build rows keyed by raw material
   const rows = allRawCats.map((cat, idx) => {
@@ -87,20 +97,24 @@ export default function StockPage() {
     const color    = getColor(cat, idx);
     const label    = getLabel(cat);
     return { cat, label, color, rec, alloc, totalFin, sold, fin, used, avail };
-  }).filter(r => r.rec > 0 || r.alloc > 0 || r.totalFin > 0);
+  }).filter(r => r.rec > 0 || r.alloc > 0 || r.totalFin > 0 || r.sold > 0);
 
-  const totals = rows.reduce(
-    (a, r) => ({
-      rec: a.rec + r.rec,
-      alloc: a.alloc + r.alloc,
-      totalFin: a.totalFin + r.totalFin,
-      sold: a.sold + r.sold,
-      fin: a.fin + r.fin,
-      used: a.used + r.used,
-      avail: a.avail + r.avail
-    }),
-    { rec: 0, alloc: 0, totalFin: 0, sold: 0, fin: 0, used: 0, avail: 0 }
-  );
+  // Global aggregate totals directly from API summary with fallback to row sums
+  const totalRec = (summary?.received || []).reduce((s, r) => s + Number(r.qty || 0), 0);
+  const totalAlloc = (summary?.allocated || []).reduce((s, r) => s + Number(r.qty || 0), 0);
+  const totalFinProduced = (summary?.finished || []).reduce((s, r) => s + Number(r.qty || 0), 0);
+  const totalSold = (summary?.sold || []).reduce((s, r) => s + Number(r.qty || 0), 0);
+  const totalFinOnHand = Math.max(0, totalFinProduced - totalSold);
+  const totalAvail = Math.max(0, totalRec - (totalAlloc + totalFinProduced));
+
+  const totals = {
+    rec: totalRec,
+    alloc: totalAlloc,
+    totalFin: totalFinProduced,
+    sold: totalSold,
+    fin: totalFinOnHand,
+    avail: totalAvail
+  };
 
   // Shawl nighty active batch sub-breakdown (lace vs plain)
   const shawlPlain = get(summary?.shawlBreakdown, 'shawl_nighty');
