@@ -54,12 +54,20 @@ export default function StockPage() {
     return COLOR_PALETTE[idx % COLOR_PALETTE.length];
   };
 
-  const get = (arr, cat) => Number(arr?.find(r => r.category === cat)?.qty || 0);
+  const normalize = s => (s || '').toLowerCase().replace(/[\s_-]+/g, '');
+
+  const get = (arr, cat) => {
+    if (!arr || !cat) return 0;
+    const target = normalize(cat);
+    const found = arr.find(r => normalize(r.category) === target);
+    return Number(found?.qty || 0);
+  };
 
   // Discover all active categories from data and configs
   const rawSet = new Set([
     'shawl_nighty',
     'ordinary_nighty',
+    ...(configs || []).map(c => c.category),
     ...(summary?.received || []).map(r => r.category),
     ...(summary?.allocated || []).map(r => r.category),
     ...(summary?.finished || []).map(r => r.category),

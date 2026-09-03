@@ -118,6 +118,29 @@ export async function initDb(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
+    // 5. Ensure payment_mode exists in sales_payments and purchases
+    try {
+      const [spCols] = await defaultPool.query<any[]>(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'sales_payments' AND COLUMN_NAME = 'payment_mode'`,
+        [dbName]
+      );
+      if (!(spCols as any[]).length) {
+        await defaultPool.query("ALTER TABLE sales_payments ADD COLUMN payment_mode VARCHAR(50) NOT NULL DEFAULT 'cash' AFTER payment_date");
+        console.log('Added payment_mode column to sales_payments');
+      }
+    } catch {}
+
+    try {
+      const [purCols] = await defaultPool.query<any[]>(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'purchases' AND COLUMN_NAME = 'payment_mode'`,
+        [dbName]
+      );
+      if (!(purCols as any[]).length) {
+        await defaultPool.query("ALTER TABLE purchases ADD COLUMN payment_mode VARCHAR(50) NOT NULL DEFAULT 'cash' AFTER advance_paid");
+        console.log('Added payment_mode column to purchases');
+      }
+    } catch {}
+
   } catch (err) {
     console.warn('initDb warning (schema check):', err instanceof Error ? err.message : String(err));
   }

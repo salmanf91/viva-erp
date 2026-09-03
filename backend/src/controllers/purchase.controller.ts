@@ -136,12 +136,22 @@ export async function createPurchase(req: AuthRequest, res: Response): Promise<v
     const total = parseFloat((calculatedTotal > 0 ? calculatedTotal : (advancePaid > 0 ? advancePaid : 0)).toFixed(2));
 
     const finalStatus = (total > 0 && advancePaid >= total) ? 'paid' : (advancePaid > 0 ? 'partial' : (status || 'paid'));
+    const paymentMode = (req.body.payment_mode || 'cash').trim();
 
-    const [pRes] = await conn.execute(
-      'INSERT INTO purchases (tenant_id,vendor_id,invoice_date,subtotal,discount,tax_rate,tax_amount,total,status,note,tax_inclusive,advance_paid) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
-      [tenantId, vendor_id, invoice_date, subtotal, discountAmt, taxRate, taxAmount, total, finalStatus, note || null, taxInclusive ? 1 : 0, advancePaid]
-    );
-    const purchaseId = (pRes as any).insertId;
+    let purchaseId: number;
+    try {
+      const [pRes] = await conn.execute(
+        'INSERT INTO purchases (tenant_id,vendor_id,invoice_date,subtotal,discount,tax_rate,tax_amount,total,status,note,tax_inclusive,advance_paid,payment_mode) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        [tenantId, vendor_id, invoice_date, subtotal, discountAmt, taxRate, taxAmount, total, finalStatus, note || null, taxInclusive ? 1 : 0, advancePaid, paymentMode]
+      );
+      purchaseId = (pRes as any).insertId;
+    } catch {
+      const [pRes] = await conn.execute(
+        'INSERT INTO purchases (tenant_id,vendor_id,invoice_date,subtotal,discount,tax_rate,tax_amount,total,status,note,tax_inclusive,advance_paid) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+        [tenantId, vendor_id, invoice_date, subtotal, discountAmt, taxRate, taxAmount, total, finalStatus, note || null, taxInclusive ? 1 : 0, advancePaid]
+      );
+      purchaseId = (pRes as any).insertId;
+    }
 
     for (const item of processedItems) {
       if (item.quantity > 0) {
@@ -276,11 +286,19 @@ export async function updatePurchase(req: AuthRequest, res: Response): Promise<v
     const calculatedTotal = subtotal - discountAmt + taxAmount + freightAmt + coolieAmt;
     const total = parseFloat((calculatedTotal > 0 ? calculatedTotal : (advancePaid > 0 ? advancePaid : 0)).toFixed(2));
     const finalStatus = (total > 0 && advancePaid >= total) ? 'paid' : (advancePaid > 0 ? 'partial' : (status || 'paid'));
+    const paymentMode = (req.body.payment_mode || 'cash').trim();
 
-    await conn.execute(
-      'UPDATE purchases SET vendor_id=?, invoice_date=?, subtotal=?, discount=?, tax_rate=?, tax_amount=?, total=?, status=?, note=?, tax_inclusive=?, advance_paid=? WHERE id=? AND tenant_id=?',
-      [vendor_id, invoice_date, subtotal, discountAmt, taxRate, taxAmount, total, finalStatus, note || null, taxInclusive ? 1 : 0, advancePaid, id, tenantId]
-    );
+    try {
+      await conn.execute(
+        'UPDATE purchases SET vendor_id=?, invoice_date=?, subtotal=?, discount=?, tax_rate=?, tax_amount=?, total=?, status=?, note=?, tax_inclusive=?, advance_paid=?, payment_mode=? WHERE id=? AND tenant_id=?',
+        [vendor_id, invoice_date, subtotal, discountAmt, taxRate, taxAmount, total, finalStatus, note || null, taxInclusive ? 1 : 0, advancePaid, paymentMode, id, tenantId]
+      );
+    } catch {
+      await conn.execute(
+        'UPDATE purchases SET vendor_id=?, invoice_date=?, subtotal=?, discount=?, tax_rate=?, tax_amount=?, total=?, status=?, note=?, tax_inclusive=?, advance_paid=? WHERE id=? AND tenant_id=?',
+        [vendor_id, invoice_date, subtotal, discountAmt, taxRate, taxAmount, total, finalStatus, note || null, taxInclusive ? 1 : 0, advancePaid, id, tenantId]
+      );
+    }
 
     // Update transport if provided or exists
     if (transportObj !== undefined || freight !== undefined || coolie !== undefined || hasTransport) {
