@@ -4,9 +4,14 @@ import { AuthRequest } from '../middleware/auth';
 
 export async function getStockSummary(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
+  const safe = <T>(p: Promise<T>, fallback: any = []): Promise<T> => p.catch((err) => {
+    console.warn('getStockSummary subquery error:', err?.message || err);
+    return fallback;
+  });
+
   try {
     // 1. Total raw fabric received per category (checks stock_movements + purchase_items fallback)
-    const received = await query<any[]>(
+    const received = await safe(query<any[]>(
       `SELECT 
          category, 
          SUM(quantity) AS qty
@@ -31,64 +36,61 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
        ) t
        GROUP BY category`,
       [tenantId, tenantId]
-    );
+    ));
 
-    // 2. Fabric in active production — merge shawl_nighty_lace → shawl_nighty (same raw material)
-    const allocated = await query<any[]>(
+    // 2. Fabric in active production — query production_batches directly with category normalization
+    const allocated = await safe(query<any[]>(
       `SELECT
-         CASE WHEN COALESCE(pbi.category, pb.category) = 'shawl_nighty_lace' THEN 'shawl_nighty' 
-              ELSE COALESCE(pbi.category, pb.category) END AS category,
-         SUM(COALESCE(pbi.quantity, pb.quantity, 0)) AS qty
+         CASE WHEN COALESCE(NULLIF(pb.category, ''), 'mixed') = 'shawl_nighty_lace' THEN 'shawl_nighty' 
+              ELSE COALESCE(NULLIF(pb.category, ''), 'mixed') END AS category,
+         SUM(COALESCE(pb.quantity, 0)) AS qty
        FROM production_batches pb
-       LEFT JOIN production_batch_items pbi ON pbi.batch_id = pb.id
        WHERE pb.tenant_id=? AND (LOWER(COALESCE(pb.status, 'active')) NOT IN ('finished', 'completed', 'delivered'))
-       GROUP BY CASE WHEN COALESCE(pbi.category, pb.category) = 'shawl_nighty_lace' THEN 'shawl_nighty' 
-                     ELSE COALESCE(pbi.category, pb.category) END`,
+       GROUP BY CASE WHEN COALESCE(NULLIF(pb.category, ''), 'mixed') = 'shawl_nighty_lace' THEN 'shawl_nighty' 
+                     ELSE COALESCE(NULLIF(pb.category, ''), 'mixed') END`,
       [tenantId]
-    );
+    ));
 
-    // 3. Finished goods on hand
-    const finished = await query<any[]>(
+    // 3. Finished goods produced
+    const finished = await safe(query<any[]>(
       `SELECT
-         CASE WHEN COALESCE(pbi.category, pb.category) = 'shawl_nighty_lace' THEN 'shawl_nighty' 
-              ELSE COALESCE(pbi.category, pb.category) END AS category,
-         SUM(COALESCE(pbi.quantity, pb.quantity, 0)) AS qty
+         CASE WHEN COALESCE(NULLIF(pb.category, ''), 'mixed') = 'shawl_nighty_lace' THEN 'shawl_nighty' 
+              ELSE COALESCE(NULLIF(pb.category, ''), 'mixed') END AS category,
+         SUM(COALESCE(pb.quantity, 0)) AS qty
        FROM production_batches pb
-       LEFT JOIN production_batch_items pbi ON pbi.batch_id = pb.id
        WHERE pb.tenant_id=? AND (LOWER(COALESCE(pb.status, '')) IN ('finished', 'completed', 'delivered'))
-       GROUP BY CASE WHEN COALESCE(pbi.category, pb.category) = 'shawl_nighty_lace' THEN 'shawl_nighty' 
-                     ELSE COALESCE(pbi.category, pb.category) END`,
+       GROUP BY CASE WHEN COALESCE(NULLIF(pb.category, ''), 'mixed') = 'shawl_nighty_lace' THEN 'shawl_nighty' 
+                     ELSE COALESCE(NULLIF(pb.category, ''), 'mixed') END`,
       [tenantId]
-    );
+    ));
 
     // 4. Shawl nighty sub-breakdown: lace vs plain in active production
-    const shawlBreakdown = await query<any[]>(
+    const shawlBreakdown = await safe(query<any[]>(
       `SELECT
-         COALESCE(pbi.category, pb.category) AS category,
-         SUM(COALESCE(pbi.quantity, pb.quantity, 0)) AS qty
+         COALESCE(NULLIF(pb.category, ''), 'shawl_nighty') AS category,
+         SUM(COALESCE(pb.quantity, 0)) AS qty
        FROM production_batches pb
-       LEFT JOIN production_batch_items pbi ON pbi.batch_id = pb.id
        WHERE pb.tenant_id=? AND (LOWER(COALESCE(pb.status, 'active')) NOT IN ('finished', 'completed', 'delivered')) 
-         AND COALESCE(pbi.category, pb.category) IN ('shawl_nighty', 'shawl_nighty_lace')
-       GROUP BY COALESCE(pbi.category, pb.category)`,
+         AND pb.category IN ('shawl_nighty', 'shawl_nighty_lace')
+       GROUP BY pb.category`,
       [tenantId]
-    );
+    ));
 
     // 5. Finished goods breakdown by product and size
-    const finishedBreakdown = await query<any[]>(
+    const finishedBreakdown = await safe(query<any[]>(
       `SELECT
-         COALESCE(pbi.category, pb.category) AS category,
+         COALESCE(NULLIF(pbi.category, ''), pb.category) AS category,
          pbi.size,
-         SUM(COALESCE(pbi.quantity, pb.quantity, 0)) AS qty
+         SUM(COALESCE(NULLIF(pbi.quantity, 0), pb.quantity, 0)) AS qty
        FROM production_batches pb
        LEFT JOIN production_batch_items pbi ON pbi.batch_id = pb.id
        WHERE pb.tenant_id=? AND (LOWER(COALESCE(pb.status, '')) IN ('finished', 'completed', 'delivered'))
-       GROUP BY COALESCE(pbi.category, pb.category), pbi.size`,
+       GROUP BY COALESCE(NULLIF(pbi.category, ''), pb.category), pbi.size`,
       [tenantId]
-    );
+    ), []);
 
     // 6. Sold goods
-    const sold = await query<any[]>(
+    const sold = await safe(query<any[]>(
       `SELECT
          CASE WHEN i.category = 'shawl_nighty_lace' THEN 'shawl_nighty' ELSE i.category END AS category,
          SUM(i.quantity) AS qty
@@ -97,10 +99,13 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
        WHERE o.tenant_id=?
        GROUP BY CASE WHEN i.category = 'shawl_nighty_lace' THEN 'shawl_nighty' ELSE i.category END`,
       [tenantId]
-    );
+    ));
 
     res.json({ received, allocated, finished, shawlBreakdown, finishedBreakdown, sold });
-  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
+  } catch (error) {
+    console.error('getStockSummary error:', error);
+    res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
+  }
 }
 
 export async function getStockByVendor(req: AuthRequest, res: Response): Promise<void> {
@@ -133,9 +138,12 @@ export async function getStockByVendor(req: AuthRequest, res: Response): Promise
        ) vt
        GROUP BY category, vendor_name`,
       [tenantId, tenantId]
-    );
+    ).catch(() => []);
     res.json(rows);
-  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
+  } catch (error) {
+    console.error('getStockByVendor error:', error);
+    res.json([]);
+  }
 }
 
 export async function getDashboardStats(req: AuthRequest, res: Response): Promise<void> {
