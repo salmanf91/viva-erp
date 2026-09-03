@@ -195,19 +195,20 @@ export default function FinancePage() {
           {ledger.length === 0
             ? <div className="empty-state" style={{ padding: 32 }}>No transactions in this period.</div>
             : (
-              <table>
-                <thead>
-                  <tr>
-                    <th>#</th>
-                    <th>Date</th>
-                    <th>Description</th>
-                    <th>Type</th>
-                    <th>Ref / Note</th>
-                    <th style={{ textAlign: 'right', color: 'var(--green)' }}>Cash In (+)</th>
-                    <th style={{ textAlign: 'right', color: 'var(--red)'   }}>Cash Out (−)</th>
-                    <th style={{ textAlign: 'right' }}>Balance</th>
-                  </tr>
-                </thead>
+              <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                <table style={{ minWidth: 680, margin: 0 }}>
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Date</th>
+                      <th>Description</th>
+                      <th>Type</th>
+                      <th>Ref / Note</th>
+                      <th style={{ textAlign: 'right', color: 'var(--green)' }}>Cash In (+)</th>
+                      <th style={{ textAlign: 'right', color: 'var(--red)'   }}>Cash Out (−)</th>
+                      <th style={{ textAlign: 'right' }}>Balance</th>
+                    </tr>
+                  </thead>
                 <tbody>
                   {ledger.map((r, i) => {
                     const badge = TYPE_BADGE[r.type] || { label: r.type, cls: 'b-gray' };
@@ -242,7 +243,8 @@ export default function FinancePage() {
                   </tr>
                 </tfoot>
               </table>
-            )}
+            </div>
+          )}
         </div>
       </div>
     );

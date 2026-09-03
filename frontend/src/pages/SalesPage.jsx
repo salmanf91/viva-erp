@@ -145,81 +145,83 @@ function OrdersTab({ onReload }) {
       ) : (
         <>
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-            <table>
-              <thead>
-                <tr>
-                  <th>Invoice</th>
-                  <th>Date</th>
-                  <th>Client</th>
-                  <th style={{ textAlign: 'right' }}>Items</th>
-                  <th style={{ textAlign: 'right' }}>Amount</th>
-                  <th>Status</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {orders.map(o => {
-                  const subtotal   = +o.subtotal || 0;
-                  const discountAmt = +o.discount || 0;
-                  const taxable    = Math.max(0, subtotal - discountAmt);
-                  const gst        = o.include_gst ? taxable * (+o.gst_percent / 100) : 0;
-                  const total      = o.total !== undefined ? +o.total : (taxable + gst);
-                  const amtPaid    = +o.amount_paid || 0;
-                  const balance    = total - amtPaid;
-                  const isPartial  = o.status === 'partial';
-                  const isPending  = o.status === 'pending';
-                  return (
-                    <tr key={o.id}>
-                      <td style={{ fontWeight: 700, fontSize: 12, color: 'var(--accent)' }}>{o.invoice_number}</td>
-                      <td style={{ color: 'var(--muted)', fontSize: 12 }}>{fmtD(o.order_date?.slice(0, 10))}</td>
-                      <td>
-                        <div style={{ fontWeight: 600 }}>{o.client_name}</div>
-                        <div style={{ fontSize: 11, color: 'var(--muted)' }}>{o.client_city}</div>
-                      </td>
-                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{o.item_count}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text)' }}>
-                        {fmt(total)}
-                        {discountAmt > 0 && (
-                          <div style={{ fontSize: 10, color: 'var(--green)', fontWeight: 600 }}>
-                            Disc: −{fmt(discountAmt)}
+            <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+              <table style={{ minWidth: 640, margin: 0 }}>
+                <thead>
+                  <tr>
+                    <th>Invoice</th>
+                    <th>Date</th>
+                    <th>Client</th>
+                    <th style={{ textAlign: 'right' }}>Items</th>
+                    <th style={{ textAlign: 'right' }}>Amount</th>
+                    <th>Status</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orders.map(o => {
+                    const subtotal   = +o.subtotal || 0;
+                    const discountAmt = +o.discount || 0;
+                    const taxable    = Math.max(0, subtotal - discountAmt);
+                    const gst        = o.include_gst ? taxable * (+o.gst_percent / 100) : 0;
+                    const total      = o.total !== undefined ? +o.total : (taxable + gst);
+                    const amtPaid    = +o.amount_paid || 0;
+                    const balance    = total - amtPaid;
+                    const isPartial  = o.status === 'partial';
+                    const isPending  = o.status === 'pending';
+                    return (
+                      <tr key={o.id}>
+                        <td style={{ fontWeight: 700, fontSize: 12, color: 'var(--accent)' }}>{o.invoice_number}</td>
+                        <td style={{ color: 'var(--muted)', fontSize: 12 }}>{fmtD(o.order_date?.slice(0, 10))}</td>
+                        <td>
+                          <div style={{ fontWeight: 600 }}>{o.client_name}</div>
+                          <div style={{ fontSize: 11, color: 'var(--muted)' }}>{o.client_city}</div>
+                        </td>
+                        <td style={{ textAlign: 'right', fontWeight: 600 }}>{o.item_count}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--text)' }}>
+                          {fmt(total)}
+                          {discountAmt > 0 && (
+                            <div style={{ fontSize: 10, color: 'var(--green)', fontWeight: 600 }}>
+                              Disc: −{fmt(discountAmt)}
+                            </div>
+                          )}
+                        </td>
+                        <td>
+                          <span className={`badge ${o.status === 'paid' ? 'b-green' : isPartial ? 'b-yellow' : 'b-accent'}`}>
+                            {o.status}
+                          </span>
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--accent)' }} onClick={() => openInvoice(o)}>
+                              Invoice
+                            </button>
+                            {amtPaid > 0 && (
+                              <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--green)' }}
+                                onClick={() => setReceiptModal(o.id)}>
+                                Receipt
+                              </button>
+                            )}
+                            {(isPending || isPartial) && (
+                              <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--accent)' }}
+                                onClick={() => setPayModal({ id: o.id, invoiceNo: o.invoice_number, clientName: o.client_name, total, amtPaid, balance })}>
+                                + Payment
+                              </button>
+                            )}
+                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--accent)' }} onClick={() => openEdit(o)}>
+                              ✏️ Edit
+                            </button>
+                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--red)' }} onClick={() => del(o.id)}>
+                              ✕
+                            </button>
                           </div>
-                        )}
-                      </td>
-                      <td>
-                        <span className={`badge ${o.status === 'paid' ? 'b-green' : isPartial ? 'b-yellow' : 'b-accent'}`}>
-                          {o.status}
-                        </span>
-                      </td>
-                      <td>
-                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                          <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--accent)' }} onClick={() => openInvoice(o)}>
-                            Invoice
-                          </button>
-                          {amtPaid > 0 && (
-                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--green)' }}
-                              onClick={() => setReceiptModal(o.id)}>
-                              Receipt
-                            </button>
-                          )}
-                          {(isPending || isPartial) && (
-                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--accent)' }}
-                              onClick={() => setPayModal({ id: o.id, invoiceNo: o.invoice_number, clientName: o.client_name, total, amtPaid, balance })}>
-                              + Payment
-                            </button>
-                          )}
-                          <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--accent)' }} onClick={() => openEdit(o)}>
-                            ✏️ Edit
-                          </button>
-                          <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--red)' }} onClick={() => del(o.id)}>
-                            ✕
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           {/* Pagination */}
@@ -1277,20 +1279,22 @@ function ClientsTab() {
         <div className="card"><div className="empty-state">No active clients. Add your first client.</div></div>
       ) : (
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-          <table>
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>City</th>
-                <th>Phone</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {active.map(c => <ClientRow key={c.id} c={c} />)}
-              {showInactive && inactive.map(c => <ClientRow key={c.id} c={c} />)}
-            </tbody>
-          </table>
+          <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            <table style={{ minWidth: 480, margin: 0 }}>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>City</th>
+                  <th>Phone</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {active.map(c => <ClientRow key={c.id} c={c} />)}
+                {showInactive && inactive.map(c => <ClientRow key={c.id} c={c} />)}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
