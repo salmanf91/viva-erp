@@ -408,71 +408,156 @@ function NewOrderModal({ order, onClose, onSaved }) {
             <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={addItem}>+ Add Item</button>
           </div>
 
-          <div style={{ border: '1.5px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
-            {/* Header row */}
-            <div style={{
-              display: 'grid', gridTemplateColumns: '1.5fr 1fr 100px 120px 110px 32px',
-              background: 'var(--surface)', padding: '8px 12px', gap: 8,
-              fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)',
-            }}>
-              <div>Category</div>
-              <div>Size</div>
-              <div style={{ textAlign: 'right' }}>Qty (pcs)</div>
-              <div style={{ textAlign: 'right' }}>Rate / pc (₹)</div>
-              <div style={{ textAlign: 'right' }}>Amount</div>
-              <div></div>
+          {/* Line Items Container */}
+          <div>
+            {/* Desktop Table View */}
+            <div className="desktop-only" style={{ border: '1.5px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+              <div style={{
+                display: 'grid', gridTemplateColumns: '1.5fr 1fr 100px 120px 110px 32px',
+                background: 'var(--surface)', padding: '8px 12px', gap: 8,
+                fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)',
+              }}>
+                <div>Category</div>
+                <div>Size</div>
+                <div style={{ textAlign: 'right' }}>Qty (pcs)</div>
+                <div style={{ textAlign: 'right' }}>Rate / pc (₹)</div>
+                <div style={{ textAlign: 'right' }}>Amount</div>
+                <div></div>
+              </div>
+
+              {items.map((it, i) => {
+                const amt = (+it.quantity || 0) * (+it.rate_per_pc || 0);
+                return (
+                  <div key={i} style={{
+                    display: 'grid', gridTemplateColumns: '1.5fr 1fr 100px 120px 110px 32px',
+                    padding: '10px 12px', gap: 8, alignItems: 'center',
+                    borderTop: i > 0 ? '1px solid var(--border)' : 'none',
+                    background: '#fff',
+                  }}>
+                    <select value={it.category} onChange={e => handleCategoryChange(i, e.target.value)}
+                      style={{ padding: '7px 10px', borderRadius: 7, border: '1.5px solid var(--border)', fontSize: 13, width: '100%' }}>
+                      {products.map(p => <option key={p.category} value={p.category}>{getProductLabel(p.category)}</option>)}
+                    </select>
+
+                    <select value={it.size} onChange={e => handleSizeChange(i, e.target.value)}
+                      style={{ padding: '7px 10px', borderRadius: 7, border: '1.5px solid var(--border)', fontSize: 13, width: '100%' }}>
+                      <option value="">—</option>
+                      {(products.find(p => p.category === it.category)?.size_rates || []).map(sr => (
+                        <option key={sr.size_label} value={sr.size_label}>{sr.size_label.toUpperCase()}</option>
+                      ))}
+                    </select>
+
+                    <input type="number" min="0" placeholder="0" value={it.quantity}
+                      onChange={e => setItem(i, 'quantity', e.target.value)}
+                      style={{ textAlign: 'right', padding: '7px 10px', borderRadius: 7, border: '1.5px solid var(--border)', fontSize: 13, width: '100%' }} />
+
+                    <input type="number" min="0" step="0.01" placeholder="0.00" value={it.rate_per_pc}
+                      onChange={e => setItem(i, 'rate_per_pc', e.target.value)}
+                      style={{ textAlign: 'right', padding: '7px 10px', borderRadius: 7, border: '1.5px solid var(--border)', fontSize: 13, width: '100%' }} />
+
+                    <div style={{ textAlign: 'right', fontWeight: 700, fontSize: 13, color: amt ? 'var(--text)' : 'var(--muted)' }}>
+                      {amt ? fmt(amt) : '—'}
+                    </div>
+
+                    <div style={{ textAlign: 'center' }}>
+                      {items.length > 1 && (
+                        <button onClick={() => removeItem(i)}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 16, lineHeight: 1, padding: 0 }}>
+                          ×
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
 
-            {items.map((it, i) => {
-              const amt = (+it.quantity || 0) * (+it.rate_per_pc || 0);
-              return (
-                <div key={i} style={{
-                  display: 'grid', gridTemplateColumns: '1.5fr 1fr 100px 120px 110px 32px',
-                  padding: '10px 12px', gap: 8, alignItems: 'center',
-                  borderTop: i > 0 ? '1px solid var(--border)' : 'none',
-                  background: '#fff',
-                }}>
-                  <select value={it.category} onChange={e => handleCategoryChange(i, e.target.value)}
-                    style={{ padding: '7px 10px', borderRadius: 7, border: '1.5px solid var(--border)', fontSize: 13, width: '100%' }}>
-                    {products.map(p => <option key={p.category} value={p.category}>{getProductLabel(p.category)}</option>)}
-                  </select>
+            {/* Mobile Card-Based Items Editor */}
+            <div className="mobile-only">
+              {items.map((it, i) => {
+                const amt = (+it.quantity || 0) * (+it.rate_per_pc || 0);
+                return (
+                  <div key={i} className="line-item-card">
+                    <div className="line-item-card-header">
+                      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>Item #{i + 1}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 12, fontWeight: 800, color: amt ? 'var(--accent)' : 'var(--muted)' }}>
+                          {amt ? fmt(amt) : '₹0.00'}
+                        </span>
+                        {items.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeItem(i)}
+                            style={{ background: '#fee2e2', border: 'none', color: '#ef4444', borderRadius: 4, width: 22, height: 22, cursor: 'pointer', fontWeight: 800, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    </div>
 
-                  <select value={it.size} onChange={e => handleSizeChange(i, e.target.value)}
-                    style={{ padding: '7px 10px', borderRadius: 7, border: '1.5px solid var(--border)', fontSize: 13, width: '100%' }}>
-                    <option value="">—</option>
-                    {(products.find(p => p.category === it.category)?.size_rates || []).map(sr => (
-                      <option key={sr.size_label} value={sr.size_label}>{sr.size_label.toUpperCase()}</option>
-                    ))}
-                  </select>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Product Category</label>
+                        <select
+                          value={it.category}
+                          onChange={e => handleCategoryChange(i, e.target.value)}
+                          style={{ width: '100%', padding: '7px 9px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 13 }}
+                        >
+                          {products.map(p => <option key={p.category} value={p.category}>{getProductLabel(p.category)}</option>)}
+                        </select>
+                      </div>
 
-                  <input type="number" min="0" placeholder="0" value={it.quantity}
-                    onChange={e => setItem(i, 'quantity', e.target.value)}
-                    style={{ textAlign: 'right', padding: '7px 10px', borderRadius: 7, border: '1.5px solid var(--border)', fontSize: 13, width: '100%' }} />
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                        <div>
+                          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Size</label>
+                          <select
+                            value={it.size}
+                            onChange={e => handleSizeChange(i, e.target.value)}
+                            style={{ width: '100%', padding: '7px 9px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 13 }}
+                          >
+                            <option value="">— Default</option>
+                            {(products.find(p => p.category === it.category)?.size_rates || []).map(sr => (
+                              <option key={sr.size_label} value={sr.size_label}>{sr.size_label.toUpperCase()}</option>
+                            ))}
+                          </select>
+                        </div>
 
-                  <input type="number" min="0" step="0.01" placeholder="0.00" value={it.rate_per_pc}
-                    onChange={e => setItem(i, 'rate_per_pc', e.target.value)}
-                    style={{ textAlign: 'right', padding: '7px 10px', borderRadius: 7, border: '1.5px solid var(--border)', fontSize: 13, width: '100%' }} />
+                        <div>
+                          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Qty (pcs) *</label>
+                          <input
+                            type="number"
+                            min="0"
+                            placeholder="0"
+                            value={it.quantity}
+                            onChange={e => setItem(i, 'quantity', e.target.value)}
+                            style={{ width: '100%', textAlign: 'right', padding: '7px 9px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 13, boxSizing: 'border-box' }}
+                          />
+                        </div>
+                      </div>
 
-                  <div style={{ textAlign: 'right', fontWeight: 700, fontSize: 13, color: amt ? 'var(--text)' : 'var(--muted)' }}>
-                    {amt ? fmt(amt) : '—'}
+                      <div>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Rate / pc (₹) *</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={it.rate_per_pc}
+                          onChange={e => setItem(i, 'rate_per_pc', e.target.value)}
+                          style={{ width: '100%', textAlign: 'right', padding: '7px 9px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 13, boxSizing: 'border-box' }}
+                        />
+                      </div>
+                    </div>
                   </div>
-
-                  <div style={{ textAlign: 'center' }}>
-                    {items.length > 1 && (
-                      <button onClick={() => removeItem(i)}
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 16, lineHeight: 1, padding: 0 }}>
-                        ×
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         </div>
 
         {/* Discount & GST Controls */}
-        <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+        <div className="g2" style={{ marginTop: 14 }}>
           <div style={{ padding: 12, background: 'var(--surface)', borderRadius: 8 }}>
             <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 6, display: 'block' }}>
               Discount (₹)

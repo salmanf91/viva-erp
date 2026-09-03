@@ -250,10 +250,38 @@ function BatchItemRowEditor({ item, idx, configs, onUpdate, onRemove, onResetRat
       flexDirection: 'column',
       gap: 10,
     }}>
-      {/* Primary Row */}
+      {/* Item Card Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px dashed #e2e8f0', paddingBottom: 6 }}>
+        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>Item #{idx + 1}</span>
+        {canRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            style={{
+              background: '#fee2e2',
+              border: 'none',
+              color: '#ef4444',
+              borderRadius: 4,
+              width: 22,
+              height: 22,
+              cursor: 'pointer',
+              fontWeight: 800,
+              fontSize: 13,
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center'
+            }}
+            title="Remove Line"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
+      {/* Primary Input Grid */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr)) 36px',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
         gap: 10,
         alignItems: 'center'
       }}>
@@ -306,24 +334,6 @@ function BatchItemRowEditor({ item, idx, configs, onUpdate, onRemove, onResetRat
             onChange={e => onUpdate('stitch_rate', e.target.value)}
             style={{ width: '100%' }}
           />
-        </div>
-
-        <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 14 }}>
-          <button
-            type="button"
-            onClick={onRemove}
-            disabled={!canRemove}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: canRemove ? '#ef4444' : '#cbd5e1',
-              cursor: canRemove ? 'pointer' : 'not-allowed',
-              fontSize: 18
-            }}
-            title="Remove Line"
-          >
-            ✕
-          </button>
         </div>
       </div>
 
