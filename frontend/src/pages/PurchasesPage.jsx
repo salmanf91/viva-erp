@@ -784,18 +784,37 @@ export default function PurchasesPage() {
                 {/* Payment Method / Type */}
                 <div className="field mb16">
                   <label style={labelStyle}>Payment Method (Paid Via)</label>
-                  <select
-                    value={form.payment_mode || 'cash'}
-                    onChange={e => setForm({ ...form, payment_mode: e.target.value })}
-                    style={{ width: '100%', padding: '8px 10px', borderRadius: 6, fontSize: 13, fontWeight: 600, background: '#fff', border: '1px solid var(--border)' }}
-                  >
-                    <option value="cash">💵 Cash</option>
-                    <option value="upi">📱 UPI / GPay</option>
-                    <option value="phonepe">🟣 PhonePe</option>
-                    <option value="bank_transfer">🏦 Bank Transfer / NEFT</option>
-                    <option value="cheque">📝 Cheque</option>
-                    <option value="other">⚪ Other</option>
-                  </select>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+                    {[
+                      { id: 'cash',          label: '💵 Cash' },
+                      { id: 'upi',           label: '📱 UPI / GPay' },
+                      { id: 'phonepe',       label: '🟣 PhonePe' },
+                      { id: 'bank_transfer', label: '🏦 Bank' },
+                      { id: 'cheque',        label: '📝 Cheque' },
+                      { id: 'other',         label: '⚪ Other' },
+                    ].map(pm => {
+                      const active = (form.payment_mode || 'cash') === pm.id;
+                      return (
+                        <button
+                          key={pm.id}
+                          type="button"
+                          onClick={() => setForm({ ...form, payment_mode: pm.id })}
+                          style={{
+                            padding: '6px 11px',
+                            borderRadius: 6,
+                            border: active ? '2px solid var(--accent)' : '1px solid var(--border)',
+                            background: active ? 'var(--accent-l)' : '#fff',
+                            color: active ? 'var(--accent)' : 'var(--text)',
+                            fontWeight: active ? 700 : 500,
+                            fontSize: 12,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          {pm.label}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
                 {/* Commercials: Discount & Tax */}
