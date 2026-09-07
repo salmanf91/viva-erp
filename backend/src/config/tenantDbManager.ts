@@ -347,21 +347,7 @@ export async function ensureTenantSchema(pool: mysql.Pool, _dbName?: string): Pr
     `);
   } catch {}
 
-  // 5. Close batches 1 and 2 so new production starts fresh from Batch 3
-  try {
-    await pool.query(`
-      UPDATE production_batches
-      SET status = 'finished'
-      WHERE (
-        id IN (1, 2)
-        OR LOWER(TRIM(batch_number)) IN ('batch-001', 'batch-002', 'batch-1', 'batch-2', 'batch 1', 'batch 2', 'batch 001', 'batch 002', 'batch-01', 'batch-02', '1', '2')
-        OR batch_number LIKE '%BATCH-001%'
-        OR batch_number LIKE '%BATCH-002%'
-        OR batch_number LIKE '%BATCH-1%'
-        OR batch_number LIKE '%BATCH-2%'
-      ) AND status != 'finished'
-    `);
-  } catch {}
+  // Tenant database schema migrations complete
 }
 
 export async function resolveTenantBySlug(slug: string): Promise<any | null> {
