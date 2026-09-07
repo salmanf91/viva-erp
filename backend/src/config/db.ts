@@ -163,17 +163,6 @@ export async function initDb(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
-    // 7. Mark batch 1 and 2 as finished (as per user instruction)
-    try {
-      await defaultPool.query(`
-        UPDATE production_batches
-        SET status = 'finished'
-        WHERE (id IN (1, 2) OR batch_number IN ('BATCH-001', 'BATCH-002', 'Batch-1', 'Batch-2', '1', '2', 'BATCH-1', 'BATCH-2'))
-          AND status != 'finished'
-      `);
-      console.log('Marked batch 1 and 2 as finished');
-    } catch {}
-
   } catch (err) {
     console.warn('initDb warning (schema check):', err instanceof Error ? err.message : String(err));
   }
