@@ -102,19 +102,19 @@ export default function StockPage() {
     return { cat, label, color, rec, alloc, totalFin, sold, fin, used, avail };
   }).filter(r => r.rec > 0 || r.alloc > 0 || r.totalFin > 0 || r.sold > 0);
 
-  // Global aggregate totals
+  // Global aggregate totals (aggregating accurately by category so unrelated sales don't cancel produced stock)
   const totalRec = (summary?.received || []).reduce((s, r) => s + Number(r.qty || 0), 0);
   const totalAlloc = (summary?.allocated || []).reduce((s, r) => s + Number(r.qty || 0), 0);
   const totalFinProduced = (summary?.finished || []).reduce((s, r) => s + Number(r.qty || 0), 0);
-  const totalSold = (summary?.sold || []).reduce((s, r) => s + Number(r.qty || 0), 0);
-  const totalFinOnHand = Math.max(0, totalFinProduced - totalSold);
-  const totalAvail = Math.max(0, totalRec - (totalAlloc + totalFinProduced));
+  const totalFinOnHand = allRows.reduce((s, r) => s + r.fin, 0);
+  const totalCategorySold = allRows.reduce((s, r) => s + r.sold, 0);
+  const totalAvail = allRows.reduce((s, r) => s + r.avail, 0);
 
   const totals = {
     rec: totalRec,
     alloc: totalAlloc,
     totalFin: totalFinProduced,
-    sold: totalSold,
+    sold: totalCategorySold,
     fin: totalFinOnHand,
     avail: totalAvail,
     used: totalAlloc + totalFinProduced

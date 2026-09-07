@@ -1140,9 +1140,16 @@ export default function ProductionPage() {
             </div>
 
             {/* Actions */}
-            <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap', alignItems: 'center' }}>
               <button className="btn btn-ghost btn-sm" onClick={() => openDetail(b.id)}>View Details →</button>
               <button className="btn btn-ghost btn-sm" onClick={() => openEditBatchModal(b)}>✏️ Edit Batch</button>
+              <button
+                className="btn btn-sm"
+                style={{ background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', fontWeight: 700 }}
+                onClick={() => finishBatch(b.id)}
+              >
+                ✓ Mark Finished
+              </button>
               <button className="btn btn-red btn-sm" style={{ marginLeft: 'auto' }} onClick={() => deleteBatch(b.id)}>Delete</button>
             </div>
           </div>
