@@ -52,8 +52,8 @@ export async function getBatches(req: AuthRequest, res: Response): Promise<void>
         const staffProgress = await query<any[]>(
           `SELECT 
              batch_id,
-             COALESCE(SUM(CASE WHEN work_type='cutting' THEN completed_pcs ELSE 0 END), 0) AS cut_pcs,
-             COALESCE(SUM(CASE WHEN work_type='stitching' THEN completed_pcs ELSE 0 END), 0) AS stitch_pcs
+             COALESCE(SUM(CASE WHEN work_type='cutting' THEN COALESCE(NULLIF(completed_pcs, 0), allocated_pcs, 0) ELSE 0 END), 0) AS cut_pcs,
+             COALESCE(SUM(CASE WHEN work_type='stitching' THEN COALESCE(NULLIF(completed_pcs, 0), allocated_pcs, 0) ELSE 0 END), 0) AS stitch_pcs
            FROM staff_work_entries
            WHERE tenant_id = ? AND batch_id IN (${allBatchIds.map(() => '?').join(',')})
            GROUP BY batch_id`,
@@ -376,8 +376,8 @@ export async function getBatchDetail(req: AuthRequest, res: Response): Promise<v
       [id, tenantId]
     ).catch(() => []);
 
-    const cutPcs = workLogs.filter(w => w.work_type === 'cutting').reduce((s, w) => s + Number(w.completed_pcs || 0), 0);
-    const stitchPcs = workLogs.filter(w => w.work_type === 'stitching').reduce((s, w) => s + Number(w.completed_pcs || 0), 0);
+    const cutPcs = workLogs.filter(w => w.work_type === 'cutting').reduce((s, w) => s + Number(w.completed_pcs || w.allocated_pcs || 0), 0);
+    const stitchPcs = workLogs.filter(w => w.work_type === 'stitching').reduce((s, w) => s + Number(w.completed_pcs || w.allocated_pcs || 0), 0);
     const totalQty = Number(batches[0].quantity || 0);
 
     res.json({

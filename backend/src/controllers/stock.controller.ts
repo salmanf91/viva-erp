@@ -38,27 +38,31 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
       [tenantId, tenantId]
     ));
 
-    // 2. Fabric in active production — query production_batches directly with category normalization
+    // 2. Fabric in active production (tracked from Batch 3 onwards, excluding legacy Batches 1 & 2)
     const allocated = await safe(query<any[]>(
       `SELECT
          CASE WHEN COALESCE(NULLIF(pb.category, ''), 'mixed') = 'shawl_nighty_lace' THEN 'shawl_nighty' 
               ELSE COALESCE(NULLIF(pb.category, ''), 'mixed') END AS category,
          SUM(COALESCE(pb.quantity, 0)) AS qty
        FROM production_batches pb
-       WHERE pb.tenant_id=? AND (LOWER(COALESCE(pb.status, 'active')) NOT IN ('finished', 'completed', 'delivered'))
+       WHERE pb.tenant_id=? 
+         AND pb.batch_number NOT IN ('BATCH-001', 'BATCH-002', '1', '2', 'BATCH-1', 'BATCH-2', 'Batch-1', 'Batch-2')
+         AND (LOWER(COALESCE(pb.status, 'active')) NOT IN ('finished', 'completed', 'delivered'))
        GROUP BY CASE WHEN COALESCE(NULLIF(pb.category, ''), 'mixed') = 'shawl_nighty_lace' THEN 'shawl_nighty' 
                      ELSE COALESCE(NULLIF(pb.category, ''), 'mixed') END`,
       [tenantId]
     ));
 
-    // 3. Finished goods produced
+    // 3. Finished goods produced (tracked from Batch 3 onwards, e.g. Batch 3 & 4 with 80 pcs salwar suit)
     const finished = await safe(query<any[]>(
       `SELECT
          CASE WHEN COALESCE(NULLIF(pb.category, ''), 'mixed') = 'shawl_nighty_lace' THEN 'shawl_nighty' 
               ELSE COALESCE(NULLIF(pb.category, ''), 'mixed') END AS category,
          SUM(COALESCE(pb.quantity, 0)) AS qty
        FROM production_batches pb
-       WHERE pb.tenant_id=? AND (LOWER(COALESCE(pb.status, '')) IN ('finished', 'completed', 'delivered'))
+       WHERE pb.tenant_id=? 
+         AND pb.batch_number NOT IN ('BATCH-001', 'BATCH-002', '1', '2', 'BATCH-1', 'BATCH-2', 'Batch-1', 'Batch-2')
+         AND (LOWER(COALESCE(pb.status, '')) IN ('finished', 'completed', 'delivered'))
        GROUP BY CASE WHEN COALESCE(NULLIF(pb.category, ''), 'mixed') = 'shawl_nighty_lace' THEN 'shawl_nighty' 
                      ELSE COALESCE(NULLIF(pb.category, ''), 'mixed') END`,
       [tenantId]
@@ -70,13 +74,15 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
          COALESCE(NULLIF(pb.category, ''), 'shawl_nighty') AS category,
          SUM(COALESCE(pb.quantity, 0)) AS qty
        FROM production_batches pb
-       WHERE pb.tenant_id=? AND (LOWER(COALESCE(pb.status, 'active')) NOT IN ('finished', 'completed', 'delivered')) 
+       WHERE pb.tenant_id=? 
+         AND pb.batch_number NOT IN ('BATCH-001', 'BATCH-002', '1', '2', 'BATCH-1', 'BATCH-2', 'Batch-1', 'Batch-2')
+         AND (LOWER(COALESCE(pb.status, 'active')) NOT IN ('finished', 'completed', 'delivered')) 
          AND pb.category IN ('shawl_nighty', 'shawl_nighty_lace')
        GROUP BY pb.category`,
       [tenantId]
     ));
 
-    // 5. Finished goods breakdown by product and size
+    // 5. Finished goods breakdown by product and size (from Batch 3 onwards)
     const finishedBreakdown = await safe(query<any[]>(
       `SELECT
          COALESCE(NULLIF(pbi.category, ''), pb.category) AS category,
@@ -84,7 +90,9 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
          SUM(COALESCE(NULLIF(pbi.quantity, 0), pb.quantity, 0)) AS qty
        FROM production_batches pb
        LEFT JOIN production_batch_items pbi ON pbi.batch_id = pb.id
-       WHERE pb.tenant_id=? AND (LOWER(COALESCE(pb.status, '')) IN ('finished', 'completed', 'delivered'))
+       WHERE pb.tenant_id=? 
+         AND pb.batch_number NOT IN ('BATCH-001', 'BATCH-002', '1', '2', 'BATCH-1', 'BATCH-2', 'Batch-1', 'Batch-2')
+         AND (LOWER(COALESCE(pb.status, '')) IN ('finished', 'completed', 'delivered'))
        GROUP BY COALESCE(NULLIF(pbi.category, ''), pb.category), pbi.size`,
       [tenantId]
     ), []);

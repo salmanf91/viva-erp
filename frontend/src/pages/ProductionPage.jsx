@@ -20,28 +20,57 @@ const getProductColor = cat => {
 const STATUS_STEPS = ['allocated', 'cutting', 'stitching', 'finished'];
 const STATUS_LABEL = { allocated: 'Allocated', cutting: 'Cutting', stitching: 'Stitching', finished: 'Finished' };
 
-function BatchFlow({ status, quantity }) {
+function BatchFlow({ status, quantity, cut_pcs = 0, stitch_pcs = 0 }) {
+  const isCutDone = cut_pcs >= quantity && quantity > 0;
+  const isCutActive = cut_pcs > 0 || status === 'cutting';
+  const isStitchDone = stitch_pcs >= quantity && quantity > 0;
+  const isStitchActive = stitch_pcs > 0 || status === 'stitching';
+  const isFinished = status === 'finished';
+
   const steps = [
-    { key: 'allocated',  icon: '📦', label: 'Allocated'  },
-    { key: 'cutting',    icon: '✂️', label: 'Cutting'    },
-    { key: 'stitching',  icon: '🧵', label: 'Stitching'  },
-    { key: 'finished',   icon: '✅', label: 'Finished'   },
+    {
+      key: 'allocated',
+      icon: '📦',
+      label: 'Allocated',
+      val: `${quantity} pcs`,
+      done: true,
+      active: status === 'allocated' && cut_pcs === 0 && stitch_pcs === 0
+    },
+    {
+      key: 'cutting',
+      icon: '✂️',
+      label: 'Cutting',
+      val: cut_pcs > 0 ? `${cut_pcs} / ${quantity} pcs` : (status === 'cutting' ? `${quantity} pcs` : '0 pcs'),
+      done: isCutDone,
+      active: (isCutActive || status === 'cutting') && !isCutDone
+    },
+    {
+      key: 'stitching',
+      icon: '🧵',
+      label: 'Stitching',
+      val: stitch_pcs > 0 ? `${stitch_pcs} / ${quantity} pcs` : (status === 'stitching' ? `${quantity} pcs` : '0 pcs'),
+      done: isStitchDone,
+      active: (isStitchActive || status === 'stitching') && !isStitchDone
+    },
+    {
+      key: 'finished',
+      icon: '✅',
+      label: 'Finished',
+      val: isFinished ? `${quantity} pcs` : (isCutDone && isStitchDone ? 'Ready to Close' : 'Pending'),
+      done: isFinished,
+      active: isFinished || (isCutDone && isStitchDone)
+    },
   ];
-  const idx = STATUS_STEPS.indexOf(status);
+
   return (
     <div className="prod-flow">
-      {steps.map((s) => {
-        const stepIdx = STATUS_STEPS.indexOf(s.key);
-        const done    = idx > stepIdx;
-        const active  = idx === stepIdx;
-        return (
-          <div key={s.key} className={`pf-step ${done ? 'done' : active ? 'active' : ''}`}>
-            <span className="pf-icon">{s.icon}</span>
-            <div className="pf-val">{(done || active) ? quantity : '—'}</div>
-            <div className="pf-lbl">{done ? '✓ ' : ''}{s.label}</div>
-          </div>
-        );
-      })}
+      {steps.map((s) => (
+        <div key={s.key} className={`pf-step ${s.done ? 'done' : s.active ? 'active' : ''}`}>
+          <span className="pf-icon">{s.icon}</span>
+          <div className="pf-val">{s.val}</div>
+          <div className="pf-lbl">{s.done && s.key !== 'allocated' ? '✓ ' : ''}{s.label}</div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -1083,7 +1112,7 @@ export default function ProductionPage() {
               })}
             </div>
 
-            <BatchFlow status={b.status} quantity={qty} />
+            <BatchFlow status={b.status} quantity={qty} cut_pcs={b.cut_pcs || 0} stitch_pcs={b.stitch_pcs || 0} />
 
             {/* Daily Live Cut & Stitch Progress */}
             <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 14px', margin: '10px 0' }}>
@@ -1262,7 +1291,7 @@ export default function ProductionPage() {
               Total: {detail.batch?.quantity} pcs · Date: {fmtDate(detail.batch?.batch_date)} {detail.batch?.notes ? ` · Notes: ${detail.batch.notes}` : ''}
             </div>
 
-            <BatchFlow status={detail.batch?.status} quantity={detail.batch?.quantity} />
+            <BatchFlow status={detail.batch?.status} quantity={detail.batch?.quantity} cut_pcs={detail.batch?.cut_pcs || 0} stitch_pcs={detail.batch?.stitch_pcs || 0} />
 
             {/* Live Progress Summary */}
             <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '12px 16px', margin: '14px 0' }}>
