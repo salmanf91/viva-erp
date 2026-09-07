@@ -31,6 +31,18 @@ export default function StaffPage() {
   const [toggling, setToggling]   = useState(null);
   const [editingStaff, setEditingStaff] = useState(null);
 
+  // Staff Advances state
+  const [advances, setAdvances]                 = useState([]);
+  const [showAddAdvance, setShowAddAdvance]     = useState(false);
+  const [showAdvancesList, setShowAdvancesList] = useState(false);
+  const [advanceForm, setAdvanceForm]           = useState({
+    staff_id: '',
+    amount: '',
+    advance_date: new Date().toISOString().slice(0, 10),
+    payment_mode: 'cash',
+    notes: '',
+  });
+
   // Work Entries state for Owner/Manager viewing, logging and editing
   const [historyRows, setHistoryRows] = useState([]);
   const [historyStaffFilter, setHistoryStaffFilter] = useState('');
@@ -70,6 +82,11 @@ export default function StaffPage() {
   const loadAdmins   = () => api.get('/staff/admins').then(r => setAdmins(r.data));
   const loadPayroll  = () => api.get(`/staff/payroll?month=${month}&year=${year}`).then(r => setPayroll(r.data));
   const loadConfigs  = () => api.get('/production/configs').then(r => setConfigs(r.data)).catch(() => []);
+  const loadAdvances = useCallback(() => {
+    api.get('/staff/advances', { params: { month, year } })
+      .then(r => setAdvances(r.data || []))
+      .catch(() => {});
+  }, [month, year]);
 
   const loadHistory = useCallback(() => {
     setHistoryLoading(true);
@@ -87,7 +104,8 @@ export default function StaffPage() {
   useEffect(() => {
     loadPayroll();
     loadHistory();
-  }, [month, year, loadHistory]);
+    loadAdvances();
+  }, [month, year, loadHistory, loadAdvances]);
 
   const addStaff = async () => {
     if (!form.name.trim()) return;
@@ -281,9 +299,75 @@ export default function StaffPage() {
     await loadStaff(); setToggling(null);
   };
 
-  const settle = async staffId => {
-    await api.post('/staff/settle', { staff_id: staffId, month, year });
-    loadPayroll(); loadStaff();
+  const openAddAdvanceForStaff = (staffId) => {
+    setAdvanceForm({
+      staff_id: staffId || (staff[0]?.id ? String(staff[0].id) : ''),
+      amount: '',
+      advance_date: new Date().toISOString().slice(0, 10),
+      payment_mode: 'cash',
+      notes: '',
+    });
+    setShowAddAdvance(true);
+  };
+
+  const saveAdvance = async () => {
+    if (!advanceForm.staff_id || !advanceForm.amount || Number(advanceForm.amount) <= 0) {
+      return alert('Please select a staff member and enter a valid amount');
+    }
+    try {
+      await api.post('/staff/advances', advanceForm);
+      setShowAddAdvance(false);
+      setAdvanceForm({
+        staff_id: '',
+        amount: '',
+        advance_date: new Date().toISOString().slice(0, 10),
+        payment_mode: 'cash',
+        notes: '',
+      });
+      loadPayroll();
+      loadAdvances();
+      loadStaff();
+    } catch (e) {
+      alert(e.response?.data?.message || 'Failed to record advance payment');
+    }
+  };
+
+  const deleteAdvance = async (advId) => {
+    if (!confirm('Delete this advance record?')) return;
+    try {
+      await api.delete(`/staff/advances/${advId}`);
+      loadPayroll();
+      loadAdvances();
+      loadStaff();
+    } catch {
+      alert('Failed to delete advance');
+    }
+  };
+
+  const settle = async (staffId, staffName) => {
+    if (!confirm(`Settle payroll for ${staffName || 'this staff member'} for ${MONTHS[month-1]} ${year}?`)) return;
+    try {
+      await api.post('/staff/settle', { staff_id: staffId, month, year });
+      loadPayroll();
+      loadStaff();
+      loadHistory();
+      loadAdvances();
+    } catch (e) {
+      alert(e.response?.data?.message || 'Failed to settle payroll');
+    }
+  };
+
+  const undoSettle = async (staffId, staffName) => {
+    if (!confirm(`Undo settlement for ${staffName || 'this staff member'} for ${MONTHS[month-1]} ${year}? Their work entries and advances will be reverted to unsettled.`)) return;
+    try {
+      await api.post('/staff/undo-settle', { staff_id: staffId, month, year });
+      loadPayroll();
+      loadStaff();
+      loadHistory();
+      loadAdvances();
+    } catch (e) {
+      alert(e.response?.data?.message || 'Failed to undo settlement');
+    }
   };
 
   const activeStaff   = staff.filter(s => s.is_active);
@@ -291,6 +375,8 @@ export default function StaffPage() {
   const cutting       = activeStaff.filter(s => s.role === 'cutting_master');
   const tailors       = activeStaff.filter(s => s.role === 'tailor');
   const pendingTotal  = payroll.reduce((s, p) => s + Number(p.pending || 0), 0);
+  const totalAdvancesInCycle = advances.reduce((s, a) => s + Number(a.amount || 0), 0);
+  const totalNetPayable = payroll.reduce((s, p) => s + Number(p.net_payable !== undefined ? p.net_payable : p.pending || 0), 0);
 
   if (loading) return <div className="spinner">Loading…</div>;
 
@@ -388,11 +474,39 @@ export default function StaffPage() {
           <div className="card">
             <div className="card-hd" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
               <div>
-                <span>{MONTHS[month-1]} {year} Payroll</span>
+                <span style={{ fontSize: 16, fontWeight: 700 }}>{MONTHS[month-1]} {year} Payroll</span>
                 <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginLeft: 10 }}>({cycleLabel} · Payout: 20th {MONTHS[month-1]})</span>
               </div>
-              {pendingTotal > 0 && <span style={{ fontWeight: 800, fontSize: 13, color: 'var(--red)' }}>{fmt(pendingTotal)} pending</span>}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <button className="btn btn-ghost btn-sm" onClick={() => setShowAdvancesList(true)} style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
+                  💵 Advances Log ({advances.length} · {fmt(totalAdvancesInCycle)})
+                </button>
+                <button className="btn btn-primary btn-sm" onClick={() => openAddAdvanceForStaff('')}>
+                  + Record Advance
+                </button>
+              </div>
             </div>
+
+            {/* Quick stats summary banner */}
+            {payroll.length > 0 && (
+              <div style={{ display: 'flex', gap: 10, margin: '10px 0 16px', flexWrap: 'wrap' }}>
+                <div className="chip">
+                  Gross Earned: <b>{fmt(payroll.reduce((s, p) => s + Number(p.total_due || 0), 0))}</b>
+                </div>
+                {totalAdvancesInCycle > 0 && (
+                  <div className="chip chip-yellow">
+                    Advances Paid: <b>{fmt(totalAdvancesInCycle)}</b>
+                  </div>
+                )}
+                <div className="chip chip-green">
+                  Settled: <b>{fmt(payroll.reduce((s, p) => s + Number(p.settled || 0), 0))}</b>
+                </div>
+                <div className={`chip ${totalNetPayable > 0 ? 'chip-red' : 'chip-green'}`}>
+                  Net Payable: <b>{fmt(totalNetPayable)}</b>
+                </div>
+              </div>
+            )}
+
             {payroll.length === 0
               ? <div className="empty-state">No payroll records for {MONTHS[month-1]} {year} ({cycleLabel}).</div>
               : (
@@ -402,9 +516,10 @@ export default function StaffPage() {
                     <th>Name</th>
                     <th>Breakdown</th>
                     <th style={{ textAlign: 'right' }}>Earned</th>
+                    <th style={{ textAlign: 'right' }}>Advance Paid</th>
                     <th style={{ textAlign: 'right' }}>Settled</th>
-                    <th style={{ textAlign: 'right' }}>Pending</th>
-                    <th></th>
+                    <th style={{ textAlign: 'right' }}>Net Payable</th>
+                    <th style={{ textAlign: 'right' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -417,6 +532,10 @@ export default function StaffPage() {
                     const stitchRate  = stitchPcs > 0 ? Math.round(stitchDue / stitchPcs) : 0;
                     const hasCut      = cutPcs > 0;
                     const hasStitch   = stitchPcs > 0;
+                    const advPaid     = Number(p.total_advances || 0);
+                    const netPay      = p.net_payable !== undefined ? Number(p.net_payable) : Math.max(0, Number(p.pending || 0) - advPaid);
+                    const isSettled   = Number(p.settled || 0) > 0;
+
                     return (
                       <tr key={p.id}>
                         <td>
@@ -450,27 +569,72 @@ export default function StaffPage() {
                           }
                         </td>
                         <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmt(p.total_due)}</td>
-                        <td style={{ textAlign: 'right', color: 'var(--green)' }}>{fmt(p.settled)}</td>
                         <td style={{ textAlign: 'right' }}>
-                          {Number(p.pending) > 0
-                            ? <span className="badge b-yellow" style={{ fontSize: 11 }}>{fmt(p.pending)}</span>
-                            : <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>}
-                        </td>
-                        <td>
-                          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                          {advPaid > 0 ? (
+                            <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                              <span style={{ fontWeight: 700, color: 'var(--orange)' }}>{fmt(advPaid)}</span>
+                              <button
+                                className="btn btn-ghost btn-sm"
+                                style={{ fontSize: 10, padding: '1px 5px', height: 'auto', color: 'var(--muted)' }}
+                                onClick={() => { setAdvanceFilterStaff(String(p.id)); setShowAdvancesList(true); }}
+                              >
+                                View / +Adv
+                              </button>
+                            </div>
+                          ) : (
                             <button
                               className="btn btn-ghost btn-sm"
-                              style={{ fontSize: 11 }}
+                              style={{ fontSize: 11, padding: '2px 6px', color: 'var(--muted)' }}
+                              onClick={() => openAddAdvanceForStaff(String(p.id))}
+                              title="Record mid-month advance payment"
+                            >
+                              + Adv
+                            </button>
+                          )}
+                        </td>
+                        <td style={{ textAlign: 'right', color: 'var(--green)', fontWeight: isSettled ? 700 : 400 }}>{fmt(p.settled)}</td>
+                        <td style={{ textAlign: 'right' }}>
+                          {netPay > 0
+                            ? <span className="badge b-yellow" style={{ fontSize: 11, fontWeight: 700 }}>{fmt(netPay)}</span>
+                            : isSettled
+                              ? <span className="badge b-green" style={{ fontSize: 10 }}>Settled</span>
+                              : <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>}
+                        </td>
+                        <td>
+                          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              style={{ fontSize: 11, padding: '3px 8px' }}
+                              title="Record advance payment"
+                              onClick={() => openAddAdvanceForStaff(String(p.id))}
+                            >
+                              + Adv
+                            </button>
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              style={{ fontSize: 11, padding: '3px 8px' }}
                               title="View & Edit entries for this staff"
                               onClick={() => {
                                 setHistoryStaffFilter(String(p.id));
                                 setActiveTab('entries');
                               }}
                             >
-                              🔍 View Logs
+                              🔍 Logs
                             </button>
-                            {Number(p.pending) > 0 && (
-                              <button className="btn btn-primary btn-sm" onClick={() => settle(p.id)}>Settle</button>
+                            {netPay > 0 && (
+                              <button className="btn btn-primary btn-sm" style={{ padding: '3px 10px', fontWeight: 700 }} onClick={() => settle(p.id, p.name)}>
+                                Settle
+                              </button>
+                            )}
+                            {isSettled && (
+                              <button
+                                className="btn btn-ghost btn-sm"
+                                style={{ fontSize: 11, padding: '3px 8px', color: 'var(--red)', borderColor: '#fca5a5' }}
+                                title="Revert settled entries and advances back to pending"
+                                onClick={() => undoSettle(p.id, p.name)}
+                              >
+                                ↺ Undo Settled
+                              </button>
                             )}
                           </div>
                         </td>
@@ -1592,6 +1756,201 @@ export default function StaffPage() {
                 disabled={!adminForm.name || !adminForm.email || !adminForm.password}>
                 Create Account
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Record Advance Payment Modal ── */}
+      {showAddAdvance && (
+        <div className="modal-overlay" onClick={() => setShowAddAdvance(false)}>
+          <div className="modal" style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h2 style={{ margin: 0 }}>💵 Record Staff Advance</h2>
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowAddAdvance(false)}>✕</button>
+            </div>
+
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
+              Record mid-month cash or digital advance given to staff. This will be automatically deducted during monthly payroll settlement.
+            </div>
+
+            <div className="form-grid">
+              <div className="field form-full">
+                <label>Staff Member *</label>
+                <select
+                  value={advanceForm.staff_id}
+                  onChange={e => setAdvanceForm(f => ({ ...f, staff_id: e.target.value }))}
+                >
+                  <option value="">Select Staff Member</option>
+                  {staff.filter(s => s.is_active).map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.role === 'cutting_master' ? '✂️ Cutting Master' : '🧵 Tailor'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="field">
+                <label>Advance Amount (₹) *</label>
+                <input
+                  type="number"
+                  placeholder="e.g. 2000"
+                  min="1"
+                  autoFocus
+                  value={advanceForm.amount}
+                  onChange={e => setAdvanceForm(f => ({ ...f, amount: e.target.value }))}
+                />
+              </div>
+
+              <div className="field">
+                <label>Payment Date</label>
+                <input
+                  type="date"
+                  value={advanceForm.advance_date}
+                  onChange={e => setAdvanceForm(f => ({ ...f, advance_date: e.target.value }))}
+                />
+              </div>
+
+              <div className="field form-full">
+                <label>Payment Mode</label>
+                <select
+                  value={advanceForm.payment_mode}
+                  onChange={e => setAdvanceForm(f => ({ ...f, payment_mode: e.target.value }))}
+                >
+                  <option value="cash">💵 Cash in Hand</option>
+                  <option value="upi">📱 UPI / GPay / PhonePe</option>
+                  <option value="bank_transfer">🏦 Bank Transfer / NEFT</option>
+                  <option value="cheque">📝 Cheque</option>
+                </select>
+              </div>
+
+              <div className="field form-full">
+                <label>Notes / Reason (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Festival advance, Emergency, Personal request"
+                  value={advanceForm.notes}
+                  onChange={e => setAdvanceForm(f => ({ ...f, notes: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="modal-actions" style={{ marginTop: 20 }}>
+              <button className="btn btn-ghost" onClick={() => setShowAddAdvance(false)}>Cancel</button>
+              <button
+                className="btn btn-primary"
+                onClick={saveAdvance}
+                disabled={!advanceForm.staff_id || !advanceForm.amount || Number(advanceForm.amount) <= 0}
+              >
+                Save Advance Payment
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── View & Manage Advances Modal ── */}
+      {showAdvancesList && (
+        <div className="modal-overlay" onClick={() => setShowAdvancesList(false)}>
+          <div className="modal" style={{ maxWidth: 720, width: '95vw' }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
+              <div>
+                <h2 style={{ margin: 0 }}>💵 Staff Advances Log</h2>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                  {MONTHS[month-1]} {year} cycle · Total Advances: <b>{fmt(totalAdvancesInCycle)}</b>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn btn-primary btn-sm" onClick={() => { setShowAddAdvance(true); }}>
+                  + Record Advance
+                </button>
+                <button className="btn btn-ghost btn-sm" onClick={() => { setShowAdvancesList(false); setAdvanceFilterStaff(''); }}>
+                  ✕
+                </button>
+              </div>
+            </div>
+
+            {/* Filter by staff if needed */}
+            <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>Filter:</span>
+              <select
+                value={advanceFilterStaff}
+                onChange={e => setAdvanceFilterStaff(e.target.value)}
+                style={{ fontSize: 12, padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border)' }}
+              >
+                <option value="">All Staff</option>
+                {staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+
+            {(() => {
+              const filteredAdvances = advanceFilterStaff
+                ? advances.filter(a => String(a.staff_id) === String(advanceFilterStaff))
+                : advances;
+
+              if (filteredAdvances.length === 0) {
+                return (
+                  <div className="empty-state" style={{ padding: 24 }}>
+                    No advance payments found for this period.
+                  </div>
+                );
+              }
+
+              return (
+                <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Staff Member</th>
+                        <th>Mode</th>
+                        <th style={{ textAlign: 'right' }}>Amount</th>
+                        <th>Status</th>
+                        <th>Notes</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredAdvances.map(a => (
+                        <tr key={a.id}>
+                          <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{fmtShort(a.advance_date)}</td>
+                          <td style={{ fontWeight: 600 }}>{a.staff_name}</td>
+                          <td>
+                            <span className="badge" style={{ fontSize: 10, textTransform: 'capitalize' }}>
+                              {a.payment_mode === 'cash' ? '💵 Cash' : a.payment_mode === 'upi' ? '📱 UPI' : a.payment_mode}
+                            </span>
+                          </td>
+                          <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--orange)' }}>
+                            {fmt(a.amount)}
+                          </td>
+                          <td>
+                            {a.is_deducted
+                              ? <span className="badge b-green" style={{ fontSize: 10 }}>Deducted</span>
+                              : <span className="badge b-yellow" style={{ fontSize: 10 }}>Pending Deduct</span>}
+                          </td>
+                          <td style={{ fontSize: 12, color: 'var(--muted)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {a.notes || '—'}
+                          </td>
+                          <td style={{ textAlign: 'right' }}>
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              style={{ padding: '2px 6px', fontSize: 11, color: 'var(--red)', borderColor: '#fca5a5' }}
+                              title="Delete Advance"
+                              onClick={() => deleteAdvance(a.id)}
+                            >
+                              ✕
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })()}
+
+            <div className="modal-actions" style={{ marginTop: 16 }}>
+              <button className="btn btn-ghost" onClick={() => { setShowAdvancesList(false); setAdvanceFilterStaff(''); }}>Close</button>
             </div>
           </div>
         </div>

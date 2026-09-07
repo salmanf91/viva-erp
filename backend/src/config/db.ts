@@ -141,6 +141,24 @@ export async function initDb(): Promise<void> {
       }
     } catch {}
 
+    // 6. Ensure staff_advances table exists
+    await defaultPool.query(`
+      CREATE TABLE IF NOT EXISTS staff_advances (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        tenant_id INT NOT NULL DEFAULT 1,
+        staff_id INT NOT NULL,
+        amount DECIMAL(12,2) NOT NULL,
+        advance_date DATE NOT NULL,
+        payment_mode VARCHAR(50) DEFAULT 'cash',
+        notes TEXT DEFAULT NULL,
+        is_deducted BOOLEAN DEFAULT FALSE,
+        deducted_at TIMESTAMP NULL DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_tenant_staff_adv (tenant_id, staff_id),
+        INDEX idx_tenant_adv_date (tenant_id, advance_date)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
   } catch (err) {
     console.warn('initDb warning (schema check):', err instanceof Error ? err.message : String(err));
   }
