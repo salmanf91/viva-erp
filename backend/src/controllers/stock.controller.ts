@@ -156,7 +156,7 @@ export async function getDashboardStats(req: AuthRequest, res: Response): Promis
   END`;
 
   try {
-    const [capitalRow, salesRow, purchasesRow, expCompanyRow, expReimbRow, payrollRow, laborRow, stock, batches] = await Promise.all([
+    const [capitalRow, salesRow, purchasesRow, expCompanyRow, expReimbRow, payrollRow, laborRow, advancesRow, stock, batches] = await Promise.all([
       safe(query<any[]>(`
         SELECT
           COALESCE(SUM(CASE WHEN type='investment' THEN amount ELSE 0 END),0) AS total_invested,
@@ -189,6 +189,13 @@ export async function getDashboardStats(req: AuthRequest, res: Response): Promis
         WHERE e.tenant_id=? AND e.is_settled=0 AND e.completed_pcs>0`, [tenantId])),
       safe(query<any[]>(`
         SELECT
+          COALESCE(SUM(amount), 0) AS total_advances,
+          COALESCE(SUM(CASE WHEN is_deducted=0 THEN amount ELSE 0 END), 0) AS pending_advances,
+          COALESCE(SUM(CASE WHEN is_deducted=1 THEN amount ELSE 0 END), 0) AS deducted_advances
+        FROM staff_advances
+        WHERE tenant_id=?`, [tenantId])),
+      safe(query<any[]>(`
+        SELECT
           (SELECT COALESCE(SUM(quantity),0) FROM (
             SELECT quantity FROM stock_movements WHERE tenant_id=? AND type='in'
             UNION ALL
@@ -214,11 +221,14 @@ export async function getDashboardStats(req: AuthRequest, res: Response): Promis
     const otherExpenses   = num(expCompanyRow[0]?.total);
     const reimbursements  = num(expReimbRow[0]?.total);
     const payrollSettled  = num(payrollRow[0]?.total);
-    const laborLiability  = num(laborRow[0]?.total);
+    const laborUnsettled  = num(laborRow[0]?.total);
+    const pendingAdvances = num(advancesRow[0]?.pending_advances);
+    const totalPaidToStaff= payrollSettled + pendingAdvances;
+    const laborLiability  = Math.max(0, laborUnsettled - pendingAdvances);
 
     const cashInHand = totalInvested + salesReceived
                      - totalDrawn - fabricPurchases - otherExpenses
-                     - reimbursements - payrollSettled;
+                     - reimbursements - totalPaidToStaff;
 
     res.json({
       capital,

@@ -260,10 +260,26 @@ export async function getCashLedger(req: AuthRequest, res: Response): Promise<vo
       [tenantId, from, to]
     );
 
+    // 8. Staff advances paid (outflow on advance date)
+    let staffAdvancesRows: any[] = [];
+    try {
+      staffAdvancesRows = await query<any[]>(
+        `SELECT a.advance_date AS date, 'advance' AS type,
+                CONCAT('💵 Staff Advance (', UPPER(COALESCE(a.payment_mode, 'CASH')), ') — ', s.name) AS description,
+                a.amount, 'out' AS direction,
+                CONCAT('ADV-', a.id) AS ref,
+                a.notes AS note, s.name AS party
+         FROM staff_advances a
+         JOIN staff s ON s.id = a.staff_id
+         WHERE a.tenant_id=? AND a.advance_date BETWEEN ? AND ?`,
+        [tenantId, from, to]
+      );
+    } catch {}
+
     // Merge and sort chronologically
     const all = [
       ...investments, ...drawings, ...clientPayments, ...legacyPayments,
-      ...companyExpenses, ...reimbursements, ...purchases, ...payrollRows,
+      ...companyExpenses, ...reimbursements, ...purchases, ...payrollRows, ...staffAdvancesRows,
     ].sort((a, b) => {
       const da = new Date(a.date).getTime();
       const db = new Date(b.date).getTime();

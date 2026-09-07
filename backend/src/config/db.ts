@@ -63,10 +63,10 @@ export async function initDb(): Promise<void> {
       console.log('Added column discount to sales_orders');
     }
 
-    // 2. Ensure staff_work_entries has size and completion_date columns
+    // 2. Ensure staff_work_entries has size, completion_date, and batch_id columns
     const [sweCols] = await defaultPool.query<any[]>(
       `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
-       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'staff_work_entries' AND COLUMN_NAME IN ('size', 'completion_date')`,
+       WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'staff_work_entries' AND COLUMN_NAME IN ('size', 'completion_date', 'batch_id')`,
       [dbName]
     );
     const sweExistingCols = (sweCols || []).map(c => c.COLUMN_NAME);
@@ -77,6 +77,10 @@ export async function initDb(): Promise<void> {
     if (!sweExistingCols.includes('completion_date')) {
       await defaultPool.query('ALTER TABLE staff_work_entries ADD COLUMN completion_date DATE NULL DEFAULT NULL AFTER completed_pcs');
       console.log('Added column completion_date to staff_work_entries');
+    }
+    if (!sweExistingCols.includes('batch_id')) {
+      await defaultPool.query('ALTER TABLE staff_work_entries ADD COLUMN batch_id INT NULL DEFAULT NULL AFTER completion_date, ADD INDEX idx_swe_batch (batch_id)');
+      console.log('Added column batch_id to staff_work_entries');
     }
 
     // 3. Drop legacy uq_staff_entry unique constraint on staff_work_entries if it exists
@@ -158,6 +162,17 @@ export async function initDb(): Promise<void> {
         INDEX idx_tenant_adv_date (tenant_id, advance_date)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+
+    // 7. Mark batch 1 and 2 as finished (as per user instruction)
+    try {
+      await defaultPool.query(`
+        UPDATE production_batches
+        SET status = 'finished'
+        WHERE (id IN (1, 2) OR batch_number IN ('BATCH-001', 'BATCH-002', 'Batch-1', 'Batch-2', '1', '2', 'BATCH-1', 'BATCH-2'))
+          AND status != 'finished'
+      `);
+      console.log('Marked batch 1 and 2 as finished');
+    } catch {}
 
   } catch (err) {
     console.warn('initDb warning (schema check):', err instanceof Error ? err.message : String(err));
