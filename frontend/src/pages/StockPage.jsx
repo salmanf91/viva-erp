@@ -27,9 +27,12 @@ function ProgressBar({ value, max, color }) {
 }
 
 export default function StockPage() {
+  const [tab, setTab]           = useState('overview');
   const [summary, setSummary]   = useState(null);
   const [byVendor, setByVendor] = useState([]);
   const [configs, setConfigs]   = useState([]);
+  const [selectedCat, setSelectedCat] = useState('all');
+  const [searchFinished, setSearchFinished] = useState('');
   const [loading, setLoading]   = useState(true);
 
   useEffect(() => {
@@ -86,7 +89,7 @@ export default function StockPage() {
   const allRawCats = Array.from(uniqueCatsMap.values());
 
   // Build rows keyed by raw material
-  const rows = allRawCats.map((cat, idx) => {
+  const allRows = allRawCats.map((cat, idx) => {
     const rec      = get(summary?.received,  cat);
     const alloc    = get(summary?.allocated, cat); // In active production
     const totalFin = get(summary?.finished,  cat); // Total finished produced
@@ -99,7 +102,7 @@ export default function StockPage() {
     return { cat, label, color, rec, alloc, totalFin, sold, fin, used, avail };
   }).filter(r => r.rec > 0 || r.alloc > 0 || r.totalFin > 0 || r.sold > 0);
 
-  // Global aggregate totals directly from API summary with fallback to row sums
+  // Global aggregate totals
   const totalRec = (summary?.received || []).reduce((s, r) => s + Number(r.qty || 0), 0);
   const totalAlloc = (summary?.allocated || []).reduce((s, r) => s + Number(r.qty || 0), 0);
   const totalFinProduced = (summary?.finished || []).reduce((s, r) => s + Number(r.qty || 0), 0);
@@ -113,8 +116,26 @@ export default function StockPage() {
     totalFin: totalFinProduced,
     sold: totalSold,
     fin: totalFinOnHand,
-    avail: totalAvail
+    avail: totalAvail,
+    used: totalAlloc + totalFinProduced
   };
+
+  // Filtered rows for Overview
+  const filteredRows = selectedCat === 'all'
+    ? allRows
+    : allRows.filter(r => normalize(r.cat) === normalize(selectedCat));
+
+  const filteredTotals = selectedCat === 'all'
+    ? totals
+    : {
+        rec: filteredRows.reduce((s, r) => s + r.rec, 0),
+        alloc: filteredRows.reduce((s, r) => s + r.alloc, 0),
+        totalFin: filteredRows.reduce((s, r) => s + r.totalFin, 0),
+        sold: filteredRows.reduce((s, r) => s + r.sold, 0),
+        fin: filteredRows.reduce((s, r) => s + r.fin, 0),
+        avail: filteredRows.reduce((s, r) => s + r.avail, 0),
+        used: filteredRows.reduce((s, r) => s + r.used, 0),
+      };
 
   // Shawl nighty active batch sub-breakdown (lace vs plain)
   const shawlPlain = get(summary?.shawlBreakdown, 'shawl_nighty');
@@ -128,82 +149,243 @@ export default function StockPage() {
     return acc;
   }, {});
 
+  // Filtered finished goods for tab 4
+  const filteredFinished = finishedBreakdown.filter(item => {
+    const q = searchFinished.toLowerCase();
+    const label = getLabel(item.category).toLowerCase();
+    const size = (item.size || '').toLowerCase();
+    return label.includes(q) || size.includes(q);
+  });
+
   return (
     <>
-      {/* Stat cards */}
-      <div className="g4 mb16">
-        <div className="stat s-accent">
-          <div className="s-label">Total Fabric Received</div>
-          <div className="s-val">{totals.rec}</div>
-          <div className="s-sub">pcs from fabric purchases</div>
-        </div>
-        <div className="stat s-yellow">
-          <div className="s-label">In Production (Active)</div>
-          <div className="s-val">{totals.alloc}</div>
-          <div className="s-sub">currently being cut / stitched</div>
-        </div>
-        <div className="stat s-green">
-          <div className="s-label">Finished Goods (On Hand)</div>
-          <div className="s-val">{totals.fin}</div>
-          <div className="s-sub">{totals.totalFin} produced · {totals.sold} sold</div>
-        </div>
-        <div className="stat s-cyan">
-          <div className="s-label">Available Raw Fabric</div>
-          <div className="s-val">{totals.avail}</div>
-          <div className="s-sub">unallocated & ready to cut</div>
-        </div>
+      {/* Tab Navigation */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 20, borderBottom: '1.5px solid var(--border)', flexWrap: 'wrap' }}>
+        {[
+          ['overview', '📊 Overview & Utilisation'],
+          ['category', '🗂️ Stock by Category'],
+          ['vendor', '🏢 Stock by Vendor'],
+          ['finished', '🏁 Finished Goods Inventory']
+        ].map(([t, label]) => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            style={{
+              padding: '10px 18px',
+              fontWeight: 700,
+              fontSize: 13,
+              border: 'none',
+              cursor: 'pointer',
+              background: 'transparent',
+              borderBottom: tab === t ? '2.5px solid var(--accent)' : '2.5px solid transparent',
+              color: tab === t ? 'var(--accent)' : 'var(--muted)',
+              borderRadius: 0,
+              transition: 'all 0.15s'
+            }}
+          >
+            {label}
+            {t === 'finished' && finishedBreakdown.length > 0 && (
+              <span className="badge b-green" style={{ marginLeft: 6, fontSize: 10 }}>{totals.fin} pcs</span>
+            )}
+          </button>
+        ))}
       </div>
 
-      <div className="g2">
-        {/* Stock by raw material */}
+      {/* ── TAB 1: OVERVIEW & UTILISATION ── */}
+      {tab === 'overview' && (
+        <>
+          {/* Top Stat Cards (responsive to selected raw material) */}
+          <div className="g4 mb16">
+            <div className="stat s-accent">
+              <div className="s-label">Total Fabric Received</div>
+              <div className="s-val">{filteredTotals.rec}</div>
+              <div className="s-sub">pcs from vendor purchases</div>
+            </div>
+            <div className="stat s-yellow">
+              <div className="s-label">In Production (Active)</div>
+              <div className="s-val">{filteredTotals.alloc}</div>
+              <div className="s-sub">cutting / stitching (Batch 3+)</div>
+            </div>
+            <div className="stat s-green">
+              <div className="s-label">Finished Goods (On Hand)</div>
+              <div className="s-val">{filteredTotals.fin}</div>
+              <div className="s-sub">{filteredTotals.totalFin} produced · {filteredTotals.sold} sold</div>
+            </div>
+            <div className="stat s-cyan">
+              <div className="s-label">Available Raw Fabric</div>
+              <div className="s-val">{filteredTotals.avail}</div>
+              <div className="s-sub">unallocated & ready to cut</div>
+            </div>
+          </div>
+
+          {/* Overall Stock Utilisation with Raw Material selector */}
+          <div className="card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
+              <div>
+                <div className="card-hd" style={{ margin: 0 }}>Overall Stock Utilisation</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                  Tracking live utilisation starting from <strong>Batch 3 onwards</strong> (Batches 1 &amp; 2 completed in Finished Goods)
+                </div>
+              </div>
+
+              {/* Raw Material Selector Dropdown */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>Filter Raw Material:</span>
+                <select
+                  value={selectedCat}
+                  onChange={e => setSelectedCat(e.target.value)}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 8,
+                    border: '1.5px solid var(--border)',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    outline: 'none',
+                    background: 'var(--white)',
+                    color: 'var(--text)',
+                    cursor: 'pointer'
+                  }}
+                >
+                  <option value="all">🌐 All Raw Materials ({allRows.length})</option>
+                  {allRows.map(r => (
+                    <option key={r.cat} value={r.cat}>{r.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Fabric flow guide notice */}
+            <div style={{ background: 'var(--accent-l)', border: '1px solid #c4b5fd', borderRadius: 8, padding: '10px 14px', marginBottom: 16, fontSize: 12, color: 'var(--accent)' }}>
+              <strong>📋 Stock Lifecycle Flow:</strong>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginTop: 6 }}>
+                <div><strong>1. Received:</strong> Raw fabric purchased from vendors.</div>
+                <div><strong>2. Active (Batch 3+):</strong> Fabric currently being cut/stitched in ongoing batches.</div>
+                <div><strong>3. Finished (Batches 1-2):</strong> Completed batches ready in Finished Goods.</div>
+                <div><strong>4. Available:</strong> Remaining unallocated fabric ready for new batches.</div>
+              </div>
+            </div>
+
+            {filteredRows.length === 0 ? (
+              <div className="empty-state">No stock data available for the selected raw material.</div>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Raw Material</th>
+                    <th style={{ textAlign: 'right' }}>Received</th>
+                    <th style={{ textAlign: 'right' }}>In Prod. (Active)</th>
+                    <th style={{ textAlign: 'right' }}>Finished (On Hand)</th>
+                    <th style={{ textAlign: 'right' }}>Available Fabric</th>
+                    <th style={{ textAlign: 'right' }}>Utilisation %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredRows.map(({ cat, label, color, rec, alloc, totalFin, sold, fin, used, avail }) => (
+                    <tr key={cat}>
+                      <td>
+                        <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: color, marginRight: 8 }} />
+                        <strong>{label}</strong>
+                        {cat === 'shawl_nighty' && alloc > 0 && (
+                          <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 8 }}>
+                            ({shawlPlain} plain · {shawlLace} lace in prod.)
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{rec} pcs</td>
+                      <td style={{ textAlign: 'right', color: '#f59e0b', fontWeight: 700 }}>{alloc} pcs</td>
+                      <td style={{ textAlign: 'right', color: '#10b981' }}>
+                        <div style={{ fontWeight: 700 }}>{fin} pcs</div>
+                        <div style={{ fontSize: 10, color: 'var(--muted)' }}>({totalFin} prod. · {sold} sold)</div>
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <span className={`badge ${avail > 0 ? 'b-green' : avail === 0 ? 'b-gray' : 'b-red'}`}>{avail} pcs left</span>
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8 }}>
+                          <div style={{ width: 80 }}>
+                            <ProgressBar value={used} max={rec} color={color} />
+                          </div>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', minWidth: 36 }}>
+                            {rec > 0 ? Math.round((used / rec) * 100) : 0}%
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {selectedCat === 'all' && (
+                    <tr style={{ fontWeight: 800, borderTop: '2px solid var(--border)', background: 'var(--bg-card2)' }}>
+                      <td>Total</td>
+                      <td style={{ textAlign: 'right' }}>{filteredTotals.rec} pcs</td>
+                      <td style={{ textAlign: 'right', color: '#f59e0b' }}>{filteredTotals.alloc} pcs</td>
+                      <td style={{ textAlign: 'right', color: '#10b981' }}>
+                        <div>{filteredTotals.fin} pcs</div>
+                        <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 'normal' }}>({filteredTotals.totalFin} prod. · {filteredTotals.sold} sold)</div>
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <span className={`badge ${filteredTotals.avail > 0 ? 'b-green' : 'b-gray'}`}>{filteredTotals.avail} pcs</span>
+                      </td>
+                      <td style={{ textAlign: 'right', color: 'var(--muted)' }}>
+                        {filteredTotals.rec > 0 ? Math.round((filteredTotals.used / filteredTotals.rec) * 100) : 0}%
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* ── TAB 2: STOCK BY CATEGORY ── */}
+      {tab === 'category' && (
         <div className="card">
-          <div className="card-hd">Stock by Category</div>
-          {rows.length === 0 ? (
-            <div className="empty-state">No stock data yet. Add purchases to begin.</div>
+          <div className="card-hd">Stock by Category Breakdown</div>
+          {allRows.length === 0 ? (
+            <div className="empty-state">No category stock data yet. Add purchases to begin.</div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-              {rows.map(({ cat, label, color, rec, alloc, totalFin, sold, fin, used, avail }) => (
-                <div key={cat} style={{ borderLeft: `3px solid ${color}`, paddingLeft: 14 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <span style={{ fontWeight: 700, fontSize: 15 }}>{label}</span>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16 }}>
+              {allRows.map(({ cat, label, color, rec, alloc, totalFin, sold, fin, used, avail }) => (
+                <div key={cat} style={{ border: '1px solid var(--border)', borderLeft: `4px solid ${color}`, borderRadius: 10, padding: 16, background: '#fff' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                    <span style={{ fontWeight: 800, fontSize: 16 }}>{label}</span>
                     <span className={`badge ${avail > 0 ? 'b-green' : avail === 0 ? 'b-gray' : 'b-red'}`}>
-                      {avail} raw fabric left
+                      {avail} unallocated fabric left
                     </span>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1.1fr 1.5fr', gap: 8, marginBottom: 6 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1.1fr 1.1fr 1.5fr', gap: 10, marginBottom: 12, background: 'var(--bg-card2)', padding: 10, borderRadius: 8 }}>
                     <div>
                       <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 2 }}>Received</div>
-                      <div style={{ fontWeight: 700, fontSize: 18 }}>{rec}</div>
+                      <div style={{ fontWeight: 800, fontSize: 18 }}>{rec}</div>
                     </div>
                     <div>
-                      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 2 }}>In Prod.</div>
-                      <div style={{ fontWeight: 700, fontSize: 18, color: '#f59e0b' }}>{alloc}</div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 2 }}>In Prod. (Active)</div>
+                      <div style={{ fontWeight: 800, fontSize: 18, color: '#f59e0b' }}>{alloc}</div>
                     </div>
                     <div>
                       <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 2 }}>Finished (On Hand)</div>
-                      <div style={{ fontWeight: 700, fontSize: 18, color: '#10b981' }}>{fin}</div>
+                      <div style={{ fontWeight: 800, fontSize: 18, color: '#10b981' }}>{fin}</div>
                       <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>({totalFin} prod. · {sold} sold)</div>
                     </div>
                   </div>
 
                   <ProgressBar value={used} max={rec} color={color} />
-                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, display: 'flex', justifyContent: 'space-between' }}>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, display: 'flex', justifyContent: 'space-between' }}>
                     <span>{rec > 0 ? Math.round((used / rec) * 100) : 0}% fabric utilised ({used}/{rec} pcs)</span>
-                    <span>{avail} pcs unallocated</span>
+                    <span>{avail} pcs ready to allocate</span>
                   </div>
 
                   {/* Shawl sub-breakdown: lace vs plain */}
                   {cat === 'shawl_nighty' && alloc > 0 && (
-                    <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
                       {shawlPlain > 0 && (
-                        <span style={{ background: 'var(--accent-l)', color: 'var(--accent)', borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
-                          ✂️ {shawlPlain} pcs → Plain in prod.
+                        <span style={{ background: 'var(--accent-l)', color: 'var(--accent)', borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 700 }}>
+                          ✂️ {shawlPlain} pcs → Plain in active prod.
                         </span>
                       )}
                       {shawlLace > 0 && (
-                        <span style={{ background: 'var(--cyan-l)', color: 'var(--cyan)', borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
-                          ✨ {shawlLace} pcs → With Lace in prod.
+                        <span style={{ background: 'var(--cyan-l)', color: 'var(--cyan)', borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 700 }}>
+                          ✨ {shawlLace} pcs → With Lace in active prod.
                         </span>
                       )}
                     </div>
@@ -213,27 +395,29 @@ export default function StockPage() {
             </div>
           )}
         </div>
+      )}
 
-        {/* By vendor */}
+      {/* ── TAB 3: STOCK BY VENDOR ── */}
+      {tab === 'vendor' && (
         <div className="card">
-          <div className="card-hd">Stock by Vendor</div>
+          <div className="card-hd">Stock Received by Vendor</div>
           {byVendor.length === 0 ? (
-            <div className="empty-state">No vendor data yet.</div>
+            <div className="empty-state">No vendor purchase data found.</div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
               {Object.entries(vendorGroups).map(([vendor, items]) => {
                 const vendorTotal = items.reduce((s, r) => s + Number(r.received), 0);
                 return (
-                  <div key={vendor} style={{ borderRadius: 10, background: 'var(--bg-card2)', padding: '12px 14px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                      <span style={{ fontWeight: 700 }}>{vendor}</span>
+                  <div key={vendor} style={{ borderRadius: 10, border: '1px solid var(--border)', background: '#fff', padding: '14px 16px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                      <span style={{ fontWeight: 800, fontSize: 15 }}>🏢 {vendor}</span>
                       <span className="badge b-accent">{vendorTotal} pcs total</span>
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       {items.map((row, i) => (
-                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '4px 0', borderBottom: i < items.length - 1 ? '1px dashed var(--border)' : 'none' }}>
                           <span style={{ color: 'var(--muted)' }}>{getLabel(row.category)}</span>
-                          <span style={{ fontWeight: 600 }}>{row.received} pcs</span>
+                          <span style={{ fontWeight: 700 }}>{row.received} pcs</span>
                         </div>
                       ))}
                     </div>
@@ -243,101 +427,113 @@ export default function StockPage() {
             </div>
           )}
         </div>
-      </div>
-
-      {/* Finished Goods Inventory Breakdown */}
-      {finishedBreakdown.length > 0 && (
-        <div className="card mt16">
-          <div className="card-hd">
-            <span>🏁 Finished Goods Inventory (By Product &amp; Size)</span>
-            <span className="badge b-green">{totals.totalFin} pcs total produced</span>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 8 }}>
-            {finishedBreakdown.map((item, idx) => (
-              <div key={idx} style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 14px', display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontWeight: 700, fontSize: 13 }}>{getLabel(item.category)}</span>
-                {item.size && (
-                  <span className="badge" style={{ fontSize: 10, background: '#ede9fe', color: '#6d28d9', border: '1px solid #ddd6fe', fontWeight: 700 }}>
-                    📏 {item.size}
-                  </span>
-                )}
-                <span style={{ fontWeight: 800, fontSize: 14, color: '#10b981' }}>{item.qty} pcs</span>
-              </div>
-            ))}
-          </div>
-        </div>
       )}
 
-      {/* Utilisation table */}
-      {rows.length > 0 && (
-        <div className="card mt16">
-          <div className="card-hd">Overall Stock Utilisation</div>
+      {/* ── TAB 4: FINISHED GOODS INVENTORY ── */}
+      {tab === 'finished' && (
+        <div className="card">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+            <div>
+              <div className="card-hd" style={{ margin: 0 }}>🏁 Finished Goods Ready Inventory</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                Manufactured garments ready for sale, organized by Product Category &amp; Size.
+              </div>
+            </div>
 
-          {/* Fabric flow note */}
-          <div style={{ background: 'var(--accent-l)', border: '1px solid #c4b5fd', borderRadius: 8, padding: '8px 12px', marginBottom: 14, fontSize: 12, color: 'var(--accent)' }}>
-            <strong>How stock tracking works:</strong>
-            <ul style={{ margin: '4px 0 0 16px', padding: 0 }}>
-              <li><strong>Received:</strong> Raw fabric received from vendor purchases.</li>
-              <li><strong>In Prod. (Active):</strong> Raw fabric currently being cut and stitched in ongoing batches (e.g. Batch 3).</li>
-              <li><strong>Finished:</strong> Batches completed and ready in finished inventory (e.g. Batch 1 &amp; 2).</li>
-              <li><strong>Available:</strong> Unallocated raw fabric remaining for new batches.</li>
-            </ul>
+            {/* Search Input for fast scalability */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input
+                type="text"
+                placeholder="🔍 Search product or size..."
+                value={searchFinished}
+                onChange={e => setSearchFinished(e.target.value)}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: 8,
+                  border: '1.5px solid var(--border)',
+                  fontSize: 13,
+                  outline: 'none',
+                  minWidth: 220
+                }}
+              />
+            </div>
           </div>
 
-          <table>
-            <thead>
-              <tr>
-                <th>Raw Material</th>
-                <th style={{ textAlign: 'right' }}>Received</th>
-                <th style={{ textAlign: 'right' }}>In Prod.</th>
-                <th style={{ textAlign: 'right' }}>Finished</th>
-                <th style={{ textAlign: 'right' }}>Available</th>
-                <th style={{ textAlign: 'right' }}>Utilised %</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(({ cat, label, color, rec, alloc, totalFin, sold, fin, used, avail }) => (
-                <tr key={cat}>
-                  <td>
-                    <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: '50%', background: color, marginRight: 6 }} />
-                    <strong>{label}</strong>
-                    {cat === 'shawl_nighty' && alloc > 0 && (
-                      <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 8 }}>
-                        ({shawlPlain} plain · {shawlLace} lace in prod.)
-                      </span>
-                    )}
-                  </td>
-                  <td style={{ textAlign: 'right' }}>{rec}</td>
-                  <td style={{ textAlign: 'right', color: '#f59e0b' }}>{alloc}</td>
-                  <td style={{ textAlign: 'right', color: '#10b981' }}>
-                    <div>{fin}</div>
-                    <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 'normal' }}>({totalFin} prod. · {sold} sold)</div>
-                  </td>
-                  <td style={{ textAlign: 'right' }}>
-                    <span className={`badge ${avail > 0 ? 'b-green' : avail === 0 ? 'b-gray' : 'b-red'}`}>{avail}</span>
-                  </td>
-                  <td style={{ textAlign: 'right', color: 'var(--muted)' }}>
-                    {rec > 0 ? Math.round((used / rec) * 100) : 0}%
-                  </td>
+          {/* Metrics summary */}
+          <div className="g3 mb16">
+            <div className="stat s-green" style={{ padding: '12px 16px' }}>
+              <div className="s-label">Ready On Hand</div>
+              <div className="s-val" style={{ fontSize: 22 }}>{totals.fin} pcs</div>
+              <div className="s-sub">available to dispatch</div>
+            </div>
+            <div className="stat s-accent" style={{ padding: '12px 16px' }}>
+              <div className="s-label">Total Produced</div>
+              <div className="s-val" style={{ fontSize: 22 }}>{totals.totalFin} pcs</div>
+              <div className="s-sub">from completed batches</div>
+            </div>
+            <div className="stat s-yellow" style={{ padding: '12px 16px' }}>
+              <div className="s-label">Total Sold</div>
+              <div className="s-val" style={{ fontSize: 22 }}>{totals.sold} pcs</div>
+              <div className="s-sub">delivered to customers</div>
+            </div>
+          </div>
+
+          {filteredFinished.length === 0 ? (
+            <div className="empty-state">
+              {searchFinished ? 'No finished goods match your search.' : 'No finished goods inventory recorded yet. Finish a production batch to add goods.'}
+            </div>
+          ) : (
+            <table>
+              <thead>
+                <tr>
+                  <th>Product Category</th>
+                  <th>Size / Variation</th>
+                  <th style={{ textAlign: 'right' }}>Total Produced</th>
+                  <th style={{ textAlign: 'right' }}>Total Sold</th>
+                  <th style={{ textAlign: 'right' }}>On-Hand Available</th>
+                  <th style={{ textAlign: 'center' }}>Stock Status</th>
                 </tr>
-              ))}
-              <tr style={{ fontWeight: 700, borderTop: '1px solid var(--border)' }}>
-                <td>Total</td>
-                <td style={{ textAlign: 'right' }}>{totals.rec}</td>
-                <td style={{ textAlign: 'right', color: '#f59e0b' }}>{totals.alloc}</td>
-                <td style={{ textAlign: 'right', color: '#10b981' }}>
-                  <div>{totals.fin}</div>
-                  <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 'normal' }}>({totals.totalFin} prod. · {totals.sold} sold)</div>
-                </td>
-                <td style={{ textAlign: 'right' }}>
-                  <span className={`badge ${totals.avail > 0 ? 'b-green' : 'b-gray'}`}>{totals.avail}</span>
-                </td>
-                <td style={{ textAlign: 'right', color: 'var(--muted)' }}>
-                  {totals.rec > 0 ? Math.round((totals.used / totals.rec) * 100) : 0}%
-                </td>
-              </tr>
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filteredFinished.map((item, idx) => {
+                  const available = Number(item.qty || 0);
+                  const isLow = available > 0 && available <= 10;
+                  const isOut = available <= 0;
+
+                  return (
+                    <tr key={idx}>
+                      <td>
+                        <strong style={{ fontSize: 13 }}>{getLabel(item.category)}</strong>
+                      </td>
+                      <td>
+                        {item.size ? (
+                          <span className="badge" style={{ fontSize: 11, background: '#ede9fe', color: '#6d28d9', border: '1px solid #ddd6fe', fontWeight: 700 }}>
+                            📏 {item.size}
+                          </span>
+                        ) : (
+                          <span style={{ color: 'var(--muted)', fontSize: 12 }}>Standard / Free Size</span>
+                        )}
+                      </td>
+                      <td style={{ textAlign: 'right', color: 'var(--muted)' }}>
+                        {item.produced_qty !== undefined ? `${item.produced_qty} pcs` : '—'}
+                      </td>
+                      <td style={{ textAlign: 'right', color: 'var(--muted)' }}>
+                        {item.sold_qty !== undefined ? `${item.sold_qty} pcs` : '—'}
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 800, fontSize: 14, color: isOut ? 'var(--red)' : isLow ? 'var(--yellow)' : 'var(--green)' }}>
+                        {available} pcs
+                      </td>
+                      <td style={{ textAlign: 'center' }}>
+                        <span className={`badge ${isOut ? 'b-red' : isLow ? 'b-yellow' : 'b-green'}`}>
+                          {isOut ? 'Out of Stock' : isLow ? 'Low Stock' : 'In Stock'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
     </>

@@ -38,6 +38,7 @@ const TYPE_BADGE = {
   reimbursement: { label: '↓ Reimbursement', cls: 'b-red'    },
   purchase:      { label: '↓ Purchase',      cls: 'b-accent' },
   payroll:       { label: '↓ Payroll',       cls: 'b-accent' },
+  advance:       { label: '↓ Staff Adv',     cls: 'b-yellow' },
 };
 
 export default function FinancePage() {

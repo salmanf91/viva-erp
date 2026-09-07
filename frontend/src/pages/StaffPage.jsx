@@ -50,8 +50,10 @@ export default function StaffPage() {
   const [editingEntry, setEditingEntry] = useState(null);
   const [showAddEntry, setShowAddEntry] = useState(false);
   const [configs, setConfigs] = useState([]);
+  const [batches, setBatches] = useState([]);
   const [entryForm, setEntryForm] = useState({
     staff_id: '',
+    batch_id: '',
     entry_date: '',
     completion_date: '',
     work_type: 'cutting',
@@ -62,6 +64,7 @@ export default function StaffPage() {
   });
   const [addEntryForm, setAddEntryForm] = useState({
     staff_id: '',
+    batch_id: '',
     entry_date: new Date().toISOString().slice(0, 10),
     completion_date: new Date().toISOString().slice(0, 10),
     work_type: 'cutting',
@@ -82,6 +85,7 @@ export default function StaffPage() {
   const loadAdmins   = () => api.get('/staff/admins').then(r => setAdmins(r.data));
   const loadPayroll  = () => api.get(`/staff/payroll?month=${month}&year=${year}`).then(r => setPayroll(r.data));
   const loadConfigs  = () => api.get('/production/configs').then(r => setConfigs(r.data)).catch(() => []);
+  const loadBatches  = () => api.get('/production?limit=50').then(r => setBatches(r.data?.active || r.data?.data || [])).catch(() => []);
   const loadAdvances = useCallback(() => {
     api.get('/staff/advances', { params: { month, year } })
       .then(r => setAdvances(r.data || []))
@@ -98,7 +102,7 @@ export default function StaffPage() {
   }, [month, year, historyStaffFilter]);
 
   useEffect(() => {
-    Promise.all([loadStaff(), loadAdmins(), loadConfigs()]).finally(() => setLoading(false));
+    Promise.all([loadStaff(), loadAdmins(), loadConfigs(), loadBatches()]).finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
@@ -140,6 +144,7 @@ export default function StaffPage() {
     setEditingEntry(entry);
     setEntryForm({
       staff_id: entry.staff_id,
+      batch_id: entry.batch_id ? String(entry.batch_id) : '',
       entry_date: entry.entry_date ? entry.entry_date.slice(0, 10) : '',
       completion_date: entry.completion_date ? entry.completion_date.slice(0, 10) : (entry.entry_date ? entry.entry_date.slice(0, 10) : ''),
       work_type: entry.work_type || 'cutting',
@@ -172,6 +177,7 @@ export default function StaffPage() {
       // 1. Update the original entry (item with entry_id)
       const primaryItem = validItems.find(it => it.entry_id === editingEntry.id) || validItems[0];
       await api.put(`/staff/work-entries/${editingEntry.id}`, {
+        batch_id: entryForm.batch_id ? Number(entryForm.batch_id) : null,
         entry_date: entryForm.entry_date,
         completion_date: Number(primaryItem.completed_pcs) > 0 ? (entryForm.completion_date || entryForm.entry_date) : null,
         category: primaryItem.category,
@@ -186,6 +192,7 @@ export default function StaffPage() {
       if (newItems.length > 0) {
         await api.post('/staff/work-entries', {
           staff_id: Number(editingEntry.staff_id),
+          batch_id: entryForm.batch_id ? Number(entryForm.batch_id) : null,
           entry_date: entryForm.entry_date,
           completion_date: entryForm.completion_date,
           work_type: entryForm.work_type,
@@ -221,6 +228,7 @@ export default function StaffPage() {
     try {
       await api.post('/staff/work-entries', {
         staff_id: Number(addEntryForm.staff_id),
+        batch_id: addEntryForm.batch_id ? Number(addEntryForm.batch_id) : null,
         entry_date: addEntryForm.entry_date,
         completion_date: addEntryForm.completion_date,
         work_type: addEntryForm.work_type,
@@ -235,6 +243,7 @@ export default function StaffPage() {
       setShowAddEntry(false);
       setAddEntryForm({
         staff_id: '',
+        batch_id: '',
         entry_date: new Date().toISOString().slice(0, 10),
         completion_date: new Date().toISOString().slice(0, 10),
         work_type: 'cutting',
@@ -708,6 +717,11 @@ export default function StaffPage() {
                             📏 {r.size}
                           </span>
                         )}
+                        {r.batch_number && (
+                          <span className="badge b-accent" style={{ fontSize: 10, padding: '1px 6px', fontWeight: 700 }}>
+                            📦 {r.batch_number}
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td>
@@ -1032,6 +1046,21 @@ export default function StaffPage() {
                       {configs.length > 0
                         ? configs.map(c => <option key={c.category} value={c.category}>{c.display_name || c.name || getProductLabel(c.category)}</option>)
                         : CATEGORIES.map(c => <option key={c} value={c}>{getProductLabel(c)}</option>)}
+                    </select>
+                  </div>
+
+                  <div className="field form-full">
+                    <label>📦 Linked Stock Batch (Optional)</label>
+                    <select
+                      value={entryForm.batch_id}
+                      onChange={e => setEntryForm(f => ({ ...f, batch_id: e.target.value }))}
+                    >
+                      <option value="">-- No Batch Linked (Standalone Entry) --</option>
+                      {batches.map(b => (
+                        <option key={b.id} value={b.id}>
+                          📦 {b.batch_number} - {b.category ? getProductLabel(b.category) : b.product_name || 'Batch'} ({b.target_pcs || b.planned_pcs || 0} pcs planned) {b.status === 'in_progress' ? '🟢 Active' : `(${b.status})`}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 </div>
@@ -1380,6 +1409,21 @@ export default function StaffPage() {
                       {configs.length > 0
                         ? configs.map(c => <option key={c.category} value={c.category}>{c.display_name || c.name || getProductLabel(c.category)}</option>)
                         : CATEGORIES.map(c => <option key={c} value={c}>{getProductLabel(c)}</option>)}
+                    </select>
+                  </div>
+
+                  <div className="field form-full">
+                    <label>📦 Linked Stock Batch (Optional)</label>
+                    <select
+                      value={addEntryForm.batch_id}
+                      onChange={e => setAddEntryForm(f => ({ ...f, batch_id: e.target.value }))}
+                    >
+                      <option value="">-- No Batch Linked (Standalone Entry) --</option>
+                      {batches.map(b => (
+                        <option key={b.id} value={b.id}>
+                          📦 {b.batch_number} - {b.category ? getProductLabel(b.category) : b.product_name || 'Batch'} ({b.target_pcs || b.planned_pcs || 0} pcs planned) {b.status === 'in_progress' ? '🟢 Active' : `(${b.status})`}
+                        </option>
+                      ))}
                     </select>
                   </div>
                 </div>

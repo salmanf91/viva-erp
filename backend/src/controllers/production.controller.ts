@@ -34,6 +34,8 @@ export async function getBatches(req: AuthRequest, res: Response): Promise<void>
     // Fetch batch items for rows and activeRows
     const allBatchIds = Array.from(new Set([...rows.map(r => r.id), ...activeRows.map(r => r.id)]));
     let itemsByBatch = new Map<number, any[]>();
+    let staffProgressByBatch = new Map<number, { cut: number, stitch: number }>();
+
     if (allBatchIds.length > 0) {
       try {
         const batchItems = await query<any[]>(
@@ -45,11 +47,29 @@ export async function getBatches(req: AuthRequest, res: Response): Promise<void>
           itemsByBatch.get(item.batch_id)!.push(item);
         }
       } catch {}
+
+      try {
+        const staffProgress = await query<any[]>(
+          `SELECT 
+             batch_id,
+             COALESCE(SUM(CASE WHEN work_type='cutting' THEN completed_pcs ELSE 0 END), 0) AS cut_pcs,
+             COALESCE(SUM(CASE WHEN work_type='stitching' THEN completed_pcs ELSE 0 END), 0) AS stitch_pcs
+           FROM staff_work_entries
+           WHERE tenant_id = ? AND batch_id IN (${allBatchIds.map(() => '?').join(',')})
+           GROUP BY batch_id`,
+          [tenantId, ...allBatchIds]
+        );
+        for (const sp of staffProgress) {
+          staffProgressByBatch.set(Number(sp.batch_id), {
+            cut: Number(sp.cut_pcs || 0),
+            stitch: Number(sp.stitch_pcs || 0),
+          });
+        }
+      } catch {}
     }
 
-    const enrichBatch = (b: any) => ({
-      ...b,
-      items: itemsByBatch.get(b.id) || [
+    const enrichBatch = (b: any) => {
+      const bItems = itemsByBatch.get(b.id) || [
         {
           id: null,
           category: b.category,
@@ -64,8 +84,23 @@ export async function getBatches(req: AuthRequest, res: Response): Promise<void>
           lace_cost: 0,
           logistics_cost: 0,
         }
-      ]
-    });
+      ];
+      const prog = staffProgressByBatch.get(b.id) || { cut: 0, stitch: 0 };
+      const totalQty = Number(b.quantity || 0);
+      const cutPcs = prog.cut;
+      const stitchPcs = prog.stitch;
+      const cutPct = totalQty > 0 ? Math.min(100, Math.round((cutPcs / totalQty) * 100)) : 0;
+      const stitchPct = totalQty > 0 ? Math.min(100, Math.round((stitchPcs / totalQty) * 100)) : 0;
+
+      return {
+        ...b,
+        items: bItems,
+        cut_pcs: cutPcs,
+        stitch_pcs: stitchPcs,
+        cut_pct: cutPct,
+        stitch_pct: stitchPct,
+      };
+    };
 
     const enrichedRows = rows.map(enrichBatch);
     const enrichedActiveRows = activeRows.map(enrichBatch);
@@ -322,9 +357,36 @@ export async function getBatchDetail(req: AuthRequest, res: Response): Promise<v
       [id, tenantId]
     );
 
+    const workLogs = await query<any[]>(
+      `SELECT e.id, e.entry_date, e.completion_date, e.staff_id, s.name AS staff_name, s.role,
+              e.work_type, e.category, e.size, e.allocated_pcs, e.completed_pcs, e.is_settled,
+              CASE
+                WHEN e.work_type='cutting' THEN COALESCE(pb.cut_rate, 5.00)
+                ELSE COALESCE(pb.stitch_rate, 15.00)
+              END AS rate_per_pc,
+              (e.completed_pcs * CASE
+                WHEN e.work_type='cutting' THEN COALESCE(pb.cut_rate, 5.00)
+                ELSE COALESCE(pb.stitch_rate, 15.00)
+              END) AS amount
+       FROM staff_work_entries e
+       JOIN staff s ON s.id = e.staff_id
+       LEFT JOIN production_batches pb ON pb.id = e.batch_id
+       WHERE e.batch_id=? AND e.tenant_id=?
+       ORDER BY e.entry_date DESC, e.id DESC`,
+      [id, tenantId]
+    ).catch(() => []);
+
+    const cutPcs = workLogs.filter(w => w.work_type === 'cutting').reduce((s, w) => s + Number(w.completed_pcs || 0), 0);
+    const stitchPcs = workLogs.filter(w => w.work_type === 'stitching').reduce((s, w) => s + Number(w.completed_pcs || 0), 0);
+    const totalQty = Number(batches[0].quantity || 0);
+
     res.json({
       batch: {
         ...batches[0],
+        cut_pcs: cutPcs,
+        stitch_pcs: stitchPcs,
+        cut_pct: totalQty > 0 ? Math.min(100, Math.round((cutPcs / totalQty) * 100)) : 0,
+        stitch_pct: totalQty > 0 ? Math.min(100, Math.round((stitchPcs / totalQty) * 100)) : 0,
         items: items.length > 0 ? items : [
           {
             id: null,
@@ -342,7 +404,7 @@ export async function getBatchDetail(req: AuthRequest, res: Response): Promise<v
           }
         ]
       },
-      workLogs: []
+      workLogs
     });
   } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }

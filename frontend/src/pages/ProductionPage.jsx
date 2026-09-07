@@ -1085,8 +1085,36 @@ export default function ProductionPage() {
 
             <BatchFlow status={b.status} quantity={qty} />
 
+            {/* Daily Live Cut & Stitch Progress */}
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '10px 14px', margin: '10px 0' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>⚡ Daily Live Progress (from Staff Work Logs)</span>
+                {b.status !== 'finished' && <span className="badge b-yellow" style={{ fontSize: 10 }}>Live Auto-Updating</span>}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700, marginBottom: 4 }}>
+                    <span style={{ color: 'var(--accent)' }}>✂️ Cut Progress</span>
+                    <span>{b.cut_pcs || 0} / {qty} pcs ({b.cut_pct || 0}%)</span>
+                  </div>
+                  <div style={{ background: '#e2e8f0', height: 8, borderRadius: 4, overflow: 'hidden' }}>
+                    <div style={{ background: 'var(--accent)', width: `${Math.min(100, b.cut_pct || 0)}%`, height: '100%', borderRadius: 4, transition: 'width .4s' }} />
+                  </div>
+                </div>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700, marginBottom: 4 }}>
+                    <span style={{ color: 'var(--cyan)' }}>🧵 Stitch Progress</span>
+                    <span>{b.stitch_pcs || 0} / {qty} pcs ({b.stitch_pct || 0}%)</span>
+                  </div>
+                  <div style={{ background: '#e2e8f0', height: 8, borderRadius: 4, overflow: 'hidden' }}>
+                    <div style={{ background: 'var(--cyan)', width: `${Math.min(100, b.stitch_pct || 0)}%`, height: '100%', borderRadius: 4, transition: 'width .4s' }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Labour + Accessories breakdown */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginTop: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginTop: 10 }}>
               <div className="calc-box" style={{ margin: 0 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 6 }}>👷 Labour</div>
                 <div className="calc-row"><span className="cl">Cutting Total</span><span className="cv">{fmt(bBreakdown.cutTotal)}</span></div>
@@ -1229,6 +1257,34 @@ export default function ProductionPage() {
 
             <BatchFlow status={detail.batch?.status} quantity={detail.batch?.quantity} />
 
+            {/* Live Progress Summary */}
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '12px 16px', margin: '14px 0' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>⚡ Staff Daily Progress</span>
+                <span className="badge b-cyan" style={{ fontSize: 10 }}>Auto-Aggregated from Work Logs</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700, marginBottom: 4 }}>
+                    <span style={{ color: 'var(--accent)' }}>✂️ Cut: {detail.batch?.cut_pcs || 0} / {detail.batch?.quantity || 0} pcs</span>
+                    <span>{detail.batch?.cut_pct || 0}%</span>
+                  </div>
+                  <div style={{ background: '#e2e8f0', height: 8, borderRadius: 4, overflow: 'hidden' }}>
+                    <div style={{ background: 'var(--accent)', width: `${Math.min(100, detail.batch?.cut_pct || 0)}%`, height: '100%', borderRadius: 4 }} />
+                  </div>
+                </div>
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700, marginBottom: 4 }}>
+                    <span style={{ color: 'var(--cyan)' }}>🧵 Stitched: {detail.batch?.stitch_pcs || 0} / {detail.batch?.quantity || 0} pcs</span>
+                    <span>{detail.batch?.stitch_pct || 0}%</span>
+                  </div>
+                  <div style={{ background: '#e2e8f0', height: 8, borderRadius: 4, overflow: 'hidden' }}>
+                    <div style={{ background: 'var(--cyan)', width: `${Math.min(100, detail.batch?.stitch_pct || 0)}%`, height: '100%', borderRadius: 4 }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Items Breakdown Table */}
             <div style={{ marginTop: 16, marginBottom: 12 }}>
               <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>
@@ -1308,17 +1364,37 @@ export default function ProductionPage() {
             {/* Work log table — only if staff logs exist */}
             {detail.workLogs?.length > 0 && (
               <>
-                <div style={{ fontWeight: 700, fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', margin: '16px 0 8px' }}>Work Logs</div>
+                <div style={{ fontWeight: 700, fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em', margin: '16px 0 8px' }}>
+                  Staff Daily Work Logs for this Batch ({detail.workLogs.length})
+                </div>
                 <table>
                   <thead>
-                    <tr><th>Staff</th><th>Role</th><th style={{ textAlign:'right' }}>Pcs</th><th style={{ textAlign:'right' }}>Rate</th><th style={{ textAlign:'right' }}>Amount</th><th>Settled</th></tr>
+                    <tr>
+                      <th>Staff</th>
+                      <th>Date</th>
+                      <th>Product &amp; Size</th>
+                      <th>Type</th>
+                      <th style={{ textAlign:'right' }}>Done Pcs</th>
+                      <th style={{ textAlign:'right' }}>Rate</th>
+                      <th style={{ textAlign:'right' }}>Amount</th>
+                      <th>Settled</th>
+                    </tr>
                   </thead>
                   <tbody>
                     {detail.workLogs.map(w => (
                       <tr key={w.id}>
                         <td style={{ fontWeight: 600 }}>{w.staff_name}</td>
-                        <td style={{ textTransform: 'capitalize', color: 'var(--muted)', fontSize: 12 }}>{w.role?.replace(/_/g, ' ')}</td>
-                        <td style={{ textAlign: 'right' }}>{w.pieces}</td>
+                        <td style={{ fontSize: 12, color: 'var(--muted)' }}>{fmtDate(w.date || w.entry_date)}</td>
+                        <td style={{ fontSize: 12 }}>
+                          {getProductLabel(w.category, configs)}
+                          {w.size && <span style={{ marginLeft: 4, background: '#ede9fe', color: '#6d28d9', padding: '1px 5px', borderRadius: 4, fontWeight: 700, fontSize: 10 }}>{w.size}</span>}
+                        </td>
+                        <td>
+                          <span className={`badge ${w.work_type === 'cutting' ? 'b-accent' : 'b-cyan'}`} style={{ fontSize: 10 }}>
+                            {w.work_type === 'cutting' ? '✂️ Cut' : '🧵 Stitch'}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--green)' }}>{w.pieces}</td>
                         <td style={{ textAlign: 'right' }}>{fmt(w.rate_per_pc)}</td>
                         <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmt(w.amount)}</td>
                         <td><span className={`badge ${w.is_settled ? 'b-green' : 'b-yellow'}`}>{w.is_settled ? 'Paid' : 'Pending'}</span></td>

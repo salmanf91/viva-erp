@@ -45,21 +45,23 @@ export default function StaffLogPage() {
 function DailyLogTab() {
   const [date, setDate]         = useState(toDateStr(new Date()));
   const [staff, setStaff]       = useState([]);
+  const [batches, setBatches]   = useState([]);
   const [loading, setLoading]   = useState(true);
   const [saving, setSaving]     = useState(null);
 
-  const [newEntry, setNewEntry]         = useState({}); // staffId -> { category, work_type, allocDate, compDate, allocated, completed }
+  const [newEntry, setNewEntry]         = useState({}); // staffId -> { category, work_type, allocDate, compDate, allocated, completed, batch_id, items }
   const [showAddEntry, setShowAddEntry] = useState({}); // staffId -> category (string)
-  const [editEntry, setEditEntry]       = useState({}); // key -> { allocated, completed, allocDate, compDate }
+  const [editEntry, setEditEntry]       = useState({}); // key -> { allocated, completed, allocDate, compDate, batch_id }
   const [carryoverForm, setCarryoverForm] = useState({}); // itemId -> { compDate, completedPcs }
 
   const [products, setProducts] = useState([]);
 
   const load = useCallback(() => {
     setLoading(true);
-    api.get('/staff/work-entries', { params: { date } })
-      .then(r => setStaff(r.data))
-      .finally(() => setLoading(false));
+    Promise.all([
+      api.get('/staff/work-entries', { params: { date } }).then(r => setStaff(r.data)),
+      api.get('/production?limit=50').then(r => setBatches(r.data?.active || r.data?.data || [])).catch(() => []),
+    ]).finally(() => setLoading(false));
   }, [date]);
 
   useEffect(() => { load(); }, [load]);
@@ -78,7 +80,7 @@ function DailyLogTab() {
     setDate(toDateStr(d));
   };
 
-  const saveEntry = async (staffId, category, work_type, allocated, completed, allocDate, compDate, size, entryId = null, items = null) => {
+  const saveEntry = async (staffId, category, work_type, allocated, completed, allocDate, compDate, size, entryId = null, items = null, batchId = null) => {
     const key = entryId ? `entry-${entryId}` : `${staffId}-${category}-${work_type}`;
     setSaving(key);
     try {
@@ -93,6 +95,7 @@ function DailyLogTab() {
           work_type,
           allocated_pcs: allocNum,
           completed_pcs: doneNum,
+          batch_id: batchId !== undefined ? batchId : null,
         });
       } else if (Array.isArray(items) && items.length > 0) {
         const validItems = items.filter(it => (+it.allocated > 0 || +it.completed > 0));
@@ -103,6 +106,7 @@ function DailyLogTab() {
         }
         await api.post('/staff/work-entries', {
           staff_id: staffId,
+          batch_id: batchId || null,
           entry_date: allocDate || date,
           completion_date: compDate || date,
           work_type,
@@ -119,6 +123,7 @@ function DailyLogTab() {
         if (allocNum === 0 && doneNum === 0) return;
         await api.post('/staff/work-entries', {
           staff_id: staffId,
+          batch_id: batchId || null,
           entry_date: allocDate || date,
           completion_date: doneNum > 0 ? (compDate || date) : null,
           category,
@@ -164,6 +169,7 @@ function DailyLogTab() {
       ...p,
       [staffId]: {
         category,
+        batch_id: batches.length > 0 ? batches[0].id : null,
         work_type: wt,
         allocDate: date,
         compDate: date,
@@ -201,6 +207,7 @@ function DailyLogTab() {
       [key]: {
         category: entry.category,
         work_type: entry.work_type,
+        batch_id: entry.batch_id || '',
         size: entry.size || '',
         allocated: String(entry.allocated_pcs),
         completed: String(entry.completed_pcs),
@@ -251,13 +258,14 @@ function DailyLogTab() {
               saving={saving} editEntry={editEntry}
               newEntry={newEntry[s.id]} showAdd={showAddEntry[s.id]}
               carryoverForm={carryoverForm}
+              batches={batches}
               onSetCarryoverForm={(id, data) => setCarryoverForm(p => ({ ...p, [id]: { ...(p[id] || {}), ...data } }))}
               onCompleteCarryover={completeCarryoverItem}
               products={products}
               onSetNew={v => setNewEntry(p => ({ ...p, [s.id]: v }))}
               onOpenAdd={cat => openAddEntry(s.id, cat)}
               onCloseAdd={() => closeAddEntry(s.id)}
-              onSave={(cat, wt, alloc, done, allocD, compD, sz, entryId, items) => saveEntry(s.id, cat, wt, alloc, done, allocD, compD, sz, entryId, items)}
+              onSave={(cat, wt, alloc, done, allocD, compD, sz, entryId, items, bId) => saveEntry(s.id, cat, wt, alloc, done, allocD, compD, sz, entryId, items, bId)}
               onStartEdit={startEdit} onCancelEdit={cancelEdit}
               onSetEdit={(key, v) => setEditEntry(p => ({ ...p, [key]: v }))}
               onDelete={deleteEntry}
@@ -271,13 +279,14 @@ function DailyLogTab() {
               saving={saving} editEntry={editEntry}
               newEntry={newEntry[s.id]} showAdd={showAddEntry[s.id]}
               carryoverForm={carryoverForm}
+              batches={batches}
               onSetCarryoverForm={(id, data) => setCarryoverForm(p => ({ ...p, [id]: { ...(p[id] || {}), ...data } }))}
               onCompleteCarryover={completeCarryoverItem}
               products={products}
               onSetNew={v => setNewEntry(p => ({ ...p, [s.id]: v }))}
               onOpenAdd={cat => openAddEntry(s.id, cat)}
               onCloseAdd={() => closeAddEntry(s.id)}
-              onSave={(cat, wt, alloc, done, allocD, compD, sz, entryId, items) => saveEntry(s.id, cat, wt, alloc, done, allocD, compD, sz, entryId, items)}
+              onSave={(cat, wt, alloc, done, allocD, compD, sz, entryId, items, bId) => saveEntry(s.id, cat, wt, alloc, done, allocD, compD, sz, entryId, items, bId)}
               onStartEdit={startEdit} onCancelEdit={cancelEdit}
               onSetEdit={(key, v) => setEditEntry(p => ({ ...p, [key]: v }))}
               onDelete={deleteEntry}
@@ -297,6 +306,7 @@ function HistoryTab() {
   const [year, setYear]               = useState(now.getFullYear());
   const [staffFilter, setStaffFilter] = useState('');
   const [staffList, setStaffList]     = useState([]);
+  const [batches, setBatches]         = useState([]);
   const [rows, setRows]               = useState([]);
   const [loading, setLoading]         = useState(true);
 
@@ -309,10 +319,14 @@ function HistoryTab() {
     work_type: '',
     allocated_pcs: '',
     completed_pcs: '',
+    batch_id: '',
   });
 
   useEffect(() => {
-    api.get('/staff').then(r => setStaffList(r.data)).catch(() => {});
+    Promise.all([
+      api.get('/staff').then(r => setStaffList(r.data)).catch(() => {}),
+      api.get('/production?limit=50').then(r => setBatches(r.data?.active || r.data?.data || [])).catch(() => []),
+    ]);
   }, []);
 
   const loadHistory = useCallback(() => {
@@ -344,6 +358,7 @@ function HistoryTab() {
       work_type: r.work_type || 'stitching',
       allocated_pcs: String(r.allocated_pcs || 0),
       completed_pcs: String(r.completed_pcs || 0),
+      batch_id: r.batch_id ? String(r.batch_id) : '',
     });
   };
 
@@ -358,6 +373,7 @@ function HistoryTab() {
         work_type: editForm.work_type,
         allocated_pcs: +editForm.allocated_pcs || 0,
         completed_pcs: +editForm.completed_pcs || 0,
+        batch_id: editForm.batch_id ? Number(editForm.batch_id) : null,
       });
       setEditingRow(null);
       loadHistory();
@@ -376,7 +392,6 @@ function HistoryTab() {
     }
   };
 
-  // Group rows by staff
   const byStaff = {};
   for (const r of rows) {
     if (!byStaff[r.staff_id]) byStaff[r.staff_id] = { name: r.staff_name, role: r.staff_role, entries: [] };
@@ -392,109 +407,116 @@ function HistoryTab() {
 
   return (
     <>
-      {/* Controls */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
         <button className="btn btn-ghost btn-sm" onClick={() => changeMonth(-1)}>← Prev</button>
         <div style={{
           fontWeight: 700, fontSize: 14, background: 'var(--white)',
           border: '1.5px solid var(--border)', borderRadius: 10, padding: '7px 16px',
-          display: 'flex', alignItems: 'center', gap: 8
         }}>
-          <span>💰 {MONTH_NAMES[month - 1]} {year}</span>
-          <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>({cycleLabel})</span>
+          {MONTH_NAMES[month - 1]} {year}
         </div>
-        <button className="btn btn-ghost btn-sm"
-          disabled={month === now.getMonth() + 1 && year === now.getFullYear()}
-          onClick={() => changeMonth(1)}>Next →</button>
+        <button className="btn btn-ghost btn-sm" onClick={() => changeMonth(1)}>Next →</button>
+        <span style={{ fontSize: 12, color: 'var(--muted)' }}>({cycleLabel})</span>
 
-        <select value={staffFilter} onChange={e => setStaffFilter(e.target.value)}
-          style={{ marginLeft: 'auto', minWidth: 180, padding: '7px 10px', borderRadius: 8, border: '1.5px solid var(--border)', fontSize: 13 }}>
-          <option value="">All Staff</option>
-          {staffList.map(s => (
-            <option key={s.id} value={s.id}>{s.name} ({s.role === 'cutting_master' ? 'Cutter' : 'Tailor'})</option>
-          ))}
-        </select>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <select
+            value={staffFilter}
+            onChange={e => setStaffFilter(e.target.value)}
+            style={{ fontSize: 13, padding: '6px 12px', borderRadius: 8, border: '1.5px solid var(--border)', background: '#fff' }}
+          >
+            <option value="">All Staff Members</option>
+            {staffList.map(s => <option key={s.id} value={s.id}>{s.name} ({s.role === 'tailor' ? 'Tailor' : 'Cutter'})</option>)}
+          </select>
+        </div>
       </div>
 
-      {/* Summary chips */}
-      {!loading && rows.length > 0 && (
-        <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-          <div className="chip chip-green">✅ {totalPcs} pcs completed</div>
-          {pendingPcs > 0 && <div className="chip chip-yellow">⏳ {pendingPcs} pcs pending</div>}
-          <div className="chip">{rows.length} entries · {Object.keys(byStaff).length} staff</div>
+      <div className="g3 mb16">
+        <div className="stat s-accent">
+          <div className="s-label">Total Completed</div>
+          <div className="s-val">{totalPcs} pcs</div>
+          <div className="s-sub">in {MONTH_NAMES[month - 1]} cycle</div>
         </div>
-      )}
+        <div className="stat s-yellow">
+          <div className="s-label">Pending / Carryover</div>
+          <div className="s-val">{pendingPcs} pcs</div>
+          <div className="s-sub">awaiting completion</div>
+        </div>
+        <div className="stat s-cyan">
+          <div className="s-label">Logged Entries</div>
+          <div className="s-val">{rows.length}</div>
+          <div className="s-sub">across {Object.keys(byStaff).length} staff</div>
+        </div>
+      </div>
 
-      {loading ? <div className="spinner">Loading…</div> : rows.length === 0 ? (
-        <div className="card"><div className="empty-state">No entries for {MONTH_NAMES[month - 1]} {year}.</div></div>
+      {loading ? <div className="spinner">Loading history…</div> : rows.length === 0 ? (
+        <div className="empty-state">No work logs recorded in this period.</div>
       ) : (
-        Object.entries(byStaff).map(([sid, s]) => {
-          const totAlloc = s.entries.reduce((a, e) => a + (e.allocated_pcs || 0), 0);
-          const totDone  = s.entries.reduce((a, e) => a + (e.completed_pcs || 0), 0);
-          const totPend  = s.entries.reduce((a, e) => a + (e.remaining_pcs > 0 ? e.remaining_pcs : 0), 0);
+        Object.entries(byStaff).map(([sId, data]) => {
+          const sCompleted = data.entries.reduce((s, r) => s + (r.completed_pcs || 0), 0);
+          const sPending   = data.entries.reduce((s, r) => s + (r.remaining_pcs > 0 ? r.remaining_pcs : 0), 0);
           return (
-            <div key={sid} className="card" style={{ marginBottom: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontWeight: 700, fontSize: 14 }}>{s.name}</span>
-                  <span className={`badge ${s.role === 'tailor' ? 'b-cyan' : 'b-accent'}`} style={{ fontSize: 10 }}>
-                    {s.role === 'tailor' ? '🧵 Tailor' : '✂️ Cutter'}
+            <div key={sId} className="card" style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <div>
+                  <span style={{ fontWeight: 800, fontSize: 15 }}>{data.name}</span>
+                  <span className={`badge ${data.role === 'cutting_master' ? 'b-accent' : 'b-cyan'}`} style={{ marginLeft: 8, fontSize: 10 }}>
+                    {data.role === 'cutting_master' ? '✂️ Cutting Master' : '🧵 Tailor'}
                   </span>
                 </div>
-                <div style={{ display: 'flex', gap: 12, fontSize: 12, color: 'var(--muted)' }}>
-                  <span>Alloc: <b style={{ color: 'var(--text)' }}>{totAlloc}</b></span>
-                  <span>Done: <b style={{ color: 'var(--green)' }}>{totDone}</b></span>
-                  {totPend > 0 && <span>Pending: <b style={{ color: 'var(--yellow)' }}>{totPend}</b></span>}
+                <div style={{ display: 'flex', gap: 10, fontSize: 12 }}>
+                  <span style={{ color: 'var(--green)', fontWeight: 700 }}>✓ {sCompleted} pcs done</span>
+                  {sPending > 0 && <span style={{ color: 'var(--yellow)', fontWeight: 700 }}>⏳ {sPending} pcs pending</span>}
                 </div>
               </div>
+
               <table>
                 <thead>
                   <tr>
-                    <th>Alloc Date</th>
-                    <th>Comp Date</th>
-                    <th>Category</th>
+                    <th>Date</th>
+                    <th>Product</th>
                     <th>Size</th>
+                    <th>Batch</th>
                     <th>Type</th>
                     <th style={{ textAlign: 'right' }}>Allocated</th>
                     <th style={{ textAlign: 'right' }}>Completed</th>
                     <th style={{ textAlign: 'right' }}>Remaining</th>
-                    <th>Status</th>
+                    <th style={{ textAlign: 'center' }}>Status</th>
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {s.entries.map((r, i) => (
-                    <tr key={i}>
-                      <td style={{ fontSize: 12, color: 'var(--text)', whiteSpace: 'nowrap' }}>{fmtShort(r.entry_date)}</td>
-                      <td style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{r.completion_date ? fmtShort(r.completion_date) : '—'}</td>
-                      <td style={{ fontWeight: 600 }}>{CAT_LABEL[r.category] || r.category}</td>
+                  {data.entries.map(r => (
+                    <tr key={r.id}>
+                      <td style={{ fontSize: 12, color: 'var(--muted)' }}>{fmtShort(r.entry_date)}</td>
+                      <td style={{ fontWeight: 600 }}>{getProductLabel(r.category)}</td>
                       <td>
                         {r.size ? (
-                          <span className="badge" style={{ fontSize: 10, background: '#ede9fe', color: '#6d28d9', border: '1px solid #ddd6fe', fontWeight: 600 }}>
+                          <span className="badge" style={{ fontSize: 10, background: '#ede9fe', color: '#6d28d9', fontWeight: 700 }}>
                             {r.size}
+                          </span>
+                        ) : '—'}
+                      </td>
+                      <td>
+                        {r.batch_number ? (
+                          <span className="badge b-accent" style={{ fontSize: 10, fontWeight: 700 }}>
+                            📦 {r.batch_number}
                           </span>
                         ) : (
                           <span style={{ color: 'var(--muted)', fontSize: 11 }}>—</span>
                         )}
                       </td>
                       <td>
-                        <span className={`badge ${r.work_type === 'stitching' ? 'b-cyan' : 'b-accent'}`} style={{ fontSize: 10 }}>
-                          {r.work_type === 'stitching' ? '🧵' : '✂️'} {r.work_type}
+                        <span className={`badge ${r.work_type === 'cutting' ? 'b-accent' : 'b-cyan'}`} style={{ fontSize: 10 }}>
+                          {r.work_type === 'cutting' ? '✂️ Cut' : '🧵 Stitch'}
                         </span>
                       </td>
-                      <td style={{ textAlign: 'right' }}>{r.allocated_pcs}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 700, color: r.completed_pcs >= r.allocated_pcs ? 'var(--green)' : 'var(--text)' }}>
-                        {r.completed_pcs}
-                      </td>
-                      <td style={{ textAlign: 'right', color: r.remaining_pcs > 0 ? 'var(--yellow)' : 'var(--green)', fontSize: 12 }}>
-                        {r.remaining_pcs > 0 ? `${r.remaining_pcs} left` : '—'}
-                      </td>
-                      <td>
-                        {r.is_settled
-                          ? <span className="badge b-green" style={{ fontSize: 10 }}>Settled</span>
-                          : r.remaining_pcs > 0
-                            ? <span className="badge b-yellow" style={{ fontSize: 10 }}>Pending</span>
-                            : <span className="badge b-accent" style={{ fontSize: 10 }}>Done</span>}
+                      <td style={{ textAlign: 'right', fontWeight: 600 }}>{r.allocated_pcs}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--green)' }}>{r.completed_pcs}</td>
+                      <td style={{ textAlign: 'right', color: r.remaining_pcs > 0 ? 'var(--yellow)' : 'var(--muted)' }}>{r.remaining_pcs || 0}</td>
+                      <td style={{ textAlign: 'center' }}>
+                        <span className={`badge ${r.is_settled ? 'b-green' : r.remaining_pcs === 0 ? 'b-green' : 'b-yellow'}`} style={{ fontSize: 10 }}>
+                          {r.is_settled ? 'Settled' : r.remaining_pcs === 0 ? 'Done' : 'Pending'}
+                        </span>
                       </td>
                       <td>
                         <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
@@ -515,30 +537,18 @@ function HistoryTab() {
         })
       )}
 
-      {/* Edit Entry Modal */}
       {editingRow && (
         <div className="modal-overlay" onClick={() => setEditingRow(null)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <h2>Edit Work Entry</h2>
-            <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14 }}>
-              Staff: <b>{editingRow.staff_name}</b>
-            </div>
             <div className="form-grid">
               <div className="field">
                 <label>Allocation Date</label>
-                <input
-                  type="date"
-                  value={editForm.entry_date}
-                  onChange={e => setEditForm(f => ({ ...f, entry_date: e.target.value }))}
-                />
+                <input type="date" value={editForm.entry_date} onChange={e => setEditForm(f => ({ ...f, entry_date: e.target.value }))} />
               </div>
               <div className="field">
                 <label>Completion Date</label>
-                <input
-                  type="date"
-                  value={editForm.completion_date}
-                  onChange={e => setEditForm(f => ({ ...f, completion_date: e.target.value }))}
-                />
+                <input type="date" value={editForm.completion_date} onChange={e => setEditForm(f => ({ ...f, completion_date: e.target.value }))} />
               </div>
               <div className="field">
                 <label>Product Category</label>
@@ -548,12 +558,7 @@ function HistoryTab() {
               </div>
               <div className="field">
                 <label>Item Size</label>
-                <input
-                  type="text"
-                  placeholder="e.g. XL, 38, Free Size"
-                  value={editForm.size}
-                  onChange={e => setEditForm(f => ({ ...f, size: e.target.value }))}
-                />
+                <input type="text" value={editForm.size} onChange={e => setEditForm(f => ({ ...f, size: e.target.value }))} />
               </div>
               <div className="field">
                 <label>Work Type</label>
@@ -563,22 +568,21 @@ function HistoryTab() {
                 </select>
               </div>
               <div className="field">
+                <label>Linked Production Batch</label>
+                <select value={editForm.batch_id} onChange={e => setEditForm(f => ({ ...f, batch_id: e.target.value }))}>
+                  <option value="">-- No Batch Linked --</option>
+                  {batches.map(b => (
+                    <option key={b.id} value={b.id}>{b.batch_number} ({b.quantity} pcs - {b.status})</option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
                 <label>Allocated (pcs)</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={editForm.allocated_pcs}
-                  onChange={e => setEditForm(f => ({ ...f, allocated_pcs: e.target.value }))}
-                />
+                <input type="number" min="0" value={editForm.allocated_pcs} onChange={e => setEditForm(f => ({ ...f, allocated_pcs: e.target.value }))} />
               </div>
               <div className="field">
                 <label>Completed (pcs)</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={editForm.completed_pcs}
-                  onChange={e => setEditForm(f => ({ ...f, completed_pcs: e.target.value }))}
-                />
+                <input type="number" min="0" value={editForm.completed_pcs} onChange={e => setEditForm(f => ({ ...f, completed_pcs: e.target.value }))} />
               </div>
             </div>
             <div className="modal-actions">
@@ -856,7 +860,7 @@ function StaffTab() {
 function StaffCard({ staff, workType, activeDate, saving, editEntry, newEntry, showAdd,
   carryoverForm, onSetCarryoverForm, onCompleteCarryover,
   onSetNew, onOpenAdd, onCloseAdd, onSave, onStartEdit, onCancelEdit, onSetEdit,
-  onDelete, products = [], style: cardStyle }) {
+  onDelete, products = [], batches = [], style: cardStyle }) {
 
   const isCutter = staff.role === 'cutting_master';
   const entries = staff.entries || [];
@@ -1014,6 +1018,21 @@ function StaffCard({ staff, workType, activeDate, saving, editEntry, newEntry, s
                     style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', fontSize: 12 }}
                   />
                 </div>
+              </div>
+
+              {/* Linked Production Batch */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Linked Production Batch</span>
+                <select
+                  value={newEntry?.batch_id || ''}
+                  onChange={e => onSetNew({ ...newEntry, batch_id: e.target.value ? Number(e.target.value) : null })}
+                  style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', fontSize: 12, background: '#fff' }}
+                >
+                  <option value="">-- No Batch Linked / Standalone --</option>
+                  {batches.map(b => (
+                    <option key={b.id} value={b.id}>📦 {b.batch_number} ({b.quantity} pcs - {b.status})</option>
+                  ))}
+                </select>
               </div>
 
               {isCutter && (
@@ -1181,7 +1200,8 @@ function StaffCard({ staff, workType, activeDate, saving, editEntry, newEntry, s
                     newEntry?.compDate || activeDate,
                     null,
                     null,
-                    items
+                    items,
+                    newEntry?.batch_id
                   )}
                 >
                   {saving === savingKey ? 'Saving…' : `Save ${items.length} ${items.length === 1 ? 'Entry' : 'Entries'}`}
@@ -1237,6 +1257,21 @@ function StaffCard({ staff, workType, activeDate, saving, editEntry, newEntry, s
                           style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', fontSize: 12 }}
                         />
                       </div>
+                    </div>
+
+                    {/* Linked Batch in Edit */}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Linked Production Batch</span>
+                      <select
+                        value={ed?.batch_id !== undefined ? ed.batch_id : (entry.batch_id || '')}
+                        onChange={ev => onSetEdit(eKey, { ...ed, batch_id: ev.target.value ? Number(ev.target.value) : null })}
+                        style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #cbd5e1', outline: 'none', fontSize: 12, background: '#fff' }}
+                      >
+                        <option value="">-- No Batch Linked --</option>
+                        {batches.map(b => (
+                          <option key={b.id} value={b.id}>📦 {b.batch_number} ({b.quantity} pcs - {b.status})</option>
+                        ))}
+                      </select>
                     </div>
 
                     {/* Size Selector in Edit */}
@@ -1316,7 +1351,9 @@ function StaffCard({ staff, workType, activeDate, saving, editEntry, newEntry, s
                           ed.allocDate || entry.entry_date,
                           ed.compDate || entry.completion_date,
                           ed.size !== undefined ? ed.size : entry.size,
-                          entry.id
+                          entry.id,
+                          null,
+                          ed?.batch_id !== undefined ? ed.batch_id : entry.batch_id
                         )}
                       >
                         {saving === eKey ? 'Saving…' : 'Save Changes'}
@@ -1349,6 +1386,11 @@ function StaffCard({ staff, workType, activeDate, saving, editEntry, newEntry, s
                     {entry.size && (
                       <span className="badge" style={{ fontSize: 10, background: '#ede9fe', color: '#6d28d9', border: '1px solid #ddd6fe', fontWeight: 700, padding: '1px 6px', borderRadius: 4 }}>
                         📏 {entry.size}
+                      </span>
+                    )}
+                    {entry.batch_number && (
+                      <span className="badge b-accent" style={{ fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4 }}>
+                        📦 {entry.batch_number}
                       </span>
                     )}
                   </div>

@@ -137,23 +137,26 @@ export async function getWorkEntries(req: AuthRequest, res: Response): Promise<v
         [tenantId]
       ),
       query<any[]>(
-        `SELECT * FROM staff_work_entries 
-         WHERE tenant_id=? AND (entry_date=? OR completion_date=?) 
-         ORDER BY work_type, category`,
+        `SELECT e.*, pb.batch_number 
+         FROM staff_work_entries e
+         LEFT JOIN production_batches pb ON pb.id = e.batch_id
+         WHERE e.tenant_id=? AND (e.entry_date=? OR e.completion_date=?) 
+         ORDER BY e.work_type, e.category`,
         [tenantId, date, date]
       ).catch(async () => {
         // Fallback if completion_date column doesn't exist yet
         return query<any[]>(
-          'SELECT * FROM staff_work_entries WHERE tenant_id=? AND entry_date=? ORDER BY work_type, category',
+          'SELECT e.*, pb.batch_number FROM staff_work_entries e LEFT JOIN production_batches pb ON pb.id = e.batch_id WHERE e.tenant_id=? AND e.entry_date=? ORDER BY e.work_type, e.category',
           [tenantId, date]
         );
       }),
       query<any[]>(
-        `SELECT id, staff_id, entry_date, category, work_type, allocated_pcs, completed_pcs,
-                (allocated_pcs - completed_pcs) AS pending_pcs
-         FROM staff_work_entries
-         WHERE tenant_id=? AND entry_date < ? AND is_settled=0 AND allocated_pcs > completed_pcs
-         ORDER BY entry_date ASC`,
+        `SELECT e.id, e.staff_id, e.batch_id, pb.batch_number, e.entry_date, e.category, e.work_type, e.allocated_pcs, e.completed_pcs,
+                (e.allocated_pcs - e.completed_pcs) AS pending_pcs
+         FROM staff_work_entries e
+         LEFT JOIN production_batches pb ON pb.id = e.batch_id
+         WHERE e.tenant_id=? AND e.entry_date < ? AND e.is_settled=0 AND e.allocated_pcs > e.completed_pcs
+         ORDER BY e.entry_date ASC`,
         [tenantId, date]
       ),
     ]);
@@ -212,12 +215,14 @@ export async function getStaffHistory(req: AuthRequest, res: Response): Promise<
 
     const rows = await query<any[]>(
       `SELECT e.id, e.entry_date, e.completion_date, e.staff_id, s.name AS staff_name, s.role AS staff_role,
+              e.batch_id, pb.batch_number,
               e.category, e.size, e.work_type, e.allocated_pcs, e.completed_pcs,
               (e.allocated_pcs - e.completed_pcs) AS remaining_pcs,
               e.is_settled,
               ${earningExpr} AS earned_amount
        FROM staff_work_entries e
        JOIN staff s ON s.id=e.staff_id
+       LEFT JOIN production_batches pb ON pb.id = e.batch_id
        WHERE ${conditions.join(' AND ')}
        ORDER BY COALESCE(e.completion_date, e.entry_date) DESC, e.id DESC`,
       vals
@@ -236,6 +241,7 @@ export async function upsertWorkEntry(req: AuthRequest, res: Response): Promise<
   } else if (Array.isArray(req.body.items) && req.body.items.length > 0) {
     rawList = req.body.items.map((item: any) => ({
       staff_id: item.staff_id || req.body.staff_id,
+      batch_id: item.batch_id !== undefined ? item.batch_id : req.body.batch_id,
       entry_date: item.entry_date || req.body.entry_date,
       completion_date: item.completion_date || req.body.completion_date,
       work_type: item.work_type || req.body.work_type,
@@ -257,7 +263,7 @@ export async function upsertWorkEntry(req: AuthRequest, res: Response): Promise<
 
   try {
     for (const entry of rawList) {
-      const { staff_id, entry_date, completion_date, category, size, work_type, allocated_pcs, completed_pcs } = entry;
+      const { staff_id, batch_id, entry_date, completion_date, category, size, work_type, allocated_pcs, completed_pcs } = entry;
       if (!staff_id || !category || !work_type) continue;
 
       const date      = entry_date || new Date().toISOString().slice(0, 10);
@@ -265,16 +271,17 @@ export async function upsertWorkEntry(req: AuthRequest, res: Response): Promise<
       const allocated = Number(allocated_pcs) || 0;
       const completed = Number(completed_pcs) || 0;
       const itemSize  = size ? String(size).trim() : null;
+      const batchId   = batch_id ? Number(batch_id) : null;
 
       try {
         const r = await query<any>(
-          `INSERT INTO staff_work_entries (tenant_id,staff_id,entry_date,completion_date,category,size,work_type,allocated_pcs,completed_pcs)
-           VALUES (?,?,?,?,?,?,?,?,?)`,
-          [tenantId, staff_id, date, compDate, category, itemSize, work_type, allocated, completed]
+          `INSERT INTO staff_work_entries (tenant_id,staff_id,batch_id,entry_date,completion_date,category,size,work_type,allocated_pcs,completed_pcs)
+           VALUES (?,?,?,?,?,?,?,?,?,?)`,
+          [tenantId, staff_id, batchId, date, compDate, category, itemSize, work_type, allocated, completed]
         );
-        results.push({ id: r.insertId, staff_id, entry_date: date, completion_date: compDate, category, size: itemSize, work_type, allocated_pcs: allocated, completed_pcs: completed });
+        results.push({ id: r.insertId, staff_id, batch_id: batchId, entry_date: date, completion_date: compDate, category, size: itemSize, work_type, allocated_pcs: allocated, completed_pcs: completed });
       } catch {
-        // Fallback for missing completion_date or size columns
+        // Fallback for missing columns
         const r = await query<any>(
           `INSERT INTO staff_work_entries (tenant_id,staff_id,entry_date,category,work_type,allocated_pcs,completed_pcs)
            VALUES (?,?,?,?,?,?,?)`,
@@ -298,10 +305,11 @@ export async function upsertWorkEntry(req: AuthRequest, res: Response): Promise<
 export async function updateWorkEntry(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
   const { id } = req.params;
-  const { entry_date, completion_date, category, size, work_type, allocated_pcs, completed_pcs, is_settled } = req.body;
+  const { batch_id, entry_date, completion_date, category, size, work_type, allocated_pcs, completed_pcs, is_settled } = req.body;
   try {
     const sets: string[] = [];
     const vals: any[]    = [];
+    if (batch_id !== undefined)        { sets.push('batch_id=?');        vals.push(batch_id ? Number(batch_id) : null); }
     if (entry_date !== undefined)      { sets.push('entry_date=?');      vals.push(entry_date); }
     if (category !== undefined)        { sets.push('category=?');        vals.push(category); }
     if (size !== undefined)            { sets.push('size=?');            vals.push(size ? String(size).trim() : null); }
@@ -324,7 +332,7 @@ export async function updateWorkEntry(req: AuthRequest, res: Response): Promise<
       await query(`UPDATE staff_work_entries SET ${sets.join(',')} WHERE id=? AND tenant_id=?`, vals);
     } catch {
       // Filter out columns if missing
-      const fallbackSets = sets.filter(s => !s.includes('completion_date') && !s.includes('size'));
+      const fallbackSets = sets.filter(s => !s.includes('completion_date') && !s.includes('size') && !s.includes('batch_id'));
       await query(`UPDATE staff_work_entries SET ${fallbackSets.join(',')} WHERE id=? AND tenant_id=?`, vals.filter((_, idx) => idx < fallbackSets.length).concat([id, tenantId]));
     }
 
