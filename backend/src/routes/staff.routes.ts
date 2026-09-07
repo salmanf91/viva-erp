@@ -4,7 +4,8 @@ import {
   getStaff, addStaff, updateStaff, deactivateStaff, reactivateStaff,
   getStaffAdmins, createStaffAdmin, removeStaffAdmin,
   getWorkEntries, getStaffHistory, upsertWorkEntry, updateWorkEntry, deleteWorkEntry,
-  getPayrollSummary, settleStaff, getLaborLiability,
+  getPayrollSummary, settleStaff, undoSettleStaff, getLaborLiability,
+  getStaffAdvances, addStaffAdvance, updateStaffAdvance, deleteStaffAdvance,
 } from '../controllers/staff.controller';
 
 const router = Router();
@@ -29,9 +30,17 @@ router.post('/work-entries',        upsertWorkEntry);
 router.put('/work-entries/:id',     updateWorkEntry);
 router.delete('/work-entries/:id',  deleteWorkEntry);
 
-// Payroll
-router.get('/payroll',   getPayrollSummary);
-router.post('/settle',   settleStaff);
-router.get('/liability', getLaborLiability);
+// Payroll & Settlements
+router.get('/payroll',          getPayrollSummary);
+router.post('/settle',          settleStaff);
+router.post('/undo-settle',     undoSettleStaff);
+router.post('/settle/undo',     undoSettleStaff);
+router.get('/liability',        getLaborLiability);
+
+// Mid-Month Staff Advances
+router.get('/advances',         getStaffAdvances);
+router.post('/advances',        addStaffAdvance);
+router.put('/advances/:id',     updateStaffAdvance);
+router.delete('/advances/:id',  deleteStaffAdvance);
 
 export default router;

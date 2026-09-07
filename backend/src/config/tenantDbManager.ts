@@ -236,6 +236,20 @@ export async function ensureTenantSchema(pool: mysql.Pool, _dbName?: string): Pr
       reported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       INDEX idx_order_id (order_id)
     )`,
+    `CREATE TABLE IF NOT EXISTS staff_advances (
+      id INT PRIMARY KEY AUTO_INCREMENT,
+      tenant_id INT NOT NULL DEFAULT 1,
+      staff_id INT NOT NULL,
+      amount DECIMAL(12,2) NOT NULL,
+      advance_date DATE NOT NULL,
+      payment_mode VARCHAR(50) DEFAULT 'cash',
+      notes TEXT DEFAULT NULL,
+      is_deducted BOOLEAN DEFAULT FALSE,
+      deducted_at TIMESTAMP NULL DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_tenant_staff_adv (tenant_id, staff_id),
+      INDEX idx_tenant_adv_date (tenant_id, advance_date)
+    )`,
   ];
 
   for (const sql of coreTables) {

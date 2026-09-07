@@ -892,14 +892,7 @@ export default function ProductionPage() {
           </div>
         </div>
         <button className="btn btn-primary" onClick={() => {
-          const defCfg = configs.find(c => c.category === 'shawl_nighty_lace') || {};
-          setForm({
-            category: 'shawl_nighty_lace',
-            quantity: '',
-            batch_date: new Date().toISOString().slice(0, 10),
-            cut_rate: defCfg.cut_rate ?? 5.00,
-            stitch_rate: defCfg.stitch_rate ?? 15.00,
-          });
+          setForm(emptyForm(configs));
           setShowNew(true);
         }}>+ New Batch</button>
       </div>
@@ -1382,7 +1375,7 @@ export default function ProductionPage() {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {form.items.map((it, idx) => (
+                {(form.items || []).map((it, idx) => (
                   <BatchItemRowEditor
                     key={idx}
                     item={it}
@@ -1391,7 +1384,7 @@ export default function ProductionPage() {
                     onUpdate={(field, val) => handleUpdateItemRow(idx, field, val)}
                     onRemove={() => handleRemoveItemRow(idx)}
                     onResetRates={() => handleResetItemRatesToDefault(idx, false)}
-                    canRemove={form.items.length > 1}
+                    canRemove={(form.items || []).length > 1}
                   />
                 ))}
               </div>
@@ -1477,7 +1470,7 @@ export default function ProductionPage() {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {editBatch.items.map((it, idx) => (
+                {(editBatch.items || []).map((it, idx) => (
                   <BatchItemRowEditor
                     key={idx}
                     item={it}
@@ -1486,7 +1479,7 @@ export default function ProductionPage() {
                     onUpdate={(field, val) => handleUpdateEditBatchItem(idx, field, val)}
                     onRemove={() => handleRemoveEditBatchItem(idx)}
                     onResetRates={() => handleResetItemRatesToDefault(idx, true)}
-                    canRemove={editBatch.items.length > 1}
+                    canRemove={(editBatch.items || []).length > 1}
                   />
                 ))}
               </div>

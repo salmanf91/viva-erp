@@ -361,7 +361,7 @@ export async function getPayrollSummary(req: AuthRequest, res: Response): Promis
   }
 
   try {
-    const rows = await query(
+    const rows = await query<any[]>(
       `SELECT s.id, s.name, s.role, s.can_stitch, s.rate_per_pc, s.phone,
          COALESCE(SUM(e.completed_pcs), 0)                                                                            AS total_pieces,
          COALESCE(SUM(CASE WHEN e.work_type='cutting'   THEN e.completed_pcs ELSE 0 END), 0)                          AS cut_pieces,
@@ -379,7 +379,43 @@ export async function getPayrollSummary(req: AuthRequest, res: Response): Promis
        GROUP BY s.id ORDER BY s.role, s.name`,
       [tenantId, startDate, endDate, tenantId]
     );
-    res.json(rows);
+
+    // Fetch advances in this salary cycle
+    let advanceRows: any[] = [];
+    try {
+      advanceRows = await query<any[]>(
+        `SELECT staff_id,
+           COALESCE(SUM(amount), 0)                                            AS total_advances,
+           COALESCE(SUM(CASE WHEN is_deducted=1 THEN amount ELSE 0 END), 0)    AS advance_deducted,
+           COALESCE(SUM(CASE WHEN is_deducted=0 THEN amount ELSE 0 END), 0)    AS advance_pending
+         FROM staff_advances
+         WHERE tenant_id=? AND advance_date BETWEEN ? AND ?
+         GROUP BY staff_id`,
+        [tenantId, startDate, endDate]
+      );
+    } catch {
+      // If table not created yet, return empty
+    }
+
+    const advanceMap = new Map<number, any>();
+    advanceRows.forEach(a => advanceMap.set(Number(a.staff_id), a));
+
+    const enriched = rows.map(r => {
+      const adv = advanceMap.get(Number(r.id)) || { total_advances: 0, advance_deducted: 0, advance_pending: 0 };
+      const pendingGross = Number(r.pending || 0);
+      const advPending   = Number(adv.advance_pending || 0);
+      const netPayable   = Math.max(0, pendingGross - advPending);
+
+      return {
+        ...r,
+        total_advances: Number(adv.total_advances || 0),
+        advance_deducted: Number(adv.advance_deducted || 0),
+        advance_pending: advPending,
+        net_payable: netPayable,
+      };
+    });
+
+    res.json(enriched);
   } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
@@ -400,14 +436,192 @@ export async function settleStaff(req: AuthRequest, res: Response): Promise<void
   }
 
   try {
+    // Settle work entries
     await query(
       `UPDATE staff_work_entries SET is_settled=1
        WHERE tenant_id=? AND staff_id=? AND is_settled=0
          AND COALESCE(completion_date, entry_date) BETWEEN ? AND ?`,
       [tenantId, staff_id, startDate, endDate]
     );
-    res.json({ message: 'Settled' });
+
+    // Mark advances as deducted in this cycle
+    try {
+      await query(
+        `UPDATE staff_advances SET is_deducted=1, deducted_at=NOW()
+         WHERE tenant_id=? AND staff_id=? AND is_deducted=0
+           AND advance_date BETWEEN ? AND ?`,
+        [tenantId, staff_id, startDate, endDate]
+      );
+    } catch {}
+
+    // Record settlement
+    try {
+      const targetMonth = Number(month || (new Date().getMonth() + 1));
+      const targetYear  = Number(year || new Date().getFullYear());
+      await query(
+        `INSERT INTO payroll_settlements (tenant_id, staff_id, month, year, amount, settled_at)
+         VALUES (?, ?, ?, ?, 0, NOW())
+         ON DUPLICATE KEY UPDATE settled_at=NOW()`,
+        [tenantId, staff_id, targetMonth, targetYear]
+      );
+    } catch {}
+
+    res.json({ message: 'Settled successfully' });
   } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
+}
+
+export async function undoSettleStaff(req: AuthRequest, res: Response): Promise<void> {
+  const { tenantId } = req.user!;
+  const { staff_id, month, year, from_date, to_date } = req.body;
+
+  let startDate: string;
+  let endDate: string;
+
+  if (from_date && to_date) {
+    startDate = String(from_date);
+    endDate = String(to_date);
+  } else {
+    const cycle = getSalaryCycleDates(Number(month || (new Date().getMonth() + 1)), Number(year || new Date().getFullYear()));
+    startDate = cycle.startDate;
+    endDate = cycle.endDate;
+  }
+
+  try {
+    // Revert work entries to unsettled
+    await query(
+      `UPDATE staff_work_entries SET is_settled=0
+       WHERE tenant_id=? AND staff_id=? AND is_settled=1
+         AND COALESCE(completion_date, entry_date) BETWEEN ? AND ?`,
+      [tenantId, staff_id, startDate, endDate]
+    );
+
+    // Revert advances to un-deducted
+    try {
+      await query(
+        `UPDATE staff_advances SET is_deducted=0, deducted_at=NULL
+         WHERE tenant_id=? AND staff_id=? AND is_deducted=1
+           AND advance_date BETWEEN ? AND ?`,
+        [tenantId, staff_id, startDate, endDate]
+      );
+    } catch {}
+
+    // Remove settlement record if present
+    try {
+      const targetMonth = Number(month || (new Date().getMonth() + 1));
+      const targetYear  = Number(year || new Date().getFullYear());
+      await query(
+        `DELETE FROM payroll_settlements WHERE tenant_id=? AND staff_id=? AND month=? AND year=?`,
+        [tenantId, staff_id, targetMonth, targetYear]
+      );
+    } catch {}
+
+    res.json({ message: 'Settlement undone successfully' });
+  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
+}
+
+// ── Staff Advances (Mid-Month Advances) ──────────────────────────────────────
+
+export async function getStaffAdvances(req: AuthRequest, res: Response): Promise<void> {
+  const { tenantId } = req.user!;
+  const { staff_id, month, year, from_date, to_date } = req.query;
+
+  try {
+    let whereClause = 'WHERE a.tenant_id=?';
+    const params: any[] = [tenantId];
+
+    if (staff_id) {
+      whereClause += ' AND a.staff_id=?';
+      params.push(staff_id);
+    }
+
+    if (from_date && to_date) {
+      whereClause += ' AND a.advance_date BETWEEN ? AND ?';
+      params.push(from_date, to_date);
+    } else if (month && year) {
+      const cycle = getSalaryCycleDates(Number(month), Number(year));
+      whereClause += ' AND a.advance_date BETWEEN ? AND ?';
+      params.push(cycle.startDate, cycle.endDate);
+    }
+
+    const rows = await query(
+      `SELECT a.*, s.name AS staff_name, s.role AS staff_role
+       FROM staff_advances a
+       JOIN staff s ON s.id = a.staff_id
+       ${whereClause}
+       ORDER BY a.advance_date DESC, a.id DESC`,
+      params
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+export async function addStaffAdvance(req: AuthRequest, res: Response): Promise<void> {
+  const { tenantId } = req.user!;
+  const { staff_id, amount, advance_date, payment_mode, notes } = req.body;
+
+  if (!staff_id || !amount || Number(amount) <= 0) {
+    res.status(400).json({ message: 'Staff and valid amount are required' });
+    return;
+  }
+
+  const advDate = advance_date || new Date().toISOString().slice(0, 10);
+  const payMode = payment_mode || 'cash';
+
+  try {
+    const result = await query<any>(
+      `INSERT INTO staff_advances (tenant_id, staff_id, amount, advance_date, payment_mode, notes)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [tenantId, staff_id, Number(amount), advDate, payMode, notes || null]
+    );
+    res.status(201).json({ id: result.insertId, message: 'Advance payment recorded' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+export async function updateStaffAdvance(req: AuthRequest, res: Response): Promise<void> {
+  const { tenantId } = req.user!;
+  const { id } = req.params;
+  const { amount, advance_date, payment_mode, notes } = req.body;
+
+  try {
+    const sets: string[] = [];
+    const vals: any[] = [];
+
+    if (amount !== undefined)       { sets.push('amount=?');       vals.push(Number(amount)); }
+    if (advance_date !== undefined) { sets.push('advance_date=?'); vals.push(advance_date); }
+    if (payment_mode !== undefined) { sets.push('payment_mode=?'); vals.push(payment_mode); }
+    if (notes !== undefined)        { sets.push('notes=?');        vals.push(notes || null); }
+
+    if (!sets.length) {
+      res.status(400).json({ message: 'Nothing to update' });
+      return;
+    }
+
+    vals.push(id, tenantId);
+    await query(`UPDATE staff_advances SET ${sets.join(', ')} WHERE id=? AND tenant_id=?`, vals);
+    res.json({ message: 'Advance updated' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+export async function deleteStaffAdvance(req: AuthRequest, res: Response): Promise<void> {
+  const { tenantId } = req.user!;
+  const { id } = req.params;
+
+  try {
+    await query('DELETE FROM staff_advances WHERE id=? AND tenant_id=?', [id, tenantId]);
+    res.json({ message: 'Advance deleted' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
+  }
 }
 
 export async function getLaborLiability(req: AuthRequest, res: Response): Promise<void> {
