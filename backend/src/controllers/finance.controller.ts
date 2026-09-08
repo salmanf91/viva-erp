@@ -171,81 +171,83 @@ export async function getCashLedger(req: AuthRequest, res: Response): Promise<vo
       [tenantId, from, to]
     );
 
-    // 3. Sales payments received — each payment on its actual payment date
-    const clientPayments = await query<any[]>(
-      `SELECT sp.payment_date AS date, 'sale' AS type,
-              CONCAT('💵 Payment — ', c.name) AS description,
-              sp.amount AS amount, 'in' AS direction,
-              o.invoice_number AS ref, NULL AS note, c.name AS party
+    // 3. Sales payments received — grouped by receipt
+    const rawClientPayments = await query<any[]>(
+      `SELECT sp.id, sp.payment_date AS date, sp.payment_mode, sp.receipt_no, sp.notes, sp.amount,
+              o.invoice_number, c.name AS client_name
        FROM sales_payments sp
        JOIN sales_orders o ON o.id = sp.order_id
        JOIN clients c ON c.id = o.client_id
-       WHERE sp.tenant_id=?
-         AND sp.payment_date BETWEEN ? AND ?`,
+       WHERE sp.tenant_id=? AND sp.payment_date BETWEEN ? AND ?
+       ORDER BY sp.payment_date ASC, sp.id ASC`,
       [tenantId, from, to]
     );
 
-    // Fallback for any legacy orders with amount_paid but no sales_payments entry
+    const cashReceiptsMap = new Map<string, any>();
+    for (const sp of rawClientPayments) {
+      const key = sp.receipt_no || `PAY-${sp.id}`;
+      if (!cashReceiptsMap.has(key)) {
+        const modeLabel = sp.payment_mode ? sp.payment_mode.replace(/_/g, ' ').toUpperCase() : 'CASH';
+        cashReceiptsMap.set(key, {
+          date: sp.date,
+          type: 'sale',
+          description: `💵 Payment (${modeLabel}) — ${sp.client_name}`,
+          amount: 0,
+          direction: 'in',
+          ref: sp.receipt_no || `RCP-${sp.invoice_number || sp.id}`,
+          note: sp.notes || null,
+          party: sp.client_name,
+        });
+      }
+      cashReceiptsMap.get(key).amount += Number(sp.amount || 0);
+    }
+    const clientPayments = Array.from(cashReceiptsMap.values());
+
+    // 4. Legacy single sales_orders payments (where amount_paid > 0 but no sales_payments row exists)
     const legacyPayments = await query<any[]>(
       `SELECT o.order_date AS date, 'sale' AS type,
-              CONCAT('💵 Payment — ', c.name) AS description,
+              CONCAT('💵 Payment (Legacy) — ', c.name) AS description,
               o.amount_paid AS amount, 'in' AS direction,
-              o.invoice_number AS ref, NULL AS note, c.name AS party
+              o.invoice_number AS ref, o.notes AS note, c.name AS party
        FROM sales_orders o
        JOIN clients c ON c.id = o.client_id
-       WHERE o.tenant_id=? AND o.amount_paid > 0
-         AND NOT EXISTS (SELECT 1 FROM sales_payments sp WHERE sp.order_id = o.id)
+       LEFT JOIN sales_payments sp ON sp.order_id = o.id
+       WHERE o.tenant_id=? AND sp.id IS NULL AND o.amount_paid > 0
          AND o.order_date BETWEEN ? AND ?`,
       [tenantId, from, to]
     );
 
-    // 4. Company-paid expenses (no paid_by = company paid directly)
-    const companyExpenses = await query<any[]>(
-      `SELECT e.expense_date AS date, 'expense' AS type,
-              CONCAT(er.icon, ' ', er.name) AS description,
-              e.amount, 'out' AS direction,
-              er.category AS ref, e.note, NULL AS party
-       FROM expenses e
-       JOIN expense_reasons er ON er.id = e.reason_id
-       WHERE e.tenant_id=? AND (e.paid_by IS NULL OR e.paid_by='')
-         AND e.expense_date BETWEEN ? AND ?`,
-      [tenantId, from, to]
-    );
-
-    // 5. Expense reimbursements paid out
-    const reimbursements = await query<any[]>(
-      `SELECT DATE(e.reimbursed_at) AS date, 'reimbursement' AS type,
-              CONCAT('💸 Reimbursement — ', e.paid_by) AS description,
-              e.amount, 'out' AS direction,
-              er.name AS ref, e.note, e.paid_by AS party
-       FROM expenses e
-       JOIN expense_reasons er ON er.id = e.reason_id
-       WHERE e.tenant_id=? AND e.reimbursed_at IS NOT NULL
-         AND DATE(e.reimbursed_at) BETWEEN ? AND ?`,
-      [tenantId, from, to]
-    );
-
-    // 6. Purchases paid & advance payments
+    // 5. Purchases payments made (outflow on purchase/bill payment date)
     const purchases = await query<any[]>(
       `SELECT p.invoice_date AS date, 'purchase' AS type,
-              CONCAT('📦 Purchase ', CASE WHEN p.status = 'partial' THEN 'Advance ' ELSE '' END, '— ', v.name) AS description,
-              CASE
-                WHEN p.status = 'paid' THEN (CASE WHEN p.total > 0 THEN p.total ELSE p.advance_paid END)
-                ELSE COALESCE(p.advance_paid, 0)
-              END AS amount, 'out' AS direction,
-              p.id AS ref, p.note, v.name AS party
+              CONCAT('📦 Purchase (', UPPER(COALESCE(p.payment_mode, 'CASH')), ') — ', COALESCE(v.name, 'Unknown Vendor')) AS description,
+              p.total AS amount, 'out' AS direction,
+              p.invoice_no AS ref, p.notes AS note, v.name AS party
        FROM purchases p
-       JOIN vendors v ON v.id = p.vendor_id
-       WHERE p.tenant_id=?
-         AND (
-           (p.status = 'paid' AND (p.total > 0 OR p.advance_paid > 0))
-           OR (COALESCE(p.advance_paid, 0) > 0)
-         )
+       LEFT JOIN vendors v ON v.id = p.vendor_id
+       WHERE p.tenant_id=? AND p.status='paid'
          AND p.invoice_date BETWEEN ? AND ?`,
       [tenantId, from, to]
     );
 
-    // 7. Payroll settled — group by staff+month, date = last day of that month
+    // 6. Direct company expenses (outflow)
+    const companyExpenses = await query<any[]>(
+      `SELECT e.expense_date AS date, 'expense' AS type,
+              CONCAT('🏷️ Expense (', e.category, ') — ', COALESCE(e.description, 'General')) AS description,
+              e.amount, 'out' AS direction,
+              e.bill_number AS ref, e.description AS note, NULL AS party
+       FROM expenses e
+       WHERE e.tenant_id=? AND e.expense_date BETWEEN ? AND ?`,
+      [tenantId, from, to]
+    );
+
+    // 7. Staff payroll wages paid (outflow on last day of work month for settled entries)
+    const earningExpr = `(
+      (e.completed_pcs * COALESCE(e.rate_per_pc, (SELECT rate_per_pc FROM products p WHERE p.id=e.product_id), 0))
+      + COALESCE(e.overtime_amount, 0)
+      - COALESCE(e.deductions, 0)
+    )`;
+
     const payrollRows = await query<any[]>(
       `SELECT MAX(LAST_DAY(e.entry_date)) AS date, 'payroll' AS type,
               CONCAT('👷 Payroll — ', MAX(s.name)) AS description,
@@ -279,7 +281,7 @@ export async function getCashLedger(req: AuthRequest, res: Response): Promise<vo
     // Merge and sort chronologically
     const all = [
       ...investments, ...drawings, ...clientPayments, ...legacyPayments,
-      ...companyExpenses, ...reimbursements, ...purchases, ...payrollRows, ...staffAdvancesRows,
+      ...companyExpenses, ...purchases, ...payrollRows, ...staffAdvancesRows,
     ].sort((a, b) => {
       const da = new Date(a.date).getTime();
       const db = new Date(b.date).getTime();
@@ -375,14 +377,48 @@ export async function getClientLedger(req: AuthRequest, res: Response): Promise<
     if (from) { payCond += ' AND p.payment_date >= ?'; payParams.push(from); }
     if (to)   { payCond += ' AND p.payment_date <= ?'; payParams.push(to); }
 
-    const payments = await query<any[]>(
-      `SELECT p.id, o.invoice_number AS ref, p.payment_date AS date, 'payment' AS type, 
-              p.amount, 'Payment received' AS description, NULL AS items_detail
+    const rawPayments = await query<any[]>(
+      `SELECT p.id, p.receipt_no, p.amount, p.payment_date AS date, p.payment_mode, p.notes,
+              o.id AS order_id, o.invoice_number
        FROM sales_payments p
        JOIN sales_orders o ON o.id = p.order_id
-       WHERE ${payCond}`,
+       WHERE ${payCond}
+       ORDER BY p.payment_date ASC, p.id ASC`,
       payParams
     );
+
+    // Group multi-invoice payment rows under a single receipt row
+    const groupedPaymentsMap = new Map<string, any>();
+    for (const p of rawPayments) {
+      const key = p.receipt_no || `PAY-${p.id}`;
+      if (!groupedPaymentsMap.has(key)) {
+        const modeLabel = p.payment_mode ? p.payment_mode.replace(/_/g, ' ').toUpperCase() : 'CASH';
+        const notePart = p.notes ? ` - ${p.notes}` : '';
+        groupedPaymentsMap.set(key, {
+          id: p.id,
+          ref: p.receipt_no || (p.invoice_number ? `RCP-${p.invoice_number}` : `RCP-${p.id}`),
+          date: p.date,
+          type: 'payment',
+          amount: 0,
+          description: `Payment received (${modeLabel})${notePart}`,
+          invoicesList: [],
+        });
+      }
+      const group = groupedPaymentsMap.get(key);
+      const amt = Number(p.amount || 0);
+      group.amount += amt;
+      group.invoicesList.push(`${p.invoice_number} (₹${amt.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`);
+    }
+
+    const payments = Array.from(groupedPaymentsMap.values()).map(g => ({
+      id: g.id,
+      ref: g.ref,
+      date: g.date,
+      type: 'payment',
+      amount: g.amount,
+      description: g.description,
+      items_detail: g.invoicesList.join(', '),
+    }));
 
     const all = [
       ...invoices.map(inv => ({ ...inv, debit: Number(inv.amount), credit: 0 })),

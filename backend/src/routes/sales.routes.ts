@@ -4,7 +4,7 @@ import {
   getClients, addClient, updateClient, deactivateClient, reactivateClient,
   getCategoryRates, upsertCategoryRate,
   getOrders, getOrder, createOrder, updateOrder, markPaid, recordPayment, deleteOrder, getSalesSummary,
-  getNightiesCategorySummary, getSalesPayments, deletePayment,
+  getNightiesCategorySummary, getSalesPayments, deletePayment, recordMultiInvoicePayment, getReceiptDetails,
 } from '../controllers/sales.controller';
 
 const router = Router();
@@ -23,6 +23,9 @@ router.post('/rates', upsertCategoryRate);
 
 // Payments & Receipts
 router.get('/payments',               getSalesPayments);
+router.post('/multi-payment',         recordMultiInvoicePayment);
+router.get('/receipts/:receiptNo',    getReceiptDetails);
+router.delete('/receipts/:paymentId', deletePayment);
 router.delete('/payments/:paymentId', deletePayment);
 
 // Orders

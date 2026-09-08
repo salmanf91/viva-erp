@@ -135,15 +135,24 @@ export async function initDb(): Promise<void> {
       }
     } catch {}
 
-    // 5. Ensure payment_mode exists in sales_payments and purchases
+    // 5. Ensure payment_mode, receipt_no, and notes exist in sales_payments and purchases
     try {
       const [spCols] = await defaultPool.query<any[]>(
-        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'sales_payments' AND COLUMN_NAME = 'payment_mode'`,
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'sales_payments'`,
         [dbName]
       );
-      if (!(spCols as any[]).length) {
+      const existingSpCols = (spCols as any[]).map(c => c.COLUMN_NAME);
+      if (!existingSpCols.includes('payment_mode')) {
         await defaultPool.query("ALTER TABLE sales_payments ADD COLUMN payment_mode VARCHAR(50) NOT NULL DEFAULT 'cash' AFTER payment_date");
         console.log('Added payment_mode column to sales_payments');
+      }
+      if (!existingSpCols.includes('receipt_no')) {
+        await defaultPool.query("ALTER TABLE sales_payments ADD COLUMN receipt_no VARCHAR(100) NULL AFTER payment_mode");
+        console.log('Added receipt_no column to sales_payments');
+      }
+      if (!existingSpCols.includes('notes')) {
+        await defaultPool.query("ALTER TABLE sales_payments ADD COLUMN notes TEXT NULL AFTER receipt_no");
+        console.log('Added notes column to sales_payments');
       }
     } catch {}
 
