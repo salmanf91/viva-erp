@@ -484,3 +484,148 @@ export async function getNightiesCategorySummary(req: AuthRequest, res: Response
     res.json(rows[0] || { shawl_nighty: 0, shawl_nighty_lace: 0, ordinary_nighty: 0, total: 0 });
   } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
+
+export async function getSalesPayments(req: AuthRequest, res: Response): Promise<void> {
+  const { tenantId } = req.user!;
+  const { client_id, from, to, payment_mode, search, page: pageStr, limit: limitStr } = req.query as Record<string, string>;
+
+  const page = Math.max(1, parseInt(pageStr) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(limitStr) || 50));
+  const offset = (page - 1) * limit;
+
+  try {
+    const conds: string[] = ['p.tenant_id = ?'];
+    const vals: any[] = [tenantId];
+
+    if (client_id && client_id !== 'all') {
+      conds.push('o.client_id = ?');
+      vals.push(Number(client_id));
+    }
+
+    if (payment_mode && payment_mode !== 'all') {
+      conds.push('p.payment_mode = ?');
+      vals.push(payment_mode);
+    }
+
+    if (from) {
+      conds.push('p.payment_date >= ?');
+      vals.push(from);
+    }
+
+    if (to) {
+      conds.push('p.payment_date <= ?');
+      vals.push(to);
+    }
+
+    if (search && search.trim()) {
+      conds.push('(o.invoice_number LIKE ? OR c.name LIKE ? OR c.city LIKE ?)');
+      const q = `%${search.trim()}%`;
+      vals.push(q, q, q);
+    }
+
+    const whereClause = conds.join(' AND ');
+
+    // Summary calculation across all matching rows
+    const summaryRows = await query<any[]>(
+      `SELECT
+         COALESCE(SUM(p.amount), 0) AS total_collected,
+         COALESCE(SUM(CASE WHEN p.payment_mode = 'cash' THEN p.amount ELSE 0 END), 0) AS cash_collected,
+         COALESCE(SUM(CASE WHEN p.payment_mode = 'upi' THEN p.amount ELSE 0 END), 0) AS upi_collected,
+         COALESCE(SUM(CASE WHEN p.payment_mode = 'bank_transfer' THEN p.amount ELSE 0 END), 0) AS bank_collected,
+         COALESCE(SUM(CASE WHEN p.payment_mode = 'cheque' THEN p.amount ELSE 0 END), 0) AS cheque_collected,
+         COUNT(p.id) AS total_count
+       FROM sales_payments p
+       JOIN sales_orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
+       JOIN clients c ON c.id = o.client_id
+       WHERE ${whereClause}`,
+      vals
+    );
+
+    const summary = summaryRows[0] || {
+      total_collected: 0,
+      cash_collected: 0,
+      upi_collected: 0,
+      bank_collected: 0,
+      cheque_collected: 0,
+      total_count: 0,
+    };
+
+    const total = Number(summary.total_count || 0);
+
+    // Paginated payments list
+    const payments = await query<any[]>(
+      `SELECT 
+         p.id, p.tenant_id, p.order_id, p.amount, p.payment_date, p.payment_mode, p.created_at,
+         o.invoice_number, o.order_date, o.amount_paid AS order_amount_paid, o.status AS order_status,
+         c.id AS client_id, c.name AS client_name, c.city AS client_city, c.phone AS client_phone,
+         ((GREATEST(0, (SELECT COALESCE(SUM(i.quantity * i.rate_per_pc), 0) FROM sales_order_items i WHERE i.order_id = o.id) - o.discount)) * (1 + o.gst_percent / 100)) AS order_total
+       FROM sales_payments p
+       JOIN sales_orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
+       JOIN clients c ON c.id = o.client_id
+       WHERE ${whereClause}
+       ORDER BY p.payment_date DESC, p.id DESC
+       LIMIT ? OFFSET ?`,
+      [...vals, limit, offset]
+    );
+
+    res.json({
+      data: payments,
+      summary,
+      total,
+      page,
+      pages: Math.max(1, Math.ceil(total / limit)),
+      limit
+    });
+  } catch (error) {
+    console.error('getSalesPayments error:', error);
+    res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+export async function deletePayment(req: AuthRequest, res: Response): Promise<void> {
+  const { tenantId } = req.user!;
+  const { paymentId } = req.params;
+  try {
+    const paymentRows = await query<any[]>(
+      'SELECT * FROM sales_payments WHERE id=? AND tenant_id=?',
+      [paymentId, tenantId]
+    );
+    if (!paymentRows.length) {
+      res.status(404).json({ message: 'Payment receipt not found' });
+      return;
+    }
+    const payment = paymentRows[0];
+    const orderId = payment.order_id;
+
+    await query('DELETE FROM sales_payments WHERE id=? AND tenant_id=?', [paymentId, tenantId]);
+
+    // Recalculate sales_order amount_paid and status
+    const remainingRows = await query<any[]>(
+      'SELECT COALESCE(SUM(amount), 0) AS total_paid FROM sales_payments WHERE order_id=? AND tenant_id=?',
+      [orderId, tenantId]
+    );
+    const newPaid = Number(remainingRows[0]?.total_paid || 0);
+
+    const orderTotals = await query<any[]>(
+      `SELECT (GREATEST(0, COALESCE(SUM(i.quantity * i.rate_per_pc), 0) - o.discount)) * (1 + o.gst_percent / 100) AS total
+       FROM sales_orders o
+       LEFT JOIN sales_order_items i ON i.order_id = o.id
+       WHERE o.id=? AND o.tenant_id=?
+       GROUP BY o.id`,
+      [orderId, tenantId]
+    );
+    const orderTotal = Number(orderTotals[0]?.total || 0);
+    const newStatus = newPaid >= orderTotal && orderTotal > 0 ? 'paid' : (newPaid > 0 ? 'partial' : 'pending');
+    const paidAt = newStatus === 'paid' ? 'NOW()' : 'NULL';
+
+    await query(
+      `UPDATE sales_orders SET amount_paid=?, status=?, paid_at=${paidAt === 'NULL' ? 'NULL' : 'NOW()'} WHERE id=? AND tenant_id=?`,
+      [newPaid, newStatus, orderId, tenantId]
+    );
+
+    res.json({ message: 'Receipt deleted successfully and invoice balance recalculated' });
+  } catch (error) {
+    console.error('deletePayment error:', error);
+    res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
+  }
+}

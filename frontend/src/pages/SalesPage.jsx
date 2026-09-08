@@ -21,7 +21,11 @@ export default function SalesPage() {
   return (
     <>
       <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1.5px solid var(--border)' }}>
-        {[['orders','🚚 Deliveries'], ['clients','👥 Clients']].map(([t, label]) => (
+        {[
+          ['orders',   '🚚 Deliveries & Invoices'],
+          ['receipts', '🧾 Payment Receipts'],
+          ['clients',  '👥 Clients']
+        ].map(([t, label]) => (
           <button key={t} onClick={() => setTab(t)}
             style={{
               padding: '8px 18px', fontWeight: 600, fontSize: 13, border: 'none', cursor: 'pointer',
@@ -32,8 +36,9 @@ export default function SalesPage() {
           </button>
         ))}
       </div>
-      {tab === 'orders'  && <OrdersTab key={refresh} onReload={reload} />}
-      {tab === 'clients' && <ClientsTab key={refresh} />}
+      {tab === 'orders'   && <OrdersTab key={refresh} onReload={reload} />}
+      {tab === 'receipts' && <ReceiptsTab key={refresh} onReload={reload} />}
+      {tab === 'clients'  && <ClientsTab key={refresh} />}
     </>
   );
 }
@@ -46,7 +51,6 @@ function OrdersTab({ onReload }) {
   const [pages, setPages]     = useState(1);
   const [total, setTotal]     = useState(0);
   const [summary, setSummary] = useState(null);
-  const [nightiesData, setNightiesData] = useState({ shawl_nighty: 0, shawl_nighty_lace: 0, ordinary_nighty: 0, total: 0 });
   const [loading, setLoading] = useState(true);
   const [filter, setFilter]   = useState('all');
   const [showNew, setShowNew] = useState(false);
@@ -62,13 +66,11 @@ function OrdersTab({ onReload }) {
     Promise.all([
       api.get('/sales', { params }),
       api.get('/sales/summary'),
-      api.get('/sales/nighties-summary'),
-    ]).then(([o, s, n]) => {
+    ]).then(([o, s]) => {
       setOrders(o.data.data || []);
       setPages(o.data.pages || 1);
       setTotal(o.data.total || 0);
       setSummary(s.data);
-      setNightiesData(n.data);
     })
       .finally(() => setLoading(false));
   };
@@ -113,13 +115,6 @@ function OrdersTab({ onReload }) {
           <SummaryChip label="Pending Orders"  value={summary.pending_count}         color="var(--yellow)" small />
         </div>
       )}
-      {/* Nighties Sold Summary */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
-        <SummaryChip label="Shawl Nighty" value={nightiesData.shawl_nighty} color="var(--accent)" />
-        <SummaryChip label="Shawl Nighty + Lace" value={nightiesData.shawl_nighty_lace} color="var(--cyan)" />
-        <SummaryChip label="Ordinary Nighty" value={nightiesData.ordinary_nighty} color="var(--green)" />
-        <SummaryChip label="Total Nighties" value={nightiesData.total} color="var(--accent)" />
-      </div>
 
       {/* Toolbar */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
@@ -1304,6 +1299,594 @@ function InvoiceModal({ order, onClose }) {
 
         <div className="modal-actions">
           <button className="btn btn-ghost" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Receipts Tab ─────────────────────────────────────────────────────────────
+
+function ReceiptsTab({ onReload }) {
+  const [payments, setPayments]       = useState([]);
+  const [summary, setSummary]         = useState({ total_collected: 0, cash_collected: 0, upi_collected: 0, bank_collected: 0, cheque_collected: 0, total_count: 0 });
+  const [clients, setClients]         = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [page, setPage]               = useState(1);
+  const [pages, setPages]             = useState(1);
+  const [total, setTotal]             = useState(0);
+
+  // Filters
+  const [clientFilter, setClientFilter]   = useState('all');
+  const [modeFilter, setModeFilter]       = useState('all');
+  const [datePreset, setDatePreset]       = useState('all'); // 'all', 'today', 'this_week', 'this_month', 'custom'
+  const [startDate, setStartDate]         = useState('');
+  const [endDate, setEndDate]             = useState('');
+  const [search, setSearch]               = useState('');
+
+  // Modals
+  const [receiptOrderId, setReceiptOrderId] = useState(null);
+  const [viewInvoice, setViewInvoice]       = useState(null);
+  const [showRecordReceipt, setShowRecordReceipt] = useState(false);
+
+  // Load client dropdown list
+  useEffect(() => {
+    api.get('/sales/clients').then(r => setClients(r.data || [])).catch(() => {});
+  }, []);
+
+  // Compute effective start and end dates from datePreset
+  const { effStart, effEnd } = useMemo(() => {
+    const now = new Date();
+    if (datePreset === 'today') {
+      const d = now.toISOString().slice(0, 10);
+      return { effStart: d, effEnd: d };
+    }
+    if (datePreset === 'this_week') {
+      const day = now.getDay();
+      const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+      const start = new Date(new Date().setDate(diff)).toISOString().slice(0, 10);
+      const end = new Date().toISOString().slice(0, 10);
+      return { effStart: start, effEnd: end };
+    }
+    if (datePreset === 'this_month') {
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, '0');
+      const start = `${y}-${m}-01`;
+      const end = new Date().toISOString().slice(0, 10);
+      return { effStart: start, effEnd: end };
+    }
+    if (datePreset === 'custom') {
+      return { effStart: startDate, effEnd: endDate };
+    }
+    return { effStart: '', effEnd: '' };
+  }, [datePreset, startDate, endDate]);
+
+  const load = () => {
+    setLoading(true);
+    const params = {
+      page,
+      limit: 50,
+      ...(clientFilter !== 'all' ? { client_id: clientFilter } : {}),
+      ...(modeFilter !== 'all' ? { payment_mode: modeFilter } : {}),
+      ...(effStart ? { from: effStart } : {}),
+      ...(effEnd ? { to: effEnd } : {}),
+      ...(search.trim() ? { search: search.trim() } : {}),
+    };
+    api.get('/sales/payments', { params })
+      .then(r => {
+        setPayments(r.data.data || []);
+        setSummary(r.data.summary || { total_collected: 0, cash_collected: 0, upi_collected: 0, bank_collected: 0, cheque_collected: 0, total_count: 0 });
+        setPages(r.data.pages || 1);
+        setTotal(r.data.total || 0);
+      })
+      .catch(e => console.error('Failed to load receipts', e))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => { setPage(1); }, [clientFilter, modeFilter, datePreset, effStart, effEnd, search]);
+  useEffect(() => { load(); }, [clientFilter, modeFilter, datePreset, effStart, effEnd, search, page]);
+
+  const openInvoiceForOrder = async (orderId) => {
+    try {
+      const r = await api.get(`/sales/${orderId}`);
+      setViewInvoice(r.data);
+    } catch (e) {
+      alert('Failed to load invoice');
+    }
+  };
+
+  const deleteReceipt = async (paymentId) => {
+    if (!confirm('Are you sure you want to delete this payment receipt? The invoice balance and status will be recalculated automatically.')) return;
+    try {
+      await api.delete(`/sales/payments/${paymentId}`);
+      load();
+      onReload();
+    } catch (e) {
+      alert('Failed to delete receipt');
+    }
+  };
+
+  const modeBadge = (mode) => {
+    const m = (mode || 'cash').toLowerCase();
+    if (m === 'upi') return <span className="badge" style={{ background: '#e0f2fe', color: '#0369a1', fontWeight: 700, fontSize: 11 }}>📱 UPI</span>;
+    if (m === 'bank_transfer') return <span className="badge" style={{ background: '#f3e8ff', color: '#7e22ce', fontWeight: 700, fontSize: 11 }}>🏛️ Bank Transfer</span>;
+    if (m === 'cheque') return <span className="badge" style={{ background: '#fef3c7', color: '#92400e', fontWeight: 700, fontSize: 11 }}>📜 Cheque</span>;
+    return <span className="badge" style={{ background: '#ecfdf5', color: '#047857', fontWeight: 700, fontSize: 11 }}>💵 Cash</span>;
+  };
+
+  return (
+    <>
+      {/* Receipts Summary Metrics */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
+        <SummaryChip label="Total Collections" value={fmt(summary.total_collected)} color="var(--green)" />
+        <SummaryChip label="UPI / Online"      value={fmt(summary.upi_collected)}   color="#0284c7" />
+        <SummaryChip label="Cash"              value={fmt(summary.cash_collected)}  color="var(--accent)" />
+        {summary.bank_collected > 0 && (
+          <SummaryChip label="Bank Transfer"   value={fmt(summary.bank_collected)}  color="#7e22ce" />
+        )}
+        <SummaryChip label="Total Receipts"    value={summary.total_count}          color="var(--text)" small />
+      </div>
+
+      {/* Filter Toolbar */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+        {/* Client Filter */}
+        <select
+          value={clientFilter}
+          onChange={e => setClientFilter(e.target.value)}
+          style={{ padding: '6px 12px', borderRadius: 7, border: '1px solid var(--border)', fontSize: 13, background: '#fff' }}
+        >
+          <option value="all">👥 All Clients</option>
+          {clients.map(c => (
+            <option key={c.id} value={c.id}>{c.name} {c.city ? `(${c.city})` : ''}</option>
+          ))}
+        </select>
+
+        {/* Payment Mode Filter */}
+        <select
+          value={modeFilter}
+          onChange={e => setModeFilter(e.target.value)}
+          style={{ padding: '6px 12px', borderRadius: 7, border: '1px solid var(--border)', fontSize: 13, background: '#fff' }}
+        >
+          <option value="all">💳 All Modes</option>
+          <option value="upi">📱 UPI</option>
+          <option value="cash">💵 Cash</option>
+          <option value="bank_transfer">🏛️ Bank Transfer</option>
+          <option value="cheque">📜 Cheque</option>
+        </select>
+
+        {/* Date Preset Selector */}
+        <div style={{ display: 'flex', gap: 4, background: 'var(--surface)', borderRadius: 8, padding: 3 }}>
+          {[
+            ['all', 'All Time'],
+            ['today', 'Today'],
+            ['this_week', 'This Week'],
+            ['this_month', 'This Month'],
+            ['custom', 'Custom'],
+          ].map(([k, lbl]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setDatePreset(k)}
+              style={{
+                padding: '4px 10px',
+                fontSize: 12,
+                fontWeight: 600,
+                border: 'none',
+                cursor: 'pointer',
+                borderRadius: 6,
+                background: datePreset === k ? 'var(--white)' : 'transparent',
+                color: datePreset === k ? 'var(--text)' : 'var(--muted)',
+                boxShadow: datePreset === k ? '0 1px 3px rgba(0,0,0,.08)' : 'none',
+              }}
+            >
+              {lbl}
+            </button>
+          ))}
+        </div>
+
+        {/* Custom Date Inputs */}
+        {datePreset === 'custom' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input
+              type="date"
+              value={startDate}
+              onChange={e => setStartDate(e.target.value)}
+              style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 12 }}
+            />
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>to</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={e => setEndDate(e.target.value)}
+              style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 12 }}
+            />
+          </div>
+        )}
+
+        {/* Search */}
+        <input
+          type="text"
+          placeholder="🔍 Search invoice, client..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{ padding: '6px 12px', borderRadius: 7, border: '1px solid var(--border)', fontSize: 13, width: 190 }}
+        />
+
+        {/* Record Direct Receipt Button */}
+        <button
+          className="btn btn-primary btn-sm"
+          style={{
+            marginLeft: 'auto',
+            background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+            color: '#fff',
+            fontWeight: 700,
+            border: 'none',
+            boxShadow: '0 2px 8px rgba(16,185,129,0.3)',
+            cursor: 'pointer'
+          }}
+          onClick={() => setShowRecordReceipt(true)}
+        >
+          + Record Receipt
+        </button>
+      </div>
+
+      {/* Receipts Table */}
+      {loading ? (
+        <div className="spinner">Loading receipts…</div>
+      ) : payments.length === 0 ? (
+        <div className="card">
+          <div className="empty-state" style={{ padding: '40px 20px', textAlign: 'center' }}>
+            <div style={{ fontSize: 32, marginBottom: 8 }}>🧾</div>
+            <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text)' }}>No payment receipts found</div>
+            <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
+              Click <b>+ Record Receipt</b> or log payments against pending deliveries to generate receipts.
+            </div>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+              <table style={{ minWidth: 700, margin: 0 }}>
+                <thead>
+                  <tr>
+                    <th style={{ width: 40 }}>#</th>
+                    <th>Date</th>
+                    <th>Receipt #</th>
+                    <th>Client</th>
+                    <th>Linked Invoice</th>
+                    <th>Mode</th>
+                    <th style={{ textAlign: 'right', color: 'var(--green)' }}>Amount Received</th>
+                    <th style={{ width: 140, textAlign: 'right' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {payments.map((p, idx) => (
+                    <tr key={p.id}>
+                      <td style={{ color: 'var(--muted)', fontSize: 11 }}>{idx + 1 + (page - 1) * 50}</td>
+                      <td style={{ whiteSpace: 'nowrap', fontSize: 12, fontWeight: 600 }}>{fmtD(p.payment_date?.slice(0, 10))}</td>
+                      <td>
+                        <span style={{ fontWeight: 800, fontSize: 12, color: '#b45309' }}>
+                          RCP-{p.invoice_number || p.id}
+                        </span>
+                      </td>
+                      <td>
+                        <div style={{ fontWeight: 700, fontSize: 13 }}>{p.client_name}</div>
+                        {p.client_city && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{p.client_city}</div>}
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          onClick={() => openInvoiceForOrder(p.order_id)}
+                          style={{
+                            background: '#f1f5f9',
+                            border: '1px solid #cbd5e1',
+                            borderRadius: 6,
+                            padding: '3px 8px',
+                            cursor: 'pointer',
+                            fontSize: 12,
+                            fontWeight: 700,
+                            color: 'var(--accent)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4
+                          }}
+                        >
+                          📄 {p.invoice_number}
+                        </button>
+                      </td>
+                      <td>{modeBadge(p.payment_mode)}</td>
+                      <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--green)', fontSize: 14 }}>
+                        {fmt(p.amount)}
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            style={{ padding: '3px 8px', fontSize: 11, color: '#C8860A', fontWeight: 700 }}
+                            onClick={() => setReceiptOrderId(p.order_id)}
+                            title="Print / PDF Receipt"
+                          >
+                            🖨️ Receipt
+                          </button>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            style={{ padding: '3px 6px', fontSize: 11, color: 'var(--red)' }}
+                            onClick={() => deleteReceipt(p.id)}
+                            title="Delete receipt"
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{ background: '#f8fafc', fontWeight: 800 }}>
+                    <td colSpan={6} style={{ fontSize: 13, color: 'var(--muted)' }}>Page Totals ({payments.length} receipts)</td>
+                    <td style={{ textAlign: 'right', color: 'var(--green)', fontSize: 14 }}>
+                      {fmt(payments.reduce((s, x) => s + Number(x.amount || 0), 0))}
+                    </td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+
+          {/* Pagination */}
+          {pages > 1 && (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 6, marginTop: 14 }}>
+              <button className="btn btn-ghost btn-sm" disabled={page === 1} onClick={() => setPage(p => p - 1)}>‹ Prev</button>
+              {Array.from({ length: pages }, (_, i) => i + 1).map(p => (
+                <button key={p} onClick={() => setPage(p)} style={{
+                  width: 30, height: 30, borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700,
+                  background: page === p ? 'var(--accent)' : 'var(--light)',
+                  color: page === p ? '#fff' : 'var(--muted)',
+                }}>{p}</button>
+              ))}
+              <button className="btn btn-ghost btn-sm" disabled={page === pages} onClick={() => setPage(p => p + 1)}>Next ›</button>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Modals */}
+      {receiptOrderId && (
+        <PaymentReceiptModal orderId={receiptOrderId} onClose={() => setReceiptOrderId(null)} />
+      )}
+      {viewInvoice && (
+        <InvoiceModal order={viewInvoice} onClose={() => setViewInvoice(null)} />
+      )}
+      {showRecordReceipt && (
+        <RecordDirectReceiptModal
+          clients={clients}
+          onClose={() => setShowRecordReceipt(false)}
+          onSaved={(orderId) => {
+            setShowRecordReceipt(false);
+            if (orderId) setReceiptOrderId(orderId);
+            load();
+            onReload();
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+// ── Record Direct Receipt Modal ──────────────────────────────────────────────
+
+function RecordDirectReceiptModal({ clients, onClose, onSaved }) {
+  const [clientId, setClientId]         = useState('');
+  const [pendingOrders, setPendingOrders] = useState([]);
+  const [loadingOrders, setLoadingOrders] = useState(false);
+  const [selectedOrderId, setSelectedOrderId] = useState('');
+  const [amount, setAmount]             = useState('');
+  const [paymentDate, setPaymentDate]   = useState(new Date().toISOString().slice(0, 10));
+  const [paymentMode, setPaymentMode]   = useState('upi');
+  const [saving, setSaving]             = useState(false);
+
+  useEffect(() => {
+    if (!clientId) {
+      setPendingOrders([]);
+      setSelectedOrderId('');
+      setAmount('');
+      return;
+    }
+    setLoadingOrders(true);
+    api.get('/sales', { params: { client_id: clientId, status: 'pending', limit: 50 } })
+      .then(r => {
+        const list = r.data?.data || [];
+        setPendingOrders(list);
+        if (list.length > 0) {
+          const first = list[0];
+          setSelectedOrderId(String(first.id));
+          const due = Math.max(0, Number(first.total || 0) - Number(first.amount_paid || 0));
+          setAmount(String(due || ''));
+        } else {
+          setSelectedOrderId('');
+          setAmount('');
+        }
+      })
+      .catch(e => console.error('Failed to load pending client orders', e))
+      .finally(() => setLoadingOrders(false));
+  }, [clientId]);
+
+  const handleOrderChange = (orderIdStr) => {
+    setSelectedOrderId(orderIdStr);
+    const ord = pendingOrders.find(o => String(o.id) === orderIdStr);
+    if (ord) {
+      const due = Math.max(0, Number(ord.total || 0) - Number(ord.amount_paid || 0));
+      setAmount(String(due || ''));
+    }
+  };
+
+  const selectedOrderObj = pendingOrders.find(o => String(o.id) === String(selectedOrderId));
+  const selectedOrderDue = selectedOrderObj ? Math.max(0, Number(selectedOrderObj.total || 0) - Number(selectedOrderObj.amount_paid || 0)) : 0;
+
+  const handleSave = async () => {
+    if (!selectedOrderId || !amount || Number(amount) <= 0) {
+      alert('Please select an invoice and enter a valid payment amount.');
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.post(`/sales/${selectedOrderId}/payment`, {
+        amount: Number(amount),
+        payment_date: paymentDate,
+        payment_mode: paymentMode
+      });
+      onSaved(selectedOrderId);
+    } catch (e) {
+      alert(e.response?.data?.message || 'Failed to record receipt');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ width: 520, maxWidth: '95vw', borderRadius: 12 }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>🧾 Record Client Payment Receipt</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{ background: '#f1f5f9', border: 'none', borderRadius: '50%', width: 28, height: 28, cursor: 'pointer' }}
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="form-grid">
+          {/* Client Selection */}
+          <div className="field form-full">
+            <label style={{ fontWeight: 700, fontSize: 12 }}>Select Client *</label>
+            <select
+              value={clientId}
+              onChange={e => setClientId(e.target.value)}
+              style={{ fontWeight: 600 }}
+              autoFocus
+            >
+              <option value="">-- Choose Client --</option>
+              {clients.filter(c => c.is_active).map(c => (
+                <option key={c.id} value={String(c.id)}>{c.name} {c.city ? `(${c.city})` : ''}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Pending Invoice Selection */}
+          {clientId && (
+            <div className="field form-full">
+              <label style={{ fontWeight: 700, fontSize: 12 }}>
+                Apply Payment To Invoice *
+                {loadingOrders && <span style={{ color: 'var(--muted)', fontWeight: 400, marginLeft: 6 }}>Loading…</span>}
+              </label>
+              {loadingOrders ? (
+                <div style={{ fontSize: 12, color: 'var(--muted)', padding: '6px 0' }}>Fetching client unpaid invoices…</div>
+              ) : pendingOrders.length === 0 ? (
+                <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: '10px 12px', fontSize: 12, color: '#b91c1c' }}>
+                  No pending/unpaid invoices found for this client.
+                </div>
+              ) : (
+                <select
+                  value={selectedOrderId}
+                  onChange={e => handleOrderChange(e.target.value)}
+                  style={{ fontWeight: 600 }}
+                >
+                  {pendingOrders.map(o => {
+                    const due = Math.max(0, Number(o.total || 0) - Number(o.amount_paid || 0));
+                    return (
+                      <option key={o.id} value={String(o.id)}>
+                        {o.invoice_number} ({fmtD(o.order_date?.slice(0, 10))}) — Total: {fmt(o.total)} | Due: {fmt(due)}
+                      </option>
+                    );
+                  })}
+                </select>
+              )}
+            </div>
+          )}
+
+          {/* Amount and Date */}
+          <div className="field">
+            <label style={{ fontWeight: 700, fontSize: 12, display: 'flex', justifyContent: 'space-between' }}>
+              <span>Amount (₹) *</span>
+              {selectedOrderObj && (
+                <span
+                  style={{ color: 'var(--accent)', cursor: 'pointer', fontWeight: 600, fontSize: 11 }}
+                  onClick={() => setAmount(String(selectedOrderDue))}
+                >
+                  Pay Full ({fmt(selectedOrderDue)})
+                </span>
+              )}
+            </label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="0.00"
+              value={amount}
+              onChange={e => setAmount(e.target.value)}
+              style={{ fontWeight: 800, color: 'var(--green)', fontSize: 15 }}
+            />
+          </div>
+
+          <div className="field">
+            <label style={{ fontWeight: 700, fontSize: 12 }}>Payment Date *</label>
+            <input
+              type="date"
+              value={paymentDate}
+              onChange={e => setPaymentDate(e.target.value)}
+            />
+          </div>
+
+          {/* Payment Mode */}
+          <div className="field form-full">
+            <label style={{ fontWeight: 700, fontSize: 12 }}>Payment Mode</label>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
+              {[
+                ['upi', '📱 UPI'],
+                ['cash', '💵 Cash'],
+                ['bank_transfer', '🏛️ Bank'],
+                ['cheque', '📜 Cheque'],
+              ].map(([m, lbl]) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setPaymentMode(m)}
+                  style={{
+                    padding: '8px 6px',
+                    borderRadius: 6,
+                    border: paymentMode === m ? '2px solid var(--accent)' : '1px solid var(--border)',
+                    background: paymentMode === m ? '#eff6ff' : '#fff',
+                    color: paymentMode === m ? 'var(--accent)' : 'var(--text)',
+                    fontWeight: paymentMode === m ? 700 : 500,
+                    fontSize: 12,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {lbl}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="modal-actions" style={{ marginTop: 20 }}>
+          <button className="btn btn-ghost" type="button" onClick={onClose}>Cancel</button>
+          <button
+            className="btn btn-primary"
+            type="button"
+            onClick={handleSave}
+            disabled={!selectedOrderId || !amount || Number(amount) <= 0 || saving}
+            style={{
+              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+              border: 'none',
+              fontWeight: 700,
+            }}
+          >
+            {saving ? 'Saving…' : 'Record & Get Receipt 🖨️'}
+          </button>
         </div>
       </div>
     </div>
