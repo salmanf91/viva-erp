@@ -4,7 +4,7 @@ import {
   getClients, addClient, updateClient, deactivateClient, reactivateClient,
   getCategoryRates, upsertCategoryRate,
   getOrders, getOrder, createOrder, updateOrder, markPaid, recordPayment, deleteOrder, getSalesSummary,
-  getNightiesCategorySummary,
+  getNightiesCategorySummary, getSalesPayments, deletePayment,
 } from '../controllers/sales.controller';
 
 const router = Router();
@@ -21,15 +21,19 @@ router.put('/clients/:id/reactivate', reactivateClient);
 router.get('/rates',  getCategoryRates);
 router.post('/rates', upsertCategoryRate);
 
+// Payments & Receipts
+router.get('/payments',               getSalesPayments);
+router.delete('/payments/:paymentId', deletePayment);
+
 // Orders
-router.get('/summary',      getSalesSummary);
+router.get('/summary',          getSalesSummary);
 router.get('/nighties-summary', getNightiesCategorySummary);
-router.get('/',             getOrders);
-router.get('/:id',          getOrder);
-router.post('/',            createOrder);
-router.put('/:id',          updateOrder);
-router.put('/:id/pay',      markPaid);
-router.post('/:id/payment', recordPayment);
-router.delete('/:id',       deleteOrder);
+router.get('/',                 getOrders);
+router.get('/:id',              getOrder);
+router.post('/',                createOrder);
+router.put('/:id',              updateOrder);
+router.put('/:id/pay',          markPaid);
+router.post('/:id/payment',     recordPayment);
+router.delete('/:id',           deleteOrder);
 
 export default router;
