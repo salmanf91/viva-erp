@@ -8,14 +8,14 @@ const fmtD = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { da
 const PARTNER_COLORS = ['#6366f1', '#06b6d4', '#10b981', '#f59e0b'];
 
 const PERSONAL_CATEGORIES = [
-  { value: 'personal_payment',   label: 'Personal Payment (Paid by Partner)' },
-  { value: 'personal_expense',   label: 'Personal Expense / Shopping' },
-  { value: 'partner_transfer',   label: 'Transfer to Other Partner' },
-  { value: 'personal_loan',      label: 'Personal Loan / Advance' },
-  { value: 'personal_repayment', label: 'Personal Repayment / Settlement' },
-  { value: 'vehicle_fuel',       label: 'Vehicle & Fuel' },
-  { value: 'household',          label: 'Household & Family' },
-  { value: 'other_personal',     label: 'Other Personal' },
+  { value: 'personal_repayment', label: '🏦 Loan Repayment to Lender / Settlement' },
+  { value: 'personal_loan',      label: '🤝 Personal Loan Taken / Advance' },
+  { value: 'personal_payment',   label: '💼 Personal Payment (Paid by Partner)' },
+  { value: 'personal_expense',   label: '🛍️ Personal Expense / Shopping' },
+  { value: 'partner_transfer',   label: '🔄 Transfer to Other Partner' },
+  { value: 'vehicle_fuel',       label: '🚗 Vehicle & Fuel' },
+  { value: 'household',          label: '🏠 Household & Family' },
+  { value: 'other_personal',     label: '📝 Other Personal' },
 ];
 const PERS_CAT_LABEL = Object.fromEntries(PERSONAL_CATEGORIES.map(c => [c.value, c.label]));
 
@@ -49,13 +49,16 @@ export default function PersonalAccountsPage() {
     setLoading(true);
     try {
       const [partnersRes, summaryRes] = await Promise.all([
-        api.get('/partners'),
-        api.get('/partners/personal/summary'),
+        api.get('/partners').catch(() => ({ data: [] })),
+        api.get('/partners/personal/summary').catch(() => ({ data: { partners: [], combined: { total_credit: 0, total_debit: 0, net_balance: 0, tx_count: 0 } } })),
       ]);
-      setPartners(partnersRes.data || []);
+      const pList = (Array.isArray(partnersRes.data) && partnersRes.data.length > 0)
+        ? partnersRes.data
+        : (summaryRes.data?.partners || []);
+      setPartners(pList);
       setPersSummary(summaryRes.data || { partners: [], combined: { total_credit: 0, total_debit: 0, net_balance: 0, tx_count: 0 } });
-      if (partnersRes.data?.length > 0 && !form.partner_id) {
-        setForm(f => ({ ...f, partner_id: partnersRes.data[0].id }));
+      if (pList.length > 0) {
+        setForm(f => ({ ...f, partner_id: f.partner_id ? String(f.partner_id) : String(pList[0].id) }));
       }
     } catch (e) {
       console.error('Failed to load personal accounts data', e);
@@ -147,12 +150,14 @@ export default function PersonalAccountsPage() {
   };
 
   const openNewModal = (defaultType = 'credit', partnerId = null) => {
+    const partnerList = partners.length > 0 ? partners : (persSummary?.partners || []);
+    const partnerIdToUse = partnerId || (activePid !== 'all' ? activePid : (partnerList[0]?.id || ''));
     setEditingEntry(null);
     setForm({
-      partner_id: partnerId || (activePid !== 'all' ? activePid : partners[0]?.id || ''),
+      partner_id: String(partnerIdToUse || ''),
       entry_date: new Date().toISOString().slice(0, 10),
       type: defaultType,
-      category: defaultType === 'credit' ? 'personal_payment' : 'personal_expense',
+      category: defaultType === 'credit' ? 'personal_payment' : 'personal_repayment',
       amount: '',
       payment_mode: 'cash',
       reference_no: '',
@@ -162,8 +167,9 @@ export default function PersonalAccountsPage() {
   };
 
   const resetForm = () => {
+    const partnerList = partners.length > 0 ? partners : (persSummary?.partners || []);
     setForm({
-      partner_id: partners[0]?.id || '',
+      partner_id: String(partnerList[0]?.id || ''),
       entry_date: new Date().toISOString().slice(0, 10),
       type: 'credit',
       category: 'personal_payment',
@@ -220,14 +226,28 @@ export default function PersonalAccountsPage() {
           </button>
           <button
             className="btn btn-primary btn-sm"
-            style={{ background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', border: 'none', boxShadow: '0 2px 8px rgba(16,185,129,0.25)' }}
+            style={{
+              background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
+              color: '#ffffff',
+              fontWeight: 700,
+              border: 'none',
+              boxShadow: '0 2px 8px rgba(16,185,129,0.3)',
+              cursor: 'pointer'
+            }}
             onClick={() => openNewModal('credit')}
           >
             + Record Credit (Paid Personally)
           </button>
           <button
             className="btn btn-red btn-sm"
-            style={{ background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)', border: 'none', boxShadow: '0 2px 8px rgba(239,68,68,0.25)' }}
+            style={{
+              background: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)',
+              color: '#ffffff',
+              fontWeight: 700,
+              border: 'none',
+              boxShadow: '0 2px 8px rgba(239,68,68,0.3)',
+              cursor: 'pointer'
+            }}
             onClick={() => openNewModal('debit')}
           >
             − Record Debit (Personal Expense)
@@ -681,12 +701,14 @@ export default function PersonalAccountsPage() {
               <div className="field">
                 <label style={{ fontWeight: 700, fontSize: 12 }}>Partner *</label>
                 <select
-                  value={form.partner_id}
+                  value={String(form.partner_id || '')}
                   onChange={e => setForm(f => ({ ...f, partner_id: e.target.value }))}
                   style={{ fontWeight: 600 }}
+                  required
                 >
-                  {partners.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
+                  <option value="">-- Select Partner --</option>
+                  {(partners.length > 0 ? partners : (persSummary?.partners || [])).map(p => (
+                    <option key={p.id} value={String(p.id)}>{p.name}</option>
                   ))}
                 </select>
               </div>
