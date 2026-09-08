@@ -777,7 +777,7 @@ function RecordPaymentModal({ info, onClose, onSave }) {
 
         <div className="field" style={{ marginTop: 14 }}>
           <label>Payment Date</label>
-          <input type="date" value={date} onChange={setDate ? e => setDate(e.target.value) : undefined} />
+          <input type="date" value={date} onChange={e => setDate(e.target.value)} />
         </div>
 
         <div className="modal-actions">
@@ -794,39 +794,71 @@ function RecordPaymentModal({ info, onClose, onSave }) {
 
 // ── Payment Receipt Modal ─────────────────────────────────────────────────────
 
-function PaymentReceiptModal({ orderId, onClose }) {
-  const [order, setOrder] = useState(null);
+function PaymentReceiptModal({ receiptKey, orderId, onClose }) {
+  const [receipt, setReceipt] = useState(null);
   const printRef = useRef();
 
-  useEffect(() => {
-    api.get(`/sales/${orderId}`).then(r => setOrder(r.data));
-  }, [orderId]);
+  const targetKey = receiptKey || orderId;
 
-  if (!order) return (
+  useEffect(() => {
+    if (!targetKey) return;
+    api.get(`/sales/receipts/${targetKey}`)
+      .then(r => setReceipt(r.data))
+      .catch(async () => {
+        // Fallback for legacy order
+        try {
+          const r = await api.get(`/sales/${targetKey}`);
+          const ord = r.data;
+          const subtotal   = ord.items?.reduce((s, it) => s + it.quantity * it.rate_per_pc, 0) || 0;
+          const discountAmt = Number(ord.discount || 0);
+          const taxable    = Math.max(0, subtotal - discountAmt);
+          const gstAmt     = ord.include_gst ? taxable * (ord.gst_percent / 100) : 0;
+          const total      = taxable + gstAmt;
+          const amtPaid    = Number(ord.amount_paid || 0);
+          setReceipt({
+            receipt_no: `RCP-${ord.invoice_number}`,
+            payment_date: ord.order_date,
+            payment_mode: 'cash',
+            notes: ord.notes || '',
+            client: {
+              id: ord.client_id,
+              name: ord.client_name,
+              city: ord.client_city,
+              phone: ord.client_phone,
+              address: ord.client_address,
+            },
+            total_amount: amtPaid,
+            allocations: [{
+              order_id: ord.id,
+              invoice_number: ord.invoice_number,
+              order_date: ord.order_date,
+              amount_paid_in_receipt: amtPaid,
+              order_total: total,
+              order_amount_paid: amtPaid,
+              balance_remaining: Math.max(0, total - amtPaid),
+              status: ord.status,
+            }],
+            client_total_outstanding: (ord.other_outstanding || []).reduce((s, o) => s + Math.max(0, Number(o.total || 0) - Number(o.amount_paid || 0)), 0),
+            other_outstanding: ord.other_outstanding || [],
+          });
+        } catch (e) {
+          console.error('Failed to load receipt', e);
+        }
+      });
+  }, [targetKey]);
+
+  if (!receipt) return (
     <div className="modal-overlay">
       <div className="modal" style={{ width: 320, textAlign: 'center', padding: 40 }}>
-        <div className="spinner">Loading…</div>
+        <div className="spinner">Loading receipt…</div>
       </div>
     </div>
   );
 
-  const subtotal   = order.items?.reduce((s, it) => s + it.quantity * it.rate_per_pc, 0) || 0;
-  const discountAmt = Number(order.discount || 0);
-  const taxable    = Math.max(0, subtotal - discountAmt);
-  const gstAmt     = order.include_gst ? taxable * (order.gst_percent / 100) : 0;
-  const total      = taxable + gstAmt;
-  const amtPaid    = Number(order.amount_paid || 0);
-  const balance    = total - amtPaid;
-  const isFull     = order.status === 'paid';
-  const otherPending = (order.other_outstanding || []).map(o => ({
-    ...o,
-    total: Number(o.total),
-    amount_paid: Number(o.amount_paid || 0),
-    balance: Number(o.total) - Number(o.amount_paid || 0),
-  }));
-  const m         = n => '₹' + Number(n).toLocaleString('en-IN', { minimumFractionDigits: 2 });
-  const today     = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-  const receiptNo = `RCP-${order.invoice_number}`;
+  const m         = n => '₹' + Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+  const fmtDate   = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+  const receiptNo = receipt.receipt_no || 'RCP-0000';
+  const modeLabel = !receipt.payment_mode ? 'Cash' : receipt.payment_mode === 'upi' ? 'UPI / Online' : receipt.payment_mode === 'bank_transfer' ? 'Bank Transfer' : receipt.payment_mode === 'cheque' ? 'Cheque' : receipt.payment_mode.charAt(0).toUpperCase() + receipt.payment_mode.slice(1);
 
   const printStyles = `
     * { margin:0; padding:0; box-sizing:border-box; }
@@ -858,11 +890,10 @@ function PaymentReceiptModal({ orderId, onClose }) {
     td.r { text-align:right; }
     tbody tr:nth-child(even) { background:#fdfaf4; }
     .totals { display:flex; justify-content:flex-end; padding:14px 40px 0; }
-    .totals-box { min-width:260px; }
-    .t-row { display:flex; justify-content:space-between; padding:5px 0; font-size:13px; color:#555; border-bottom:1px solid #f5f0e8; }
-    .t-row.inv-total { font-size:13px; font-weight:700; color:#1a1a1a; border-bottom:none; padding-top:8px; }
-    .t-row.received  { font-size:16px; font-weight:600; color:#1a1a1a; border-top:2px solid #1a1a1a; border-bottom:none; padding-top:10px; margin-top:4px; }
-    .t-row.balance   { font-size:16px; font-weight:600; color:#1a1a1a; border-bottom:none; padding-top:4px; }
+    .totals-box { min-width:280px; }
+    .t-row { display:flex; justify-content:space-between; padding:6px 0; font-size:13px; color:#555; border-bottom:1px solid #f5f0e8; }
+    .t-row.received  { font-size:16px; font-weight:800; color:#059669; border-top:2px solid #1a1a1a; border-bottom:none; padding-top:10px; margin-top:4px; }
+    .t-row.balance   { font-size:14px; font-weight:700; color:#c0390b; border-bottom:none; padding-top:4px; }
     .status { margin:14px 40px 0; padding:10px 14px; background:#fdfaf4; border-left:3px solid #C8860A; border-radius:0 5px 5px 0; font-size:12px; color:#555; }
     .footer { margin:20px 40px 0; padding:14px 0 28px; border-top:1px solid #f0e8d0; display:flex; justify-content:space-between; align-items:center; }
     .footer-note { font-size:12px; color:#bbb; font-style:italic; }
@@ -880,11 +911,14 @@ function PaymentReceiptModal({ orderId, onClose }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{ width: 680, maxHeight: '92vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+      <div className="modal" style={{ width: 720, maxHeight: '92vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h2 style={{ margin: 0 }}>Payment Receipt</h2>
-          <button className="btn btn-primary btn-sm" onClick={print}>🖨 Print / Share</button>
+          <div>
+            <h2 style={{ margin: 0 }}>🧾 Official Payment Receipt</h2>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{receiptNo} · {modeLabel}</div>
+          </div>
+          <button className="btn btn-primary btn-sm" onClick={print}>🖨 Print / PDF</button>
         </div>
 
         {/* ── printable area ── */}
@@ -900,9 +934,10 @@ function PaymentReceiptModal({ orderId, onClose }) {
               </div>
             </div>
             <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: '.1em', textTransform: 'uppercase' }}>RECEIPT</div>
-              <div style={{ fontSize: 12, color: '#C8860A', fontWeight: 700, marginTop: 4 }}>{receiptNo}</div>
-              <div style={{ fontSize: 11, color: '#777', marginTop: 2 }}>Date: {today}</div>
+              <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: '.1em', textTransform: 'uppercase', color: '#059669' }}>RECEIPT</div>
+              <div style={{ fontSize: 13, color: '#C8860A', fontWeight: 800, marginTop: 4 }}>{receiptNo}</div>
+              <div style={{ fontSize: 11, color: '#777', marginTop: 2 }}>Date: {fmtDate(receipt.payment_date)}</div>
+              <div style={{ fontSize: 11, color: '#4338ca', fontWeight: 700, marginTop: 2 }}>Payment Mode: {modeLabel}</div>
             </div>
           </div>
 
@@ -911,154 +946,100 @@ function PaymentReceiptModal({ orderId, onClose }) {
             <div style={{ padding: '16px 0' }}>
               <div style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.14em', color: '#C8860A', marginBottom: 6 }}>From</div>
               <div style={{ fontSize: 14, fontWeight: 800 }}>Viva Studio</div>
-              <div style={{ fontSize: 12, color: '#777', marginTop: 2 }}>Garment Manufacturing</div>
+              <div style={{ fontSize: 12, color: '#777', marginTop: 2 }}>Garment Manufacturing &amp; Wholesale</div>
             </div>
             <div style={{ padding: '16px 0 16px 24px', borderLeft: '1px solid #f0e8d0' }}>
-              <div style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.14em', color: '#C8860A', marginBottom: 6 }}>Received From</div>
-              <div style={{ fontSize: 14, fontWeight: 800 }}>{order.client_name}</div>
-              {order.client_city  && <div style={{ fontSize: 12, color: '#777', marginTop: 2 }}>{order.client_city}</div>}
-              {order.client_phone && <div style={{ fontSize: 12, color: '#777' }}>{order.client_phone}</div>}
+              <div style={{ fontSize: 9, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.14em', color: '#C8860A', marginBottom: 6 }}>Received From (Client)</div>
+              <div style={{ fontSize: 14, fontWeight: 800 }}>{receipt.client?.name}</div>
+              {receipt.client?.city  && <div style={{ fontSize: 12, color: '#777', marginTop: 2 }}>{receipt.client.city}</div>}
+              {receipt.client?.phone && <div style={{ fontSize: 12, color: '#777' }}>Phone: {receipt.client.phone}</div>}
             </div>
           </div>
 
-          {/* Items table */}
+          {/* Invoices Tagged / Breakdown Table */}
           <div style={{ padding: '20px 36px 0' }}>
+            <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.08em', color: '#C8860A', marginBottom: 8 }}>
+              Invoices Covered in this Receipt
+            </div>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ borderBottom: '2px solid #C8860A' }}>
-                  {[['#','auto'],['Description',''],['Qty','right'],['Rate / pc','right'],['Amount','right']].map(([h, align]) => (
-                    <th key={h} style={{ padding: '7px 10px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.08em', color: '#C8860A', textAlign: align === 'right' ? 'right' : 'left' }}>{h}</th>
-                  ))}
+                  <th style={{ padding: '7px 10px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', color: '#C8860A' }}>#</th>
+                  <th style={{ padding: '7px 10px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', color: '#C8860A' }}>Invoice #</th>
+                  <th style={{ padding: '7px 10px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', color: '#C8860A' }}>Invoice Date</th>
+                  <th style={{ padding: '7px 10px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', color: '#C8860A', textAlign: 'right' }}>Invoice Total</th>
+                  <th style={{ padding: '7px 10px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', color: '#059669', textAlign: 'right' }}>Received in Receipt</th>
+                  <th style={{ padding: '7px 10px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', color: '#C8860A', textAlign: 'right' }}>Invoice Balance</th>
                 </tr>
               </thead>
               <tbody>
-                {order.items?.map((it, i) => (
+                {receipt.allocations?.map((al, i) => (
                   <tr key={i} style={{ borderBottom: '1px solid #f5f0e8', background: i % 2 === 1 ? '#fdfaf4' : '#fff' }}>
                     <td style={{ padding: '10px 10px', fontSize: 12, color: '#bbb' }}>{i + 1}</td>
-                    <td style={{ padding: '10px 10px', fontWeight: 600 }}>{getProductLabel(it.category)}{it.size ? ` (${formatSize(it.size)})` : ''}</td>
-                    <td style={{ padding: '10px 10px', textAlign: 'right' }}>{it.quantity} pcs</td>
-                    <td style={{ padding: '10px 10px', textAlign: 'right' }}>{m(it.rate_per_pc)}</td>
-                    <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 700 }}>{m(it.quantity * it.rate_per_pc)}</td>
+                    <td style={{ padding: '10px 10px', fontWeight: 700, color: 'var(--accent)' }}>{al.invoice_number}</td>
+                    <td style={{ padding: '10px 10px', color: '#666' }}>{fmtDate(al.order_date)}</td>
+                    <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 600 }}>{m(al.order_total)}</td>
+                    <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 800, color: '#059669', fontSize: 14 }}>
+                      +{m(al.amount_paid_in_receipt)}
+                    </td>
+                    <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 700, color: al.balance_remaining > 0 ? '#c0390b' : '#059669' }}>
+                      {al.balance_remaining > 0 ? m(al.balance_remaining) : '✓ Paid'}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
 
-          {/* Totals */}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '14px 36px 0' }}>
-            <div style={{ minWidth: 260 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', fontSize: 13, color: '#666', borderBottom: '1px solid #f5f0e8' }}>
-                <span>Subtotal</span><span>{m(subtotal)}</span>
+          {/* Totals & Notes */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 36px 0', alignItems: 'flex-start' }}>
+            <div style={{ maxWidth: 300 }}>
+              {receipt.notes && (
+                <div style={{ padding: '8px 12px', background: '#fdfaf4', borderLeft: '3px solid #C8860A', borderRadius: '0 5px 5px 0', fontSize: 12, color: '#555' }}>
+                  <b style={{ color: '#1a1a1a' }}>Note:</b> {receipt.notes}
+                </div>
+              )}
+            </div>
+
+            <div style={{ minWidth: 280 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0 6px', fontSize: 17, fontWeight: 900, color: '#059669', borderTop: '2px solid #1a1a1a' }}>
+                <span>Total Amount Received</span>
+                <span>{m(receipt.total_amount)}</span>
               </div>
-              {discountAmt > 0 && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', fontSize: 13, color: '#059669', borderBottom: '1px solid #f5f0e8' }}>
-                  <span>Discount</span><span>−{m(discountAmt)}</span>
-                </div>
-              )}
-              {!!order.include_gst && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', fontSize: 13, color: '#666', borderBottom: '1px solid #f5f0e8' }}>
-                  <span>GST ({order.gst_percent}%)</span><span>{m(gstAmt)}</span>
-                </div>
-              )}
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', fontSize: 13, fontWeight: 700, color: '#1a1a1a', borderBottom: '1px solid #f5f0e8' }}>
-                <span>Invoice Total</span><span>{m(total)}</span>
-              </div>
-              {order.payments && order.payments.length > 0 && (
-                <div style={{ borderTop: '1px dashed #f0e8d0', padding: '8px 0 4px', fontSize: 12, color: '#555', marginTop: 6 }}>
-                  <div style={{ fontWeight: 700, color: '#C8860A', marginBottom: 4, textTransform: 'uppercase', fontSize: 10, letterSpacing: '.04em' }}>Payment History</div>
-                  {order.payments.map((p, idx) => {
-                    const isLatest = idx === order.payments.length - 1;
-                    const modeLabel = !p.payment_mode ? 'Cash' : p.payment_mode === 'upi' ? 'UPI / GPay' : p.payment_mode === 'phonepe' ? 'PhonePe' : p.payment_mode === 'bank_transfer' ? 'Bank Transfer' : p.payment_mode === 'cheque' ? 'Cheque' : p.payment_mode.charAt(0).toUpperCase() + p.payment_mode.slice(1);
-                    return (
-                      <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px 0', fontWeight: isLatest && balance > 0 ? 700 : 400, color: isLatest && balance > 0 ? '#1a1a1a' : '#666' }}>
-                        <span>
-                          {fmtD(p.payment_date)}
-                          <span style={{ fontSize: 10, color: '#4338ca', background: '#e0e7ff', padding: '1px 6px', borderRadius: 4, marginLeft: 6, fontWeight: 700 }}>
-                            {modeLabel}
-                          </span>
-                          {isLatest && balance > 0 && <span style={{ fontSize: 9, color: '#065f46', background: '#d1fae5', padding: '1px 4px', borderRadius: 3, marginLeft: 4 }}>Latest</span>}
-                        </span>
-                        <span style={{ fontWeight: 700 }}>{m(p.amount)}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              {balance > 0 ? (
-                <>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0 4px', fontSize: 15, fontWeight: 600, color: '#1a1a1a', borderTop: '1.5px solid #1a1a1a', marginTop: 4 }}>
-                    <span>Total Paid</span>
-                    <span>{m(amtPaid)}</span>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0 0', fontSize: 15, fontWeight: 800, color: '#1a1a1a' }}>
-                    <span>Balance Due</span>
-                    <span style={{ color: '#c0390b' }}>{m(balance)}</span>
-                  </div>
-                </>
-              ) : (
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0 5px', fontSize: 16, fontWeight: 600, color: '#1a1a1a', borderTop: '2px solid #1a1a1a', marginTop: 4 }}>
-                  <span>Amount Received</span><span>{m(amtPaid)}</span>
+              {receipt.client_total_outstanding > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0 2px', fontSize: 13, fontWeight: 700, color: '#c0390b', borderTop: '1px dashed #f0e8d0' }}>
+                  <span>Total Client Remaining Due</span>
+                  <span>{m(receipt.client_total_outstanding)}</span>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Status note */}
-          <div style={{ margin: '16px 36px 0', padding: '9px 14px', background: '#fdfaf4', borderLeft: '3px solid #C8860A', borderRadius: '0 5px 5px 0', fontSize: 12, color: '#555' }}>
-            <b style={{ color: '#1a1a1a' }}>Payment Status:</b> {isFull ? 'Paid in Full' : 'Partial Payment Received — balance outstanding'}
-          </div>
-
           {/* Other pending invoices */}
-          {otherPending.length > 0 && (
-            <div style={{ margin: '16px 36px 0' }}>
-              <div style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.1em', color: '#c0390b', marginBottom: 8 }}>
-                ⚠ Other Outstanding Invoices
+          {receipt.other_outstanding && receipt.other_outstanding.length > 0 && (
+            <div style={{ margin: '18px 36px 0', padding: '12px 14px', background: '#fff8f8', borderRadius: 8, border: '1px solid #fed7d7' }}>
+              <div style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.08em', color: '#c0390b', marginBottom: 6 }}>
+                ⚠ Other Invoices With Outstanding Balance for {receipt.client?.name}
               </div>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead>
-                  <tr style={{ borderBottom: '1.5px solid #c0390b' }}>
-                    {[['Invoice',''],['Date',''],['Invoice Total','right'],['Received','right'],['Balance Due','right']].map(([h, a]) => (
-                      <th key={h} style={{ padding: '5px 8px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.06em', color: '#c0390b', textAlign: a || 'left' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {otherPending.map((o, i) => (
-                    <tr key={o.id} style={{ borderBottom: '1px solid #f5e8e8', background: i % 2 === 1 ? '#fff8f8' : '#fff' }}>
-                      <td style={{ padding: '7px 8px', fontWeight: 700, color: '#c0390b' }}>{o.invoice_number}</td>
-                      <td style={{ padding: '7px 8px', color: '#777' }}>{fmtD(o.order_date)}</td>
-                      <td style={{ padding: '7px 8px', textAlign: 'right' }}>{m(o.total)}</td>
-                      <td style={{ padding: '7px 8px', textAlign: 'right', color: '#555' }}>{m(o.amount_paid)}</td>
-                      <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 700, color: '#c0390b' }}>{m(o.balance)}</td>
-                    </tr>
-                  ))}
-                  <tr style={{ borderTop: '1.5px solid #c0390b' }}>
-                    <td colSpan={4} style={{ padding: '7px 8px', fontWeight: 800, textAlign: 'right', color: '#c0390b' }}>Total Outstanding (Other Invoices)</td>
-                    <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 900, color: '#c0390b', fontSize: 13 }}>
-                      {m(otherPending.reduce((s, o) => s + o.balance, 0))}
-                    </td>
-                  </tr>
-                  <tr style={{ borderTop: '2.5px double #c0390b', background: '#fff0f0' }}>
-                    <td colSpan={4} style={{ padding: '9px 8px', fontWeight: 900, textAlign: 'right', color: '#c0390b', fontSize: 13, textTransform: 'uppercase', letterSpacing: '.04em' }}>Total Balance Due (All Invoices)</td>
-                    <td style={{ padding: '9px 8px', textAlign: 'right', fontWeight: 900, color: '#c0390b', fontSize: 14 }}>
-                      {m(balance + otherPending.reduce((s, o) => s + o.balance, 0))}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 12 }}>
+                {receipt.other_outstanding.map(o => (
+                  <span key={o.id} style={{ background: '#fff', border: '1px solid #fecaca', padding: '2px 8px', borderRadius: 4, fontWeight: 600 }}>
+                    {o.invoice_number}: Due {m(o.balance)}
+                  </span>
+                ))}
+              </div>
             </div>
           )}
 
           {/* Footer */}
-          <div style={{ margin: '18px 36px 0', padding: '12px 0 24px', borderTop: '1px solid #f0e8d0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div style={{ fontSize: 12, color: '#bbb', fontStyle: 'italic' }}>Thank you for your business!</div>
-            <div style={{ fontSize: 11, color: '#C8860A', fontWeight: 700, letterSpacing: '.06em' }}>VIVA STUDIO</div>
+          <div style={{ margin: '20px 36px 0', padding: '12px 0 24px', borderTop: '1px solid #f0e8d0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ fontSize: 12, color: '#bbb', fontStyle: 'italic' }}>Thank you for your prompt payment!</div>
+            <div style={{ fontSize: 11, color: '#C8860A', fontWeight: 700, letterSpacing: '.06em' }}>VIVA STUDIO ERP</div>
           </div>
 
         </div>
 
-        <div className="modal-actions">
+        <div className="modal-actions" style={{ marginTop: 16 }}>
           <button className="btn btn-ghost" onClick={onClose}>Close</button>
         </div>
       </div>
@@ -1325,8 +1306,8 @@ function ReceiptsTab({ onReload }) {
   const [search, setSearch]               = useState('');
 
   // Modals
-  const [receiptOrderId, setReceiptOrderId] = useState(null);
-  const [viewInvoice, setViewInvoice]       = useState(null);
+  const [receiptKey, setReceiptKey]       = useState(null);
+  const [viewInvoice, setViewInvoice]     = useState(null);
   const [showRecordReceipt, setShowRecordReceipt] = useState(false);
 
   // Load client dropdown list
@@ -1395,10 +1376,10 @@ function ReceiptsTab({ onReload }) {
     }
   };
 
-  const deleteReceipt = async (paymentId) => {
-    if (!confirm('Are you sure you want to delete this payment receipt? The invoice balance and status will be recalculated automatically.')) return;
+  const deleteReceipt = async (targetId) => {
+    if (!confirm('Are you sure you want to delete this payment receipt? All linked invoice balances and statuses will be recalculated automatically.')) return;
     try {
-      await api.delete(`/sales/payments/${paymentId}`);
+      await api.delete(`/sales/receipts/${targetId}`);
       load();
       onReload();
     } catch (e) {
@@ -1409,7 +1390,7 @@ function ReceiptsTab({ onReload }) {
   const modeBadge = (mode) => {
     const m = (mode || 'cash').toLowerCase();
     if (m === 'upi') return <span className="badge" style={{ background: '#e0f2fe', color: '#0369a1', fontWeight: 700, fontSize: 11 }}>📱 UPI</span>;
-    if (m === 'bank_transfer') return <span className="badge" style={{ background: '#f3e8ff', color: '#7e22ce', fontWeight: 700, fontSize: 11 }}>🏛️ Bank Transfer</span>;
+    if (m === 'bank_transfer') return <span className="badge" style={{ background: '#f3e8ff', color: '#7e22ce', fontWeight: 700, fontSize: 11 }}>🏛️ Bank</span>;
     if (m === 'cheque') return <span className="badge" style={{ background: '#fef3c7', color: '#92400e', fontWeight: 700, fontSize: 11 }}>📜 Cheque</span>;
     return <span className="badge" style={{ background: '#ecfdf5', color: '#047857', fontWeight: 700, fontSize: 11 }}>💵 Cash</span>;
   };
@@ -1506,10 +1487,10 @@ function ReceiptsTab({ onReload }) {
         {/* Search */}
         <input
           type="text"
-          placeholder="🔍 Search invoice, client..."
+          placeholder="🔍 Search receipt, invoice, client..."
           value={search}
           onChange={e => setSearch(e.target.value)}
-          style={{ padding: '6px 12px', borderRadius: 7, border: '1px solid var(--border)', fontSize: 13, width: 190 }}
+          style={{ padding: '6px 12px', borderRadius: 7, border: '1px solid var(--border)', fontSize: 13, width: 220 }}
         />
 
         {/* Record Direct Receipt Button */}
@@ -1539,7 +1520,7 @@ function ReceiptsTab({ onReload }) {
             <div style={{ fontSize: 32, marginBottom: 8 }}>🧾</div>
             <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text)' }}>No payment receipts found</div>
             <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
-              Click <b>+ Record Receipt</b> or log payments against pending deliveries to generate receipts.
+              Click <b>+ Record Receipt</b> to log payments against one or multiple pending deliveries.
             </div>
           </div>
         </div>
@@ -1547,86 +1528,118 @@ function ReceiptsTab({ onReload }) {
         <>
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
             <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
-              <table style={{ minWidth: 700, margin: 0 }}>
+              <table style={{ minWidth: 720, margin: 0 }}>
                 <thead>
                   <tr>
                     <th style={{ width: 40 }}>#</th>
                     <th>Date</th>
                     <th>Receipt #</th>
                     <th>Client</th>
-                    <th>Linked Invoice</th>
+                    <th>Linked Invoices</th>
                     <th>Mode</th>
                     <th style={{ textAlign: 'right', color: 'var(--green)' }}>Amount Received</th>
                     <th style={{ width: 140, textAlign: 'right' }}>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {payments.map((p, idx) => (
-                    <tr key={p.id}>
-                      <td style={{ color: 'var(--muted)', fontSize: 11 }}>{idx + 1 + (page - 1) * 50}</td>
-                      <td style={{ whiteSpace: 'nowrap', fontSize: 12, fontWeight: 600 }}>{fmtD(p.payment_date?.slice(0, 10))}</td>
-                      <td>
-                        <span style={{ fontWeight: 800, fontSize: 12, color: '#b45309' }}>
-                          RCP-{p.invoice_number || p.id}
-                        </span>
-                      </td>
-                      <td>
-                        <div style={{ fontWeight: 700, fontSize: 13 }}>{p.client_name}</div>
-                        {p.client_city && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{p.client_city}</div>}
-                      </td>
-                      <td>
-                        <button
-                          type="button"
-                          onClick={() => openInvoiceForOrder(p.order_id)}
-                          style={{
-                            background: '#f1f5f9',
-                            border: '1px solid #cbd5e1',
-                            borderRadius: 6,
-                            padding: '3px 8px',
-                            cursor: 'pointer',
-                            fontSize: 12,
-                            fontWeight: 700,
-                            color: 'var(--accent)',
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 4
-                          }}
-                        >
-                          📄 {p.invoice_number}
-                        </button>
-                      </td>
-                      <td>{modeBadge(p.payment_mode)}</td>
-                      <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--green)', fontSize: 14 }}>
-                        {fmt(p.amount)}
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
-                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                          <button
-                            className="btn btn-ghost btn-sm"
-                            style={{ padding: '3px 8px', fontSize: 11, color: '#C8860A', fontWeight: 700 }}
-                            onClick={() => setReceiptOrderId(p.order_id)}
-                            title="Print / PDF Receipt"
-                          >
-                            🖨️ Receipt
-                          </button>
-                          <button
-                            className="btn btn-ghost btn-sm"
-                            style={{ padding: '3px 6px', fontSize: 11, color: 'var(--red)' }}
-                            onClick={() => deleteReceipt(p.id)}
-                            title="Delete receipt"
-                          >
-                            🗑️
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                  {payments.map((p, idx) => {
+                    const totalAmt = p.total_amount !== undefined ? Number(p.total_amount) : Number(p.amount || 0);
+                    const receiptNum = p.receipt_no || p.receipt_key || `RCP-${p.id}`;
+                    return (
+                      <tr key={p.receipt_key || p.id || idx}>
+                        <td style={{ color: 'var(--muted)', fontSize: 11 }}>{idx + 1 + (page - 1) * 50}</td>
+                        <td style={{ whiteSpace: 'nowrap', fontSize: 12, fontWeight: 600 }}>{fmtD(p.payment_date?.slice(0, 10))}</td>
+                        <td>
+                          <span style={{ fontWeight: 800, fontSize: 12, color: '#b45309' }}>
+                            {receiptNum}
+                          </span>
+                        </td>
+                        <td>
+                          <div style={{ fontWeight: 700, fontSize: 13 }}>{p.client_name}</div>
+                          {p.client_city && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{p.client_city}</div>}
+                        </td>
+                        <td>
+                          {p.invoices && p.invoices.length > 0 ? (
+                            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                              {p.invoices.map((inv, iIdx) => (
+                                <button
+                                  key={inv.order_id || iIdx}
+                                  type="button"
+                                  onClick={() => openInvoiceForOrder(inv.order_id)}
+                                  style={{
+                                    background: '#f8fafc',
+                                    border: '1px solid #cbd5e1',
+                                    borderRadius: 6,
+                                    padding: '2px 7px',
+                                    cursor: 'pointer',
+                                    fontSize: 11,
+                                    fontWeight: 700,
+                                    color: 'var(--accent)',
+                                    display: 'inline-flex',
+                                    alignItems: 'center',
+                                    gap: 4
+                                  }}
+                                  title={`Invoice ${inv.invoice_number}: ${fmt(inv.amount)} allocated (Total ${fmt(inv.order_total)})`}
+                                >
+                                  📄 {inv.invoice_number} <span style={{ color: '#059669', fontWeight: 800 }}>({fmt(inv.amount)})</span>
+                                </button>
+                              ))}
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => openInvoiceForOrder(p.order_id)}
+                              style={{
+                                background: '#f8fafc',
+                                border: '1px solid #cbd5e1',
+                                borderRadius: 6,
+                                padding: '2px 7px',
+                                cursor: 'pointer',
+                                fontSize: 11,
+                                fontWeight: 700,
+                                color: 'var(--accent)',
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4
+                              }}
+                            >
+                              📄 {p.invoice_number || 'View Invoice'}
+                            </button>
+                          )}
+                        </td>
+                        <td>{modeBadge(p.payment_mode)}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--green)', fontSize: 14 }}>
+                          {fmt(totalAmt)}
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              style={{ padding: '3px 8px', fontSize: 11, color: '#C8860A', fontWeight: 700 }}
+                              onClick={() => setReceiptKey(p.receipt_key || p.receipt_no || p.id)}
+                              title="Print / PDF Receipt"
+                            >
+                              🖨️ Receipt
+                            </button>
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              style={{ padding: '3px 6px', fontSize: 11, color: 'var(--red)' }}
+                              onClick={() => deleteReceipt(p.receipt_key || p.receipt_no || p.id)}
+                              title="Delete receipt"
+                            >
+                              🗑️
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
                 <tfoot>
                   <tr style={{ background: '#f8fafc', fontWeight: 800 }}>
                     <td colSpan={6} style={{ fontSize: 13, color: 'var(--muted)' }}>Page Totals ({payments.length} receipts)</td>
                     <td style={{ textAlign: 'right', color: 'var(--green)', fontSize: 14 }}>
-                      {fmt(payments.reduce((s, x) => s + Number(x.amount || 0), 0))}
+                      {fmt(payments.reduce((s, x) => s + Number(x.total_amount !== undefined ? x.total_amount : x.amount || 0), 0))}
                     </td>
                     <td></td>
                   </tr>
@@ -1653,8 +1666,8 @@ function ReceiptsTab({ onReload }) {
       )}
 
       {/* Modals */}
-      {receiptOrderId && (
-        <PaymentReceiptModal orderId={receiptOrderId} onClose={() => setReceiptOrderId(null)} />
+      {receiptKey && (
+        <PaymentReceiptModal receiptKey={receiptKey} onClose={() => setReceiptKey(null)} />
       )}
       {viewInvoice && (
         <InvoiceModal order={viewInvoice} onClose={() => setViewInvoice(null)} />
@@ -1663,9 +1676,9 @@ function ReceiptsTab({ onReload }) {
         <RecordDirectReceiptModal
           clients={clients}
           onClose={() => setShowRecordReceipt(false)}
-          onSaved={(orderId) => {
+          onSaved={(generatedReceiptNo) => {
             setShowRecordReceipt(false);
-            if (orderId) setReceiptOrderId(orderId);
+            if (generatedReceiptNo) setReceiptKey(generatedReceiptNo);
             load();
             onReload();
           }}
@@ -1675,69 +1688,205 @@ function ReceiptsTab({ onReload }) {
   );
 }
 
-// ── Record Direct Receipt Modal ──────────────────────────────────────────────
+// ── Record Direct Receipt Modal (Multi-Invoice Tagging) ──────────────────────
 
 function RecordDirectReceiptModal({ clients, onClose, onSaved }) {
-  const [clientId, setClientId]         = useState('');
+  const [clientId, setClientId]           = useState('');
   const [pendingOrders, setPendingOrders] = useState([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
-  const [selectedOrderId, setSelectedOrderId] = useState('');
-  const [amount, setAmount]             = useState('');
-  const [paymentDate, setPaymentDate]   = useState(new Date().toISOString().slice(0, 10));
-  const [paymentMode, setPaymentMode]   = useState('upi');
-  const [saving, setSaving]             = useState(false);
+  const [totalAmount, setTotalAmount]     = useState('');
+  const [paymentDate, setPaymentDate]     = useState(new Date().toISOString().slice(0, 10));
+  const [paymentMode, setPaymentMode]     = useState('upi');
+  const [notes, setNotes]                 = useState('');
+  const [allocations, setAllocations]     = useState({}); // { [orderId]: { selected: boolean, amount: string } }
+  const [saving, setSaving]               = useState(false);
 
+  // Fetch pending invoices when client changes
   useEffect(() => {
     if (!clientId) {
       setPendingOrders([]);
-      setSelectedOrderId('');
-      setAmount('');
+      setAllocations({});
+      setTotalAmount('');
       return;
     }
     setLoadingOrders(true);
-    api.get('/sales', { params: { client_id: clientId, status: 'pending', limit: 50 } })
+    api.get('/sales', { params: { client_id: clientId, status: 'pending', limit: 100 } })
       .then(r => {
-        const list = r.data?.data || [];
-        setPendingOrders(list);
-        if (list.length > 0) {
-          const first = list[0];
-          setSelectedOrderId(String(first.id));
-          const due = Math.max(0, Number(first.total || 0) - Number(first.amount_paid || 0));
-          setAmount(String(due || ''));
-        } else {
-          setSelectedOrderId('');
-          setAmount('');
+        const rawList = r.data?.data || [];
+        // Map and compute exact balance due
+        const mapped = rawList.map(o => {
+          const subtotal   = Number(o.subtotal || 0);
+          const discountAmt = Number(o.discount || 0);
+          const taxable    = Math.max(0, subtotal - discountAmt);
+          const gst        = o.include_gst ? taxable * (Number(o.gst_percent || 0) / 100) : 0;
+          const orderTotal = o.total !== undefined ? Number(o.total) : (taxable + gst);
+          const amtPaid    = Number(o.amount_paid || 0);
+          const due        = Math.max(0, orderTotal - amtPaid);
+          return {
+            id: o.id,
+            invoice_number: o.invoice_number,
+            order_date: o.order_date,
+            total: orderTotal,
+            amount_paid: amtPaid,
+            due: due,
+          };
+        }).filter(o => o.due > 0.01);
+
+        // Sort oldest first
+        mapped.sort((a, b) => (a.order_date || '').localeCompare(b.order_date || '') || a.id - b.id);
+        setPendingOrders(mapped);
+
+        // Initialize empty allocations
+        const initialAllocs = {};
+        mapped.forEach(o => {
+          initialAllocs[o.id] = { selected: false, amount: '' };
+        });
+        setAllocations(initialAllocs);
+
+        // If only 1 order, pre-select it
+        if (mapped.length === 1) {
+          const single = mapped[0];
+          setTotalAmount(String(single.due));
+          setAllocations({
+            [single.id]: { selected: true, amount: String(single.due) }
+          });
         }
       })
       .catch(e => console.error('Failed to load pending client orders', e))
       .finally(() => setLoadingOrders(false));
   }, [clientId]);
 
-  const handleOrderChange = (orderIdStr) => {
-    setSelectedOrderId(orderIdStr);
-    const ord = pendingOrders.find(o => String(o.id) === orderIdStr);
-    if (ord) {
-      const due = Math.max(0, Number(ord.total || 0) - Number(ord.amount_paid || 0));
-      setAmount(String(due || ''));
+  // Total client outstanding across all pending invoices
+  const totalClientDue = useMemo(() => {
+    return pendingOrders.reduce((s, o) => s + o.due, 0);
+  }, [pendingOrders]);
+
+  // Calculate sum of currently allocated amounts
+  const allocatedSum = useMemo(() => {
+    return Object.entries(allocations).reduce((sum, [_, val]) => {
+      if (val?.selected && Number(val.amount) > 0) {
+        return sum + Number(val.amount);
+      }
+      return sum;
+    }, 0);
+  }, [allocations]);
+
+  const numTotalAmount = Number(totalAmount || 0);
+  const unallocatedAmount = Math.max(0, numTotalAmount - allocatedSum);
+  const isOverAllocated = allocatedSum > numTotalAmount && numTotalAmount > 0;
+
+  // Auto-allocate entered totalAmount across invoices (oldest first)
+  const autoAllocate = (enteredTotal = totalAmount) => {
+    let rem = Number(enteredTotal || 0);
+    const nextAllocs = {};
+    for (const ord of pendingOrders) {
+      if (rem > 0) {
+        const alloc = Math.min(rem, ord.due);
+        nextAllocs[ord.id] = {
+          selected: alloc > 0,
+          amount: alloc > 0 ? (Math.round(alloc * 100) / 100).toFixed(2).replace(/\.00$/, '') : '',
+        };
+        rem -= alloc;
+      } else {
+        nextAllocs[ord.id] = { selected: false, amount: '' };
+      }
+    }
+    setAllocations(nextAllocs);
+  };
+
+  // Toggle single invoice checkbox
+  const handleToggleInvoice = (ordId) => {
+    const ord = pendingOrders.find(o => o.id === ordId);
+    if (!ord) return;
+
+    const curr = allocations[ordId] || { selected: false, amount: '' };
+    const nextSelected = !curr.selected;
+
+    if (nextSelected) {
+      // Allocate either remaining unallocated or the full invoice due
+      const fillAmt = unallocatedAmount > 0 ? Math.min(unallocatedAmount, ord.due) : ord.due;
+      const formatted = (Math.round(fillAmt * 100) / 100).toFixed(2).replace(/\.00$/, '');
+      const newAllocs = {
+        ...allocations,
+        [ordId]: { selected: true, amount: formatted }
+      };
+      setAllocations(newAllocs);
+      // If totalAmount is 0 or less, auto-bump totalAmount
+      if (numTotalAmount === 0) {
+        setTotalAmount(formatted);
+      }
+    } else {
+      setAllocations({
+        ...allocations,
+        [ordId]: { selected: false, amount: '' }
+      });
     }
   };
 
-  const selectedOrderObj = pendingOrders.find(o => String(o.id) === String(selectedOrderId));
-  const selectedOrderDue = selectedOrderObj ? Math.max(0, Number(selectedOrderObj.total || 0) - Number(selectedOrderObj.amount_paid || 0)) : 0;
+  // Update allocation amount directly for an invoice
+  const handleAmountChange = (ordId, val) => {
+    const numVal = Number(val || 0);
+    setAllocations(prev => ({
+      ...prev,
+      [ordId]: {
+        selected: numVal > 0,
+        amount: val
+      }
+    }));
+  };
 
+  // Pay full button shortcut for a specific invoice
+  const handlePayFullInvoice = (ord) => {
+    const formatted = (Math.round(ord.due * 100) / 100).toFixed(2).replace(/\.00$/, '');
+    setAllocations(prev => ({
+      ...prev,
+      [ord.id]: { selected: true, amount: formatted }
+    }));
+    // If totalAmount was empty or lower than new sum, adjust totalAmount
+    const otherSum = Object.entries(allocations).reduce((sum, [id, v]) => {
+      if (Number(id) !== ord.id && v?.selected && Number(v.amount) > 0) return sum + Number(v.amount);
+      return sum;
+    }, 0);
+    const newTotal = otherSum + ord.due;
+    if (numTotalAmount < newTotal) {
+      setTotalAmount((Math.round(newTotal * 100) / 100).toFixed(2).replace(/\.00$/, ''));
+    }
+  };
+
+  // Submit payment
   const handleSave = async () => {
-    if (!selectedOrderId || !amount || Number(amount) <= 0) {
-      alert('Please select an invoice and enter a valid payment amount.');
+    if (!clientId) {
+      alert('Please select a client.');
       return;
     }
+    const validAllocations = Object.entries(allocations)
+      .filter(([_, a]) => a?.selected && Number(a.amount) > 0)
+      .map(([orderId, a]) => ({
+        order_id: Number(orderId),
+        amount: Number(a.amount)
+      }));
+
+    if (validAllocations.length === 0) {
+      alert('Please select at least one invoice and specify the payment amount to allocate.');
+      return;
+    }
+
+    if (numTotalAmount > 0 && isOverAllocated) {
+      alert(`Allocated total (₹${allocatedSum}) exceeds the entered total received (₹${numTotalAmount}). Please adjust.`);
+      return;
+    }
+
     setSaving(true);
     try {
-      await api.post(`/sales/${selectedOrderId}/payment`, {
-        amount: Number(amount),
+      const res = await api.post('/sales/multi-payment', {
+        client_id: Number(clientId),
         payment_date: paymentDate,
-        payment_mode: paymentMode
+        payment_mode: paymentMode,
+        notes: notes.trim() || undefined,
+        allocations: validAllocations,
       });
-      onSaved(selectedOrderId);
+
+      onSaved(res.data?.receipt_no);
     } catch (e) {
       alert(e.response?.data?.message || 'Failed to record receipt');
       setSaving(false);
@@ -1746,13 +1895,20 @@ function RecordDirectReceiptModal({ clients, onClose, onSaved }) {
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{ width: 520, maxWidth: '95vw', borderRadius: 12 }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>🧾 Record Client Payment Receipt</h2>
+      <div className="modal" style={{ width: 780, maxWidth: '96vw', maxHeight: '92vh', overflowY: 'auto', borderRadius: 12 }} onClick={e => e.stopPropagation()}>
+        
+        {/* Modal Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18, borderBottom: '1px solid var(--border)', paddingBottom: 12 }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800 }}>🧾 Record Client Payment Receipt</h2>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+              Receive single payment and tag/allocate across one or multiple invoices.
+            </div>
+          </div>
           <button
             type="button"
             onClick={onClose}
-            style={{ background: '#f1f5f9', border: 'none', borderRadius: '50%', width: 28, height: 28, cursor: 'pointer' }}
+            style={{ background: '#f1f5f9', border: 'none', borderRadius: '50%', width: 28, height: 28, cursor: 'pointer', fontWeight: 700 }}
           >
             ✕
           </button>
@@ -1765,58 +1921,30 @@ function RecordDirectReceiptModal({ clients, onClose, onSaved }) {
             <select
               value={clientId}
               onChange={e => setClientId(e.target.value)}
-              style={{ fontWeight: 600 }}
+              style={{ fontWeight: 700, fontSize: 14 }}
               autoFocus
             >
-              <option value="">-- Choose Client --</option>
+              <option value="">-- Choose Client to Receive Payment --</option>
               {clients.filter(c => c.is_active).map(c => (
                 <option key={c.id} value={String(c.id)}>{c.name} {c.city ? `(${c.city})` : ''}</option>
               ))}
             </select>
           </div>
 
-          {/* Pending Invoice Selection */}
-          {clientId && (
-            <div className="field form-full">
-              <label style={{ fontWeight: 700, fontSize: 12 }}>
-                Apply Payment To Invoice *
-                {loadingOrders && <span style={{ color: 'var(--muted)', fontWeight: 400, marginLeft: 6 }}>Loading…</span>}
-              </label>
-              {loadingOrders ? (
-                <div style={{ fontSize: 12, color: 'var(--muted)', padding: '6px 0' }}>Fetching client unpaid invoices…</div>
-              ) : pendingOrders.length === 0 ? (
-                <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: '10px 12px', fontSize: 12, color: '#b91c1c' }}>
-                  No pending/unpaid invoices found for this client.
-                </div>
-              ) : (
-                <select
-                  value={selectedOrderId}
-                  onChange={e => handleOrderChange(e.target.value)}
-                  style={{ fontWeight: 600 }}
-                >
-                  {pendingOrders.map(o => {
-                    const due = Math.max(0, Number(o.total || 0) - Number(o.amount_paid || 0));
-                    return (
-                      <option key={o.id} value={String(o.id)}>
-                        {o.invoice_number} ({fmtD(o.order_date?.slice(0, 10))}) — Total: {fmt(o.total)} | Due: {fmt(due)}
-                      </option>
-                    );
-                  })}
-                </select>
-              )}
-            </div>
-          )}
-
-          {/* Amount and Date */}
+          {/* Amount & Date & Mode */}
           <div className="field">
             <label style={{ fontWeight: 700, fontSize: 12, display: 'flex', justifyContent: 'space-between' }}>
-              <span>Amount (₹) *</span>
-              {selectedOrderObj && (
+              <span>Total Amount Received (₹) *</span>
+              {totalClientDue > 0 && (
                 <span
-                  style={{ color: 'var(--accent)', cursor: 'pointer', fontWeight: 600, fontSize: 11 }}
-                  onClick={() => setAmount(String(selectedOrderDue))}
+                  style={{ color: 'var(--accent)', cursor: 'pointer', fontWeight: 700, fontSize: 11 }}
+                  onClick={() => {
+                    const fullStr = (Math.round(totalClientDue * 100) / 100).toFixed(2).replace(/\.00$/, '');
+                    setTotalAmount(fullStr);
+                    autoAllocate(fullStr);
+                  }}
                 >
-                  Pay Full ({fmt(selectedOrderDue)})
+                  Pay Total Due ({fmt(totalClientDue)})
                 </span>
               )}
             </label>
@@ -1824,10 +1952,16 @@ function RecordDirectReceiptModal({ clients, onClose, onSaved }) {
               type="number"
               min="0"
               step="0.01"
-              placeholder="0.00"
-              value={amount}
-              onChange={e => setAmount(e.target.value)}
-              style={{ fontWeight: 800, color: 'var(--green)', fontSize: 15 }}
+              placeholder="e.g. 2000.00"
+              value={totalAmount}
+              onChange={e => {
+                const val = e.target.value;
+                setTotalAmount(val);
+                if (Number(val) > 0 && pendingOrders.length > 0) {
+                  autoAllocate(val);
+                }
+              }}
+              style={{ fontWeight: 800, color: 'var(--green)', fontSize: 16 }}
             />
           </div>
 
@@ -1845,9 +1979,9 @@ function RecordDirectReceiptModal({ clients, onClose, onSaved }) {
             <label style={{ fontWeight: 700, fontSize: 12 }}>Payment Mode</label>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8 }}>
               {[
-                ['upi', '📱 UPI'],
+                ['upi', '📱 UPI / Online'],
                 ['cash', '💵 Cash'],
-                ['bank_transfer', '🏛️ Bank'],
+                ['bank_transfer', '🏛️ Bank Transfer'],
                 ['cheque', '📜 Cheque'],
               ].map(([m, lbl]) => (
                 <button
@@ -1870,22 +2004,207 @@ function RecordDirectReceiptModal({ clients, onClose, onSaved }) {
               ))}
             </div>
           </div>
+
+          {/* Notes / Remarks */}
+          <div className="field form-full">
+            <label style={{ fontWeight: 700, fontSize: 12 }}>Notes / Reference (Optional)</label>
+            <input
+              type="text"
+              placeholder="e.g. UPI Ref #123456 / Cheque #987654"
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+            />
+          </div>
         </div>
 
+        {/* ── Multi-Invoice Tagging Section ── */}
+        {clientId && (
+          <div style={{ marginTop: 16, borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, flexWrap: 'wrap', gap: 8 }}>
+              <div>
+                <span style={{ fontWeight: 800, fontSize: 13, textTransform: 'uppercase', letterSpacing: '.06em', color: '#1a1a1a' }}>
+                  Tag Invoices to this Receipt
+                </span>
+                <span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 8 }}>
+                  ({pendingOrders.length} unpaid / partial invoice{pendingOrders.length !== 1 ? 's' : ''})
+                </span>
+              </div>
+              {pendingOrders.length > 0 && (
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', background: '#eff6ff' }}
+                    onClick={() => autoAllocate(totalAmount)}
+                    title="Automatically allocate the entered total to the oldest unpaid invoices first"
+                  >
+                    ⚡ Auto-Allocate (Oldest First)
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    style={{ fontSize: 11 }}
+                    onClick={() => {
+                      const cleared = {};
+                      pendingOrders.forEach(o => { cleared[o.id] = { selected: false, amount: '' }; });
+                      setAllocations(cleared);
+                    }}
+                  >
+                    Clear Allocations
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {loadingOrders ? (
+              <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+                <div className="spinner">Fetching client unpaid invoices…</div>
+              </div>
+            ) : pendingOrders.length === 0 ? (
+              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, padding: '16px', fontSize: 13, color: '#166534', textAlign: 'center' }}>
+                🎉 <b>No pending invoices for this client!</b> All invoices have been settled in full.
+              </div>
+            ) : (
+              <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                <table style={{ width: '100%', margin: 0, borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead style={{ background: '#f8fafc', borderBottom: '1px solid var(--border)' }}>
+                    <tr>
+                      <th style={{ width: 36, padding: '8px 10px', textAlign: 'center' }}>Tag</th>
+                      <th style={{ padding: '8px 10px' }}>Invoice #</th>
+                      <th style={{ padding: '8px 10px' }}>Date</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'right' }}>Invoice Total</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'right' }}>Already Paid</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--orange)' }}>Balance Due</th>
+                      <th style={{ padding: '8px 10px', textAlign: 'right', width: 170 }}>Allocate Now (₹)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pendingOrders.map(ord => {
+                      const allocInfo = allocations[ord.id] || { selected: false, amount: '' };
+                      const isSelected = allocInfo.selected;
+                      const allocAmt = Number(allocInfo.amount || 0);
+                      const isOver = allocAmt > ord.due;
+
+                      return (
+                        <tr
+                          key={ord.id}
+                          style={{
+                            background: isSelected ? '#f0fdf4' : '#fff',
+                            borderBottom: '1px solid #f1f5f9',
+                            transition: 'background .15s'
+                          }}
+                        >
+                          <td style={{ textAlign: 'center', padding: '8px 10px' }}>
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => handleToggleInvoice(ord.id)}
+                              style={{ width: 16, height: 16, cursor: 'pointer' }}
+                            />
+                          </td>
+                          <td style={{ padding: '8px 10px', fontWeight: 700, color: 'var(--accent)' }}>
+                            {ord.invoice_number}
+                          </td>
+                          <td style={{ padding: '8px 10px', color: 'var(--muted)' }}>
+                            {fmtD(ord.order_date?.slice(0, 10))}
+                          </td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600 }}>
+                            {fmt(ord.total)}
+                          </td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', color: 'var(--muted)' }}>
+                            {fmt(ord.amount_paid)}
+                          </td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 700, color: '#c0390b' }}>
+                            {fmt(ord.due)}
+                          </td>
+                          <td style={{ padding: '6px 10px', textAlign: 'right' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+                              <input
+                                type="number"
+                                min="0"
+                                max={ord.due}
+                                step="0.01"
+                                placeholder="0.00"
+                                value={allocInfo.amount}
+                                onChange={e => handleAmountChange(ord.id, e.target.value)}
+                                style={{
+                                  width: 90,
+                                  padding: '4px 6px',
+                                  fontSize: 12,
+                                  fontWeight: 700,
+                                  textAlign: 'right',
+                                  borderColor: isOver ? 'var(--red)' : isSelected ? '#10b981' : 'var(--border)',
+                                  color: isOver ? 'var(--red)' : '#059669'
+                                }}
+                              />
+                              <button
+                                type="button"
+                                className="btn btn-ghost btn-sm"
+                                style={{ padding: '3px 6px', fontSize: 10, fontWeight: 700, color: 'var(--accent)' }}
+                                onClick={() => handlePayFullInvoice(ord)}
+                                title="Allocate full balance due"
+                              >
+                                Full
+                              </button>
+                            </div>
+                            {isOver && (
+                              <div style={{ fontSize: 10, color: 'var(--red)', marginTop: 2 }}>
+                                Exceeds due ({fmt(ord.due)})
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Live Allocation Summary Box */}
+            {pendingOrders.length > 0 && (
+              <div style={{ marginTop: 12, padding: '12px 16px', background: '#f8fafc', borderRadius: 8, border: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                <div style={{ display: 'flex', gap: 16, fontSize: 13, flexWrap: 'wrap' }}>
+                  <div>
+                    <span style={{ color: 'var(--muted)' }}>Total Received: </span>
+                    <b style={{ color: 'var(--text)' }}>{fmt(numTotalAmount)}</b>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--muted)' }}>Allocated: </span>
+                    <b style={{ color: isOverAllocated ? 'var(--red)' : '#059669' }}>{fmt(allocatedSum)}</b>
+                  </div>
+                  <div>
+                    <span style={{ color: 'var(--muted)' }}>Unallocated: </span>
+                    <b style={{ color: unallocatedAmount > 0 ? '#d97706' : 'var(--muted)' }}>{fmt(unallocatedAmount)}</b>
+                  </div>
+                </div>
+
+                {isOverAllocated && (
+                  <div style={{ color: 'var(--red)', fontSize: 12, fontWeight: 700 }}>
+                    ⚠️ Allocation exceeds total received by {fmt(allocatedSum - numTotalAmount)}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Modal Action Buttons */}
         <div className="modal-actions" style={{ marginTop: 20 }}>
           <button className="btn btn-ghost" type="button" onClick={onClose}>Cancel</button>
           <button
             className="btn btn-primary"
             type="button"
             onClick={handleSave}
-            disabled={!selectedOrderId || !amount || Number(amount) <= 0 || saving}
+            disabled={!clientId || allocatedSum <= 0 || isOverAllocated || saving}
             style={{
               background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)',
               border: 'none',
               fontWeight: 700,
+              boxShadow: '0 2px 8px rgba(16,185,129,0.35)',
             }}
           >
-            {saving ? 'Saving…' : 'Record & Get Receipt 🖨️'}
+            {saving ? 'Saving Receipt…' : `Record & Generate Receipt (${fmt(allocatedSum)}) 🖨️`}
           </button>
         </div>
       </div>

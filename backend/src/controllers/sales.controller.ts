@@ -386,16 +386,35 @@ export async function markPaid(req: AuthRequest, res: Response): Promise<void> {
 export async function recordPayment(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
   const { id } = req.params;
-  const { amount, payment_date, payment_mode } = req.body;
+  const { amount, payment_date, payment_mode, notes } = req.body;
   if (!amount || Number(amount) <= 0) { res.status(400).json({ message: 'amount required' }); return; }
   try {
     const paymentDate = payment_date || new Date().toISOString().slice(0, 10);
     const paymentMode = (payment_mode || 'cash').trim();
-    // Get current amount_paid and order total
+    const year = new Date(paymentDate).getFullYear();
+
+    // Generate receipt_no
+    const seqRows = await query<any[]>(
+      `SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(receipt_no, '-', -1) AS UNSIGNED)), 0) + 1 AS next_seq
+       FROM sales_payments 
+       WHERE tenant_id=? AND YEAR(payment_date)=? AND receipt_no LIKE 'RCP-%'`,
+      [tenantId, year]
+    );
+    const seq = seqRows[0].next_seq;
+    const receiptNo = `RCP-${year}-${String(seq).padStart(4, '0')}`;
+
+    // Insert payment with receipt_no and notes
+    await query(
+      'INSERT INTO sales_payments (tenant_id, order_id, amount, payment_date, payment_mode, receipt_no, notes) VALUES (?,?,?,?,?,?,?)',
+      [tenantId, id, amount, paymentDate, paymentMode, receiptNo, notes || null]
+    );
+
+    // Get order total and sum of all payments
     const rows = await query<any[]>(
-      `SELECT o.amount_paid,
-              COALESCE(SUM(i.quantity * i.rate_per_pc), 0) AS sub,
-              o.discount, o.gst_percent, o.include_gst
+      `SELECT
+         COALESCE(SUM(i.quantity * i.rate_per_pc), 0) AS sub,
+         o.discount, o.gst_percent, o.include_gst,
+         (SELECT COALESCE(SUM(p.amount), 0) FROM sales_payments p WHERE p.order_id = o.id AND p.tenant_id = o.tenant_id) AS total_paid
        FROM sales_orders o
        LEFT JOIN sales_order_items i ON i.order_id = o.id
        WHERE o.id=? AND o.tenant_id=?
@@ -403,29 +422,19 @@ export async function recordPayment(req: AuthRequest, res: Response): Promise<vo
       [id, tenantId]
     );
     if (!rows.length) { res.status(404).json({ message: 'Not found' }); return; }
-    const { amount_paid, sub, discount, gst_percent, include_gst } = rows[0];
+    const { sub, discount, gst_percent, include_gst, total_paid } = rows[0];
     const taxable    = Math.max(0, Number(sub) - Number(discount || 0));
     const total      = taxable * (1 + (include_gst ? Number(gst_percent) / 100 : 0));
-    const newPaid    = Math.min(Number(amount_paid) + Number(amount), total);
-    const newStatus  = newPaid >= total ? 'paid' : 'partial';
+    const newPaid    = Math.min(Number(total_paid || 0), total);
+    const newStatus  = newPaid >= total && total > 0 ? 'paid' : (newPaid > 0 ? 'partial' : 'pending');
     const paidAt     = newStatus === 'paid' ? 'NOW()' : 'NULL';
     await query(
       `UPDATE sales_orders SET amount_paid=?, status=?, paid_at=${paidAt === 'NULL' ? 'NULL' : 'NOW()'}
        WHERE id=? AND tenant_id=?`,
       [newPaid, newStatus, id, tenantId]
     );
-    try {
-      await query(
-        'INSERT INTO sales_payments (tenant_id, order_id, amount, payment_date, payment_mode) VALUES (?,?,?,?,?)',
-        [tenantId, id, amount, paymentDate, paymentMode]
-      );
-    } catch {
-      await query(
-        'INSERT INTO sales_payments (tenant_id, order_id, amount, payment_date) VALUES (?,?,?,?)',
-        [tenantId, id, amount, paymentDate]
-      );
-    }
-    res.json({ message: 'Payment recorded', amount_paid: newPaid, status: newStatus, total, payment_mode: paymentMode });
+
+    res.json({ message: 'Payment recorded', receipt_no: receiptNo, amount_paid: newPaid, status: newStatus, total, payment_mode: paymentMode });
   } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
@@ -485,6 +494,194 @@ export async function getNightiesCategorySummary(req: AuthRequest, res: Response
   } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
+export async function recordMultiInvoicePayment(req: AuthRequest, res: Response): Promise<void> {
+  const { tenantId } = req.user!;
+  const { client_id, payment_date, payment_mode, notes, allocations } = req.body;
+
+  if (!client_id || !Array.isArray(allocations) || allocations.length === 0) {
+    res.status(400).json({ message: 'Client and at least one invoice allocation are required' });
+    return;
+  }
+
+  const validAllocs = allocations.filter(a => a && a.order_id && Number(a.amount) > 0);
+  if (validAllocs.length === 0) {
+    res.status(400).json({ message: 'At least one allocation must have amount greater than 0' });
+    return;
+  }
+
+  const paymentDate = payment_date || new Date().toISOString().slice(0, 10);
+  const paymentMode = (payment_mode || 'cash').trim();
+  const year = new Date(paymentDate).getFullYear();
+
+  try {
+    // Generate sequential receipt number: RCP-YYYY-NNNN scoped per tenant per year
+    const seqRows = await query<any[]>(
+      `SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(receipt_no, '-', -1) AS UNSIGNED)), 0) + 1 AS next_seq
+       FROM sales_payments 
+       WHERE tenant_id=? AND YEAR(payment_date)=? AND receipt_no LIKE 'RCP-%'`,
+      [tenantId, year]
+    );
+    const seq = seqRows[0].next_seq;
+    const receiptNo = `RCP-${year}-${String(seq).padStart(4, '0')}`;
+
+    let totalAllocated = 0;
+
+    for (const alloc of validAllocs) {
+      const allocAmt = Number(alloc.amount);
+      if (allocAmt <= 0) continue;
+
+      // Insert payment record
+      await query(
+        `INSERT INTO sales_payments (tenant_id, order_id, amount, payment_date, payment_mode, receipt_no, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [tenantId, alloc.order_id, allocAmt, paymentDate, paymentMode, receiptNo, notes || null]
+      );
+
+      totalAllocated += allocAmt;
+
+      // Recalculate order total, amount_paid and status
+      const rows = await query<any[]>(
+        `SELECT
+           COALESCE(SUM(i.quantity * i.rate_per_pc), 0) AS sub,
+           o.discount, o.gst_percent, o.include_gst,
+           (SELECT COALESCE(SUM(p.amount), 0) FROM sales_payments p WHERE p.order_id = o.id AND p.tenant_id = o.tenant_id) AS total_paid
+         FROM sales_orders o
+         LEFT JOIN sales_order_items i ON i.order_id = o.id
+         WHERE o.id=? AND o.tenant_id=?
+         GROUP BY o.id`,
+        [alloc.order_id, tenantId]
+      );
+
+      if (rows.length > 0) {
+        const { sub, discount, gst_percent, include_gst, total_paid } = rows[0];
+        const taxable = Math.max(0, Number(sub) - Number(discount || 0));
+        const orderTotal = taxable * (1 + (include_gst ? Number(gst_percent) / 100 : 0));
+        const newPaid = Math.min(Number(total_paid || 0), orderTotal);
+        const newStatus = newPaid >= orderTotal && orderTotal > 0 ? 'paid' : (newPaid > 0 ? 'partial' : 'pending');
+        const paidAt = newStatus === 'paid' ? 'NOW()' : 'NULL';
+
+        await query(
+          `UPDATE sales_orders SET amount_paid=?, status=?, paid_at=${paidAt === 'NULL' ? 'NULL' : 'NOW()'}
+           WHERE id=? AND tenant_id=?`,
+          [newPaid, newStatus, alloc.order_id, tenantId]
+        );
+      }
+    }
+
+    res.status(201).json({
+      message: 'Payment receipt created successfully',
+      receipt_no: receiptNo,
+      total_amount: totalAllocated,
+    });
+  } catch (error) {
+    console.error('recordMultiInvoicePayment error:', error);
+    res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+export async function getReceiptDetails(req: AuthRequest, res: Response): Promise<void> {
+  const { tenantId } = req.user!;
+  const { receiptNo } = req.params;
+
+  try {
+    // Check if receiptNo is a formatted receipt number (RCP-...) or a numeric order_id
+    let payments: any[] = [];
+    if (receiptNo.startsWith('RCP-')) {
+      payments = await query<any[]>(
+        `SELECT p.*, o.invoice_number, o.order_date, o.amount_paid AS order_amount_paid, o.status AS order_status,
+                c.id AS client_id, c.name AS client_name, c.city AS client_city, c.phone AS client_phone, c.address AS client_address,
+                ((GREATEST(0, (SELECT COALESCE(SUM(i.quantity * i.rate_per_pc), 0) FROM sales_order_items i WHERE i.order_id = o.id) - o.discount)) * (1 + o.gst_percent / 100)) AS order_total
+         FROM sales_payments p
+         JOIN sales_orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
+         JOIN clients c ON c.id = o.client_id
+         WHERE p.receipt_no = ? AND p.tenant_id = ?
+         ORDER BY p.id ASC`,
+        [receiptNo, tenantId]
+      );
+    }
+
+    // Fallback: If not found or if receiptNo was an order ID
+    if (!payments.length) {
+      const orderId = Number(receiptNo.replace(/\D/g, '')) || 0;
+      payments = await query<any[]>(
+        `SELECT p.*, o.invoice_number, o.order_date, o.amount_paid AS order_amount_paid, o.status AS order_status,
+                c.id AS client_id, c.name AS client_name, c.city AS client_city, c.phone AS client_phone, c.address AS client_address,
+                ((GREATEST(0, (SELECT COALESCE(SUM(i.quantity * i.rate_per_pc), 0) FROM sales_order_items i WHERE i.order_id = o.id) - o.discount)) * (1 + o.gst_percent / 100)) AS order_total
+         FROM sales_payments p
+         JOIN sales_orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
+         JOIN clients c ON c.id = o.client_id
+         WHERE (p.order_id = ? OR p.id = ?) AND p.tenant_id = ?
+         ORDER BY p.id ASC`,
+        [orderId, orderId, tenantId]
+      );
+    }
+
+    if (!payments.length) {
+      res.status(404).json({ message: 'Receipt not found' });
+      return;
+    }
+
+    const first = payments[0];
+    const clientId = first.client_id;
+    const totalReceived = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
+
+    // Other outstanding invoices for this client
+    const otherOutstanding = await query<any[]>(
+      `SELECT o.id, o.invoice_number, o.order_date, o.status, o.amount_paid,
+              ((GREATEST(0, (SELECT COALESCE(SUM(i.quantity * i.rate_per_pc), 0) FROM sales_order_items i WHERE i.order_id = o.id) - o.discount)) * (1 + o.gst_percent / 100)) AS total
+       FROM sales_orders o
+       WHERE o.tenant_id = ? AND o.client_id = ? AND o.status IN ('pending', 'partial')
+       ORDER BY o.order_date ASC`,
+      [tenantId, clientId]
+    );
+
+    const clientTotalOutstanding = otherOutstanding.reduce(
+      (s, o) => s + Math.max(0, Number(o.total || 0) - Number(o.amount_paid || 0)),
+      0
+    );
+
+    res.json({
+      receipt_no: first.receipt_no || `RCP-${first.invoice_number || first.id}`,
+      payment_date: first.payment_date,
+      payment_mode: first.payment_mode || 'cash',
+      notes: first.notes || '',
+      client: {
+        id: first.client_id,
+        name: first.client_name,
+        city: first.client_city,
+        phone: first.client_phone,
+        address: first.client_address,
+      },
+      total_amount: totalReceived,
+      allocations: payments.map(p => {
+        const orderTotal = Number(p.order_total || 0);
+        const orderPaid = Number(p.order_amount_paid || 0);
+        return {
+          payment_id: p.id,
+          order_id: p.order_id,
+          invoice_number: p.invoice_number,
+          order_date: p.order_date,
+          amount_paid_in_receipt: Number(p.amount || 0),
+          order_total: orderTotal,
+          order_amount_paid: orderPaid,
+          balance_remaining: Math.max(0, orderTotal - orderPaid),
+          status: p.order_status,
+        };
+      }),
+      client_total_outstanding: clientTotalOutstanding,
+      other_outstanding: otherOutstanding.map(o => ({
+        ...o,
+        total: Number(o.total || 0),
+        amount_paid: Number(o.amount_paid || 0),
+        balance: Math.max(0, Number(o.total || 0) - Number(o.amount_paid || 0)),
+      })),
+    });
+  } catch (error) {
+    console.error('getReceiptDetails error:', error);
+    res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
 export async function getSalesPayments(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
   const { client_id, from, to, payment_mode, search, page: pageStr, limit: limitStr } = req.query as Record<string, string>;
@@ -518,9 +715,9 @@ export async function getSalesPayments(req: AuthRequest, res: Response): Promise
     }
 
     if (search && search.trim()) {
-      conds.push('(o.invoice_number LIKE ? OR c.name LIKE ? OR c.city LIKE ?)');
+      conds.push('(o.invoice_number LIKE ? OR c.name LIKE ? OR c.city LIKE ? OR p.receipt_no LIKE ?)');
       const q = `%${search.trim()}%`;
-      vals.push(q, q, q);
+      vals.push(q, q, q, q);
     }
 
     const whereClause = conds.join(' AND ');
@@ -533,7 +730,7 @@ export async function getSalesPayments(req: AuthRequest, res: Response): Promise
          COALESCE(SUM(CASE WHEN p.payment_mode = 'upi' THEN p.amount ELSE 0 END), 0) AS upi_collected,
          COALESCE(SUM(CASE WHEN p.payment_mode = 'bank_transfer' THEN p.amount ELSE 0 END), 0) AS bank_collected,
          COALESCE(SUM(CASE WHEN p.payment_mode = 'cheque' THEN p.amount ELSE 0 END), 0) AS cheque_collected,
-         COUNT(p.id) AS total_count
+         COUNT(DISTINCT COALESCE(p.receipt_no, CONCAT('ID-', p.id))) AS total_count
        FROM sales_payments p
        JOIN sales_orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
        JOIN clients c ON c.id = o.client_id
@@ -552,10 +749,10 @@ export async function getSalesPayments(req: AuthRequest, res: Response): Promise
 
     const total = Number(summary.total_count || 0);
 
-    // Paginated payments list
-    const payments = await query<any[]>(
+    // Fetch raw payment entries matching filters
+    const rawPayments = await query<any[]>(
       `SELECT 
-         p.id, p.tenant_id, p.order_id, p.amount, p.payment_date, p.payment_mode, p.created_at,
+         p.id, p.tenant_id, p.order_id, p.amount, p.payment_date, p.payment_mode, p.receipt_no, p.notes, p.created_at,
          o.invoice_number, o.order_date, o.amount_paid AS order_amount_paid, o.status AS order_status,
          c.id AS client_id, c.name AS client_name, c.city AS client_city, c.phone AS client_phone,
          ((GREATEST(0, (SELECT COALESCE(SUM(i.quantity * i.rate_per_pc), 0) FROM sales_order_items i WHERE i.order_id = o.id) - o.discount)) * (1 + o.gst_percent / 100)) AS order_total
@@ -563,17 +760,53 @@ export async function getSalesPayments(req: AuthRequest, res: Response): Promise
        JOIN sales_orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
        JOIN clients c ON c.id = o.client_id
        WHERE ${whereClause}
-       ORDER BY p.payment_date DESC, p.id DESC
-       LIMIT ? OFFSET ?`,
-      [...vals, limit, offset]
+       ORDER BY p.payment_date DESC, p.id DESC`,
+      vals
     );
 
+    // Group raw payments by receipt_no (or by id if receipt_no is null)
+    const groupedMap = new Map<string, any>();
+    for (const p of rawPayments) {
+      const key = p.receipt_no || `RCP-${p.invoice_number || p.id}`;
+      if (!groupedMap.has(key)) {
+        groupedMap.set(key, {
+          receipt_key: key,
+          receipt_no: p.receipt_no || key,
+          payment_date: p.payment_date,
+          payment_mode: p.payment_mode || 'cash',
+          notes: p.notes || '',
+          client_id: p.client_id,
+          client_name: p.client_name,
+          client_city: p.client_city,
+          client_phone: p.client_phone,
+          total_amount: 0,
+          invoices: [],
+        });
+      }
+      const group = groupedMap.get(key);
+      const amt = Number(p.amount || 0);
+      group.total_amount += amt;
+      group.invoices.push({
+        payment_id: p.id,
+        order_id: p.order_id,
+        invoice_number: p.invoice_number,
+        order_date: p.order_date,
+        amount: amt,
+        order_total: Number(p.order_total || 0),
+        order_amount_paid: Number(p.order_amount_paid || 0),
+        order_status: p.order_status,
+      });
+    }
+
+    const groupedList = Array.from(groupedMap.values());
+    const paginatedList = groupedList.slice(offset, offset + limit);
+
     res.json({
-      data: payments,
+      data: paginatedList,
       summary,
-      total,
+      total: groupedList.length,
       page,
-      pages: Math.max(1, Math.ceil(total / limit)),
+      pages: Math.max(1, Math.ceil(groupedList.length / limit)),
       limit
     });
   } catch (error) {
@@ -585,45 +818,64 @@ export async function getSalesPayments(req: AuthRequest, res: Response): Promise
 export async function deletePayment(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
   const { paymentId } = req.params;
+
   try {
-    const paymentRows = await query<any[]>(
-      'SELECT * FROM sales_payments WHERE id=? AND tenant_id=?',
-      [paymentId, tenantId]
-    );
+    // Find all payment rows matching receipt_no OR id
+    let paymentRows: any[] = [];
+    if (paymentId.startsWith('RCP-')) {
+      paymentRows = await query<any[]>(
+        'SELECT * FROM sales_payments WHERE receipt_no=? AND tenant_id=?',
+        [paymentId, tenantId]
+      );
+    }
+    if (!paymentRows.length) {
+      paymentRows = await query<any[]>(
+        'SELECT * FROM sales_payments WHERE (id=? OR receipt_no=?) AND tenant_id=?',
+        [paymentId, paymentId, tenantId]
+      );
+    }
+
     if (!paymentRows.length) {
       res.status(404).json({ message: 'Payment receipt not found' });
       return;
     }
-    const payment = paymentRows[0];
-    const orderId = payment.order_id;
 
-    await query('DELETE FROM sales_payments WHERE id=? AND tenant_id=?', [paymentId, tenantId]);
+    const affectedOrderIds = Array.from(new Set(paymentRows.map(p => p.order_id)));
 
-    // Recalculate sales_order amount_paid and status
-    const remainingRows = await query<any[]>(
-      'SELECT COALESCE(SUM(amount), 0) AS total_paid FROM sales_payments WHERE order_id=? AND tenant_id=?',
-      [orderId, tenantId]
-    );
-    const newPaid = Number(remainingRows[0]?.total_paid || 0);
-
-    const orderTotals = await query<any[]>(
-      `SELECT (GREATEST(0, COALESCE(SUM(i.quantity * i.rate_per_pc), 0) - o.discount)) * (1 + o.gst_percent / 100) AS total
-       FROM sales_orders o
-       LEFT JOIN sales_order_items i ON i.order_id = o.id
-       WHERE o.id=? AND o.tenant_id=?
-       GROUP BY o.id`,
-      [orderId, tenantId]
-    );
-    const orderTotal = Number(orderTotals[0]?.total || 0);
-    const newStatus = newPaid >= orderTotal && orderTotal > 0 ? 'paid' : (newPaid > 0 ? 'partial' : 'pending');
-    const paidAt = newStatus === 'paid' ? 'NOW()' : 'NULL';
-
+    // Delete matching payments
+    const paymentIds = paymentRows.map(p => p.id);
     await query(
-      `UPDATE sales_orders SET amount_paid=?, status=?, paid_at=${paidAt === 'NULL' ? 'NULL' : 'NOW()'} WHERE id=? AND tenant_id=?`,
-      [newPaid, newStatus, orderId, tenantId]
+      `DELETE FROM sales_payments WHERE id IN (${paymentIds.map(() => '?').join(',')}) AND tenant_id=?`,
+      [...paymentIds, tenantId]
     );
 
-    res.json({ message: 'Receipt deleted successfully and invoice balance recalculated' });
+    // Recalculate amount_paid and status for all affected orders
+    for (const orderId of affectedOrderIds) {
+      const remainingRows = await query<any[]>(
+        'SELECT COALESCE(SUM(amount), 0) AS total_paid FROM sales_payments WHERE order_id=? AND tenant_id=?',
+        [orderId, tenantId]
+      );
+      const newPaid = Number(remainingRows[0]?.total_paid || 0);
+
+      const orderTotals = await query<any[]>(
+        `SELECT (GREATEST(0, COALESCE(SUM(i.quantity * i.rate_per_pc), 0) - o.discount)) * (1 + o.gst_percent / 100) AS total
+         FROM sales_orders o
+         LEFT JOIN sales_order_items i ON i.order_id = o.id
+         WHERE o.id=? AND o.tenant_id=?
+         GROUP BY o.id`,
+        [orderId, tenantId]
+      );
+      const orderTotal = Number(orderTotals[0]?.total || 0);
+      const newStatus = newPaid >= orderTotal && orderTotal > 0 ? 'paid' : (newPaid > 0 ? 'partial' : 'pending');
+      const paidAt = newStatus === 'paid' ? 'NOW()' : 'NULL';
+
+      await query(
+        `UPDATE sales_orders SET amount_paid=?, status=?, paid_at=${paidAt === 'NULL' ? 'NULL' : 'NOW()'} WHERE id=? AND tenant_id=?`,
+        [newPaid, newStatus, orderId, tenantId]
+      );
+    }
+
+    res.json({ message: 'Receipt deleted successfully and invoice balances recalculated' });
   } catch (error) {
     console.error('deletePayment error:', error);
     res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
