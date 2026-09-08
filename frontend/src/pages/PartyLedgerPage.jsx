@@ -383,37 +383,37 @@ export default function PartyLedgerPage() {
             </div>
           ) : (
             <div className="tbl-wrap" style={{ width: '100%', overflowX: 'auto' }}>
-              <table style={{ width: '100%', minWidth: 780, borderCollapse: 'collapse', textAlign: 'left' }}>
+              <table style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse', textAlign: 'left', margin: 0 }}>
                 <thead>
                   <tr style={{ background: 'var(--surface)', borderBottom: '1.5px solid var(--border)' }}>
-                    <th style={{ width: '11%', padding: '10px 8px', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)' }}>Date</th>
-                    <th style={{ width: '9%', padding: '10px 6px', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)' }}>Type</th>
-                    <th style={{ width: '13%', padding: '10px 8px', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)' }}>Reference</th>
-                    <th style={{ width: '20%', padding: '10px 8px', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)' }}>Items Details</th>
-                    <th style={{ width: '17%', padding: '10px 8px', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)' }}>Description / Notes</th>
-                    <th style={{ width: '10%', padding: '10px 8px', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)', textAlign: 'right' }}>
+                    <th style={{ width: '9.5%', padding: '9px 6px', fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)' }}>Date</th>
+                    <th style={{ width: '7%', padding: '9px 4px', fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)' }}>Type</th>
+                    <th style={{ width: '11.5%', padding: '9px 6px', fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)' }}>Reference</th>
+                    <th style={{ width: '16%', padding: '9px 6px', fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)' }}>Items Details</th>
+                    <th style={{ width: '14%', padding: '9px 6px', fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)' }}>Description / Notes</th>
+                    <th style={{ width: '14%', padding: '9px 6px', fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)', textAlign: 'right' }}>
                       {tab === 'client' ? 'Billed (+)' : 'Purchased (+)'}
                     </th>
-                    <th style={{ width: '10%', padding: '10px 8px', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)', textAlign: 'right' }}>Paid (-)</th>
-                    <th style={{ width: '10%', padding: '10px 8px', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)', textAlign: 'right' }}>Balance</th>
+                    <th style={{ width: '14%', padding: '9px 6px', fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)', textAlign: 'right' }}>Paid (-)</th>
+                    <th style={{ width: '14%', padding: '9px 6px', fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)', textAlign: 'right' }}>Balance</th>
                   </tr>
                 </thead>
                 <tbody>
                   {/* Opening Balance Row */}
                   {from && (
                     <tr style={{ borderBottom: '1px solid var(--border)', background: 'rgba(243,244,246,0.5)' }}>
-                      <td style={{ padding: '8px 8px', fontSize: 12, color: 'var(--muted)' }}>{fmtD(from)}</td>
-                      <td style={{ padding: '8px 6px', fontSize: 12 }}>
-                        <span className="badge b-yellow" style={{ fontSize: 9, textTransform: 'uppercase', fontWeight: 700, padding: '1px 5px' }}>Opening</span>
+                      <td style={{ padding: '8px 6px', fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{fmtD(from)}</td>
+                      <td style={{ padding: '8px 4px', fontSize: 10 }}>
+                        <span className="badge b-yellow" style={{ fontSize: 8.5, textTransform: 'uppercase', fontWeight: 700, padding: '1px 4px' }}>Opening</span>
                       </td>
-                      <td style={{ padding: '8px 8px', fontSize: 12, color: 'var(--muted)' }}>—</td>
-                      <td style={{ padding: '8px 8px', fontSize: 12, color: 'var(--muted)' }}>—</td>
-                      <td style={{ padding: '8px 8px', fontSize: 12, color: 'var(--muted)', fontStyle: 'italic' }}>
+                      <td style={{ padding: '8px 6px', fontSize: 11, color: 'var(--muted)' }}>—</td>
+                      <td style={{ padding: '8px 6px', fontSize: 11, color: 'var(--muted)' }}>—</td>
+                      <td style={{ padding: '8px 6px', fontSize: 11, color: 'var(--muted)', fontStyle: 'italic', wordBreak: 'break-word', overflowWrap: 'break-word' }}>
                         Opening Balance Brought Forward
                       </td>
-                      <td style={{ padding: '8px 8px', fontSize: 12, textAlign: 'right', color: 'var(--muted)' }}>—</td>
-                      <td style={{ padding: '8px 8px', fontSize: 12, textAlign: 'right', color: 'var(--muted)' }}>—</td>
-                      <td style={{ padding: '8px 8px', fontSize: 12, textAlign: 'right', fontWeight: 700, color: 'var(--text)' }}>
+                      <td style={{ padding: '8px 6px', fontSize: 11, textAlign: 'right', color: 'var(--muted)', whiteSpace: 'nowrap' }}>—</td>
+                      <td style={{ padding: '8px 6px', fontSize: 11, textAlign: 'right', color: 'var(--muted)', whiteSpace: 'nowrap' }}>—</td>
+                      <td style={{ padding: '8px 6px', fontSize: 11.5, textAlign: 'right', fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap' }}>
                         {fmt(openingBalance)}
                       </td>
                     </tr>
@@ -422,26 +422,26 @@ export default function PartyLedgerPage() {
                   {/* Ledger Transactions */}
                   {ledger.map((r, i) => (
                     <tr key={i} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 1 ? 'rgba(249,250,251,0.6)' : '#fff' }}>
-                      <td style={{ padding: '8px 8px', fontSize: 11.5, fontWeight: 500 }}>{fmtD(r.date)}</td>
-                      <td style={{ padding: '8px 6px', fontSize: 11 }}>
-                        <span className={`badge ${r.type === 'invoice' || r.type === 'bill' ? 'b-accent' : 'b-green'}`} style={{ textTransform: 'capitalize', fontSize: 9.5, fontWeight: 600, padding: '1px 5px' }}>
+                      <td style={{ padding: '8px 6px', fontSize: 11, fontWeight: 500, whiteSpace: 'nowrap' }}>{fmtD(r.date)}</td>
+                      <td style={{ padding: '8px 4px', fontSize: 10 }}>
+                        <span className={`badge ${r.type === 'invoice' || r.type === 'bill' ? 'b-accent' : 'b-green'}`} style={{ textTransform: 'capitalize', fontSize: 8.5, fontWeight: 600, padding: '1px 4px' }}>
                           {r.type}
                         </span>
                       </td>
-                      <td style={{ padding: '8px 8px', fontSize: 11.5, fontWeight: 700, color: 'var(--text)' }}>{r.ref || '—'}</td>
-                      <td style={{ padding: '8px 8px', fontSize: 11.5, color: 'var(--text)', lineHeight: 1.35, wordBreak: 'break-word' }}>
+                      <td style={{ padding: '8px 6px', fontSize: 11, fontWeight: 700, color: 'var(--text)', wordBreak: 'break-word', overflowWrap: 'break-word' }}>{r.ref || '—'}</td>
+                      <td style={{ padding: '8px 6px', fontSize: 11, color: 'var(--text)', lineHeight: 1.35, wordBreak: 'break-word', overflowWrap: 'break-word', whiteSpace: 'normal' }}>
                         {formatItems(r.items_detail)}
                       </td>
-                      <td style={{ padding: '8px 8px', fontSize: 11.5, color: 'var(--muted)', wordBreak: 'break-word' }} title={r.description}>
+                      <td style={{ padding: '8px 6px', fontSize: 11, color: 'var(--muted)', lineHeight: 1.35, wordBreak: 'break-word', overflowWrap: 'break-word', whiteSpace: 'normal' }} title={r.description}>
                         {r.description || '—'}
                       </td>
-                      <td style={{ padding: '8px 8px', fontSize: 12, textAlign: 'right', fontWeight: 600, color: r.debit ? 'var(--text)' : 'var(--muted)' }}>
+                      <td style={{ padding: '8px 6px', fontSize: 11.5, textAlign: 'right', fontWeight: 600, color: r.debit ? 'var(--text)' : 'var(--muted)', whiteSpace: 'nowrap' }}>
                         {r.debit ? fmt(r.debit) : '—'}
                       </td>
-                      <td style={{ padding: '8px 8px', fontSize: 12, textAlign: 'right', fontWeight: 600, color: r.credit ? 'var(--green)' : 'var(--muted)' }}>
+                      <td style={{ padding: '8px 6px', fontSize: 11.5, textAlign: 'right', fontWeight: 600, color: r.credit ? 'var(--green)' : 'var(--muted)', whiteSpace: 'nowrap' }}>
                         {r.credit ? fmt(r.credit) : '—'}
                       </td>
-                      <td style={{ padding: '8px 8px', fontSize: 12, textAlign: 'right', fontWeight: 700, color: 'var(--accent)' }}>
+                      <td style={{ padding: '8px 6px', fontSize: 11.5, textAlign: 'right', fontWeight: 700, color: 'var(--accent)', whiteSpace: 'nowrap' }}>
                         {fmt(r.balance)}
                       </td>
                     </tr>
@@ -449,16 +449,16 @@ export default function PartyLedgerPage() {
                 </tbody>
                 <tfoot>
                   <tr style={{ background: 'var(--surface)', borderTop: '2px solid var(--border)', fontWeight: 800 }}>
-                    <td colSpan={5} style={{ padding: '10px 8px', fontWeight: 800, fontSize: 12 }}>
+                    <td colSpan={5} style={{ padding: '9px 6px', fontWeight: 800, fontSize: 11.5 }}>
                       Summary Totals (Period Net: {fmt(netBalance)})
                     </td>
-                    <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 800, color: 'var(--text)', fontSize: 12 }}>
+                    <td style={{ padding: '9px 6px', textAlign: 'right', fontWeight: 800, color: 'var(--text)', fontSize: 11.5, whiteSpace: 'nowrap' }}>
                       {fmt(totalBilled)}
                     </td>
-                    <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 800, color: 'var(--green)', fontSize: 12 }}>
+                    <td style={{ padding: '9px 6px', textAlign: 'right', fontWeight: 800, color: 'var(--green)', fontSize: 11.5, whiteSpace: 'nowrap' }}>
                       {fmt(totalPaid)}
                     </td>
-                    <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 900, color: 'var(--accent)', fontSize: 12 }}>
+                    <td style={{ padding: '9px 6px', textAlign: 'right', fontWeight: 900, color: 'var(--accent)', fontSize: 11.5, whiteSpace: 'nowrap' }}>
                       {fmt(netBalance)}
                     </td>
                   </tr>

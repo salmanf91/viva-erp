@@ -47,25 +47,76 @@ export default function SalesPage() {
 
 function OrdersTab({ onReload }) {
   const [orders, setOrders]   = useState([]);
+  const [clients, setClients] = useState([]);
   const [page, setPage]       = useState(1);
   const [pages, setPages]     = useState(1);
   const [total, setTotal]     = useState(0);
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter]   = useState('all');
-  const [showNew, setShowNew] = useState(false);
+
+  // Filters
+  const [filter, setFilter]             = useState('all');
+  const [clientFilter, setClientFilter] = useState('all');
+  const [datePreset, setDatePreset]     = useState('all'); // 'all', 'today', 'this_week', 'this_month', 'custom'
+  const [startDate, setStartDate]       = useState('');
+  const [endDate, setEndDate]           = useState('');
+  const [search, setSearch]             = useState('');
+
+  const [showNew, setShowNew]     = useState(false);
   const [editOrder, setEditOrder] = useState(null);
-  const [invoice, setInvoice] = useState(null);
+  const [invoice, setInvoice]     = useState(null);
+
+  // Load clients dropdown
+  useEffect(() => {
+    api.get('/sales/clients').then(r => setClients(r.data || [])).catch(() => {});
+  }, []);
+
+  // Compute effective start and end dates from datePreset
+  const { effStart, effEnd } = useMemo(() => {
+    const now = new Date();
+    if (datePreset === 'today') {
+      const d = now.toISOString().slice(0, 10);
+      return { effStart: d, effEnd: d };
+    }
+    if (datePreset === 'this_week') {
+      const day = now.getDay();
+      const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+      const start = new Date(new Date().setDate(diff)).toISOString().slice(0, 10);
+      const end = new Date().toISOString().slice(0, 10);
+      return { effStart: start, effEnd: end };
+    }
+    if (datePreset === 'this_month') {
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, '0');
+      const start = `${y}-${m}-01`;
+      const end = new Date().toISOString().slice(0, 10);
+      return { effStart: start, effEnd: end };
+    }
+    if (datePreset === 'custom') {
+      return { effStart: startDate, effEnd: endDate };
+    }
+    return { effStart: '', effEnd: '' };
+  }, [datePreset, startDate, endDate]);
 
   const load = () => {
     setLoading(true);
     const params = {
+      page,
+      limit: 20,
       ...(filter !== 'all' ? { status: filter } : {}),
-      page
+      ...(clientFilter !== 'all' ? { client_id: clientFilter } : {}),
+      ...(effStart ? { from: effStart } : {}),
+      ...(effEnd ? { to: effEnd } : {}),
+      ...(search.trim() ? { search: search.trim() } : {}),
+    };
+    const summaryParams = {
+      ...(clientFilter !== 'all' ? { client_id: clientFilter } : {}),
+      ...(effStart ? { from: effStart } : {}),
+      ...(effEnd ? { to: effEnd } : {}),
     };
     Promise.all([
       api.get('/sales', { params }),
-      api.get('/sales/summary'),
+      api.get('/sales/summary', { params: summaryParams }),
     ]).then(([o, s]) => {
       setOrders(o.data.data || []);
       setPages(o.data.pages || 1);
@@ -75,8 +126,8 @@ function OrdersTab({ onReload }) {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { setPage(1); }, [filter]);
-  useEffect(() => { load(); }, [filter, page]);
+  useEffect(() => { setPage(1); }, [filter, clientFilter, datePreset, effStart, effEnd, search]);
+  useEffect(() => { load(); }, [filter, clientFilter, datePreset, effStart, effEnd, search, page]);
 
   const openInvoice = async order => {
     const r = await api.get(`/sales/${order.id}`);
@@ -92,9 +143,9 @@ function OrdersTab({ onReload }) {
   const [receiptModal, setReceiptModal] = useState(null); // orderId
 
   const recordPayment = async (id, amount, date, payment_mode) => {
-    await api.post(`/sales/${id}/payment`, { amount, payment_date: date, payment_mode });
+    const res = await api.post(`/sales/${id}/payment`, { amount, payment_date: date, payment_mode });
     setPayModal(null);
-    setReceiptModal(id);
+    setReceiptModal(res.data?.receipt_no || id);
     load(); onReload();
   };
 
@@ -117,18 +168,90 @@ function OrdersTab({ onReload }) {
       )}
 
       {/* Toolbar */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'center' }}>
+      <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+        {/* Status Filter */}
         <div style={{ display: 'flex', gap: 4, background: 'var(--surface)', borderRadius: 8, padding: 3 }}>
           {[['all','All'],['pending','Outstanding'],['paid','Paid']].map(([v, l]) => (
             <button key={v} onClick={() => setFilter(v)}
               style={{
-                padding: '5px 14px', fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer',
+                padding: '5px 12px', fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer',
                 borderRadius: 6, background: filter === v ? 'var(--white)' : 'transparent',
                 color: filter === v ? 'var(--text)' : 'var(--muted)',
                 boxShadow: filter === v ? '0 1px 3px rgba(0,0,0,.08)' : 'none',
               }}>{l}</button>
           ))}
         </div>
+
+        {/* Client Filter */}
+        <select
+          value={clientFilter}
+          onChange={e => setClientFilter(e.target.value)}
+          style={{ padding: '6px 12px', borderRadius: 7, border: '1px solid var(--border)', fontSize: 13, background: '#fff' }}
+        >
+          <option value="all">👥 All Clients</option>
+          {clients.map(c => (
+            <option key={c.id} value={c.id}>{c.name} {c.city ? `(${c.city})` : ''}</option>
+          ))}
+        </select>
+
+        {/* Date Preset Selector */}
+        <div style={{ display: 'flex', gap: 4, background: 'var(--surface)', borderRadius: 8, padding: 3 }}>
+          {[
+            ['all', 'All Time'],
+            ['today', 'Today'],
+            ['this_week', 'This Week'],
+            ['this_month', 'This Month'],
+            ['custom', 'Custom'],
+          ].map(([k, lbl]) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => setDatePreset(k)}
+              style={{
+                padding: '4px 10px',
+                fontSize: 12,
+                fontWeight: 600,
+                border: 'none',
+                cursor: 'pointer',
+                borderRadius: 6,
+                background: datePreset === k ? 'var(--white)' : 'transparent',
+                color: datePreset === k ? 'var(--text)' : 'var(--muted)',
+                boxShadow: datePreset === k ? '0 1px 3px rgba(0,0,0,.08)' : 'none',
+              }}
+            >
+              {lbl}
+            </button>
+          ))}
+        </div>
+
+        {/* Custom Date Inputs */}
+        {datePreset === 'custom' && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <input
+              type="date"
+              value={startDate}
+              onChange={e => setStartDate(e.target.value)}
+              style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 12 }}
+            />
+            <span style={{ fontSize: 12, color: 'var(--muted)' }}>to</span>
+            <input
+              type="date"
+              value={endDate}
+              onChange={e => setEndDate(e.target.value)}
+              style={{ padding: '5px 8px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 12 }}
+            />
+          </div>
+        )}
+
+        {/* Search */}
+        <input
+          type="text"
+          placeholder="🔍 Search invoice, client..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          style={{ padding: '6px 12px', borderRadius: 7, border: '1px solid var(--border)', fontSize: 13, width: 200 }}
+        />
+
         <button className="btn btn-primary btn-sm" style={{ marginLeft: 'auto' }} onClick={() => setShowNew(true)}>
           + New Delivery
         </button>
