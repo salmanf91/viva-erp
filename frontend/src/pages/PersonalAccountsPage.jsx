@@ -41,6 +41,7 @@ export default function PersonalAccountsPage() {
     category: 'personal_payment',
     amount: '',
     payment_mode: 'cash',
+    person_name: '',
     reference_no: '',
     description: '',
   });
@@ -98,6 +99,7 @@ export default function PersonalAccountsPage() {
           category: form.category,
           amount: +form.amount,
           payment_mode: form.payment_mode,
+          person_name: form.person_name || null,
           reference_no: form.reference_no,
           description: form.description,
         });
@@ -109,6 +111,7 @@ export default function PersonalAccountsPage() {
           category: form.category,
           amount: +form.amount,
           payment_mode: form.payment_mode,
+          person_name: form.person_name || null,
           reference_no: form.reference_no,
           description: form.description,
         });
@@ -143,6 +146,7 @@ export default function PersonalAccountsPage() {
       category: entry.category,
       amount: String(entry.amount),
       payment_mode: entry.payment_mode || 'cash',
+      person_name: entry.person_name || '',
       reference_no: entry.reference_no || '',
       description: entry.description || '',
     });
@@ -160,6 +164,7 @@ export default function PersonalAccountsPage() {
       category: defaultType === 'credit' ? 'personal_payment' : 'personal_repayment',
       amount: '',
       payment_mode: 'cash',
+      person_name: '',
       reference_no: '',
       description: '',
     });
@@ -175,6 +180,7 @@ export default function PersonalAccountsPage() {
       category: 'personal_payment',
       amount: '',
       payment_mode: 'cash',
+      person_name: '',
       reference_no: '',
       description: '',
     });
@@ -192,6 +198,7 @@ export default function PersonalAccountsPage() {
     const q = search.toLowerCase();
     return (
       (r.partner_name || '').toLowerCase().includes(q) ||
+      (r.person_name || '').toLowerCase().includes(q) ||
       (r.description || '').toLowerCase().includes(q) ||
       (r.reference_no || '').toLowerCase().includes(q) ||
       (PERS_CAT_LABEL[r.category] || r.category || '').toLowerCase().includes(q)
@@ -457,8 +464,8 @@ export default function PersonalAccountsPage() {
               style={{ fontSize: 12, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', background: '#fff' }}
             >
               <option value="all">All Types (Credit &amp; Debit)</option>
-              <option value="credit">🟢 Credit (+) Only</option>
-              <option value="debit">🔴 Debit (−) Only</option>
+              <option value="credit">Credit (+) Only</option>
+              <option value="debit">Debit (−) Only</option>
             </select>
 
             <select
@@ -474,10 +481,10 @@ export default function PersonalAccountsPage() {
 
             <input
               type="text"
-              placeholder="🔍 Search notes, ref..."
+              placeholder="🔍 Search notes, person, ref..."
               value={search}
               onChange={e => setSearch(e.target.value)}
-              style={{ fontSize: 12, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', width: 170 }}
+              style={{ fontSize: 12, padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', width: 180 }}
             />
           </div>
         </div>
@@ -519,9 +526,9 @@ export default function PersonalAccountsPage() {
                       <td style={{ fontWeight: 700, fontSize: 12 }}>{r.partner_name}</td>
                       <td>
                         {isCredit ? (
-                          <span className="badge b-green" style={{ fontSize: 11 }}>🟢 Credit</span>
+                          <span className="badge b-green" style={{ fontSize: 11, fontWeight: 700 }}>Credit</span>
                         ) : (
-                          <span className="badge b-red" style={{ fontSize: 11 }}>🔴 Debit</span>
+                          <span className="badge b-red" style={{ fontSize: 11, fontWeight: 700 }}>Debit</span>
                         )}
                       </td>
                       <td>
@@ -533,7 +540,23 @@ export default function PersonalAccountsPage() {
                         {r.payment_mode === 'bank_transfer' ? 'Bank Transfer' : r.payment_mode || 'cash'}
                       </td>
                       <td style={{ fontSize: 12 }}>
-                        {r.description || '—'}
+                        {r.person_name && (
+                          <div style={{ marginBottom: 3 }}>
+                            <span style={{
+                              fontSize: 11,
+                              fontWeight: 700,
+                              background: isCredit ? '#ecfdf5' : '#fef2f2',
+                              color: isCredit ? '#047857' : '#b91c1c',
+                              padding: '2px 7px',
+                              borderRadius: 4,
+                              border: `1px solid ${isCredit ? '#a7f3d0' : '#fecaca'}`,
+                              display: 'inline-block'
+                            }}>
+                              {isCredit ? '👤 Source: ' : '👤 Paid to: '}{r.person_name}
+                            </span>
+                          </div>
+                        )}
+                        <div>{r.description || '—'}</div>
                         {r.reference_no && (
                           <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>Ref: {r.reference_no}</div>
                         )}
@@ -817,6 +840,19 @@ export default function PersonalAccountsPage() {
                 </select>
               </div>
 
+              {/* Person / Paid To / Source Field */}
+              <div className="field">
+                <label style={{ fontWeight: 700, fontSize: 12 }}>
+                  {form.type === 'debit' ? '👤 Paid To / Lender / Beneficiary (Optional)' : '👤 Received From / Source / Reason (Optional)'}
+                </label>
+                <input
+                  type="text"
+                  placeholder={form.type === 'debit' ? 'e.g. Bapa, Lender XYZ, Merchant' : 'e.g. Received from Client, Personal Savings, Bapa'}
+                  value={form.person_name || ''}
+                  onChange={e => setForm(f => ({ ...f, person_name: e.target.value }))}
+                />
+              </div>
+
               {/* Ref No Field */}
               <div className="field">
                 <label style={{ fontWeight: 700, fontSize: 12 }}>Ref / Cheque # (Optional)</label>
@@ -945,7 +981,9 @@ export default function PersonalAccountsPage() {
                     <tr key={r.id}>
                       <td>{fmtD(r.entry_date?.slice(0, 10))}</td>
                       <td style={{ fontWeight: 600 }}>{r.partner_name}</td>
-                      <td>{r.description || '—'} {r.reference_no ? `(${r.reference_no})` : ''}</td>
+                      <td>
+                        {r.person_name ? `${r.type === 'debit' ? 'Paid to: ' : 'From: '}${r.person_name}${r.description ? ' — ' + r.description : ''}` : (r.description || '—')} {r.reference_no ? `(${r.reference_no})` : ''}
+                      </td>
                       <td>{PERS_CAT_LABEL[r.category] || r.category}</td>
                       <td style={{ textAlign: 'right', color: 'var(--green)', fontWeight: 600 }}>
                         {r.type === 'credit' ? Number(r.amount).toFixed(2) : '—'}

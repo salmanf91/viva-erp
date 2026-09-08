@@ -280,12 +280,46 @@ export async function updateOrder(req: AuthRequest, res: Response): Promise<void
     const discountAmt = parseFloat(discount) || 0;
     const discountPct = subtotal > 0 ? parseFloat(((discountAmt / subtotal) * 100).toFixed(2)) : 0;
 
-    await query(
-      `UPDATE sales_orders 
-       SET client_id=?, order_date=?, notes=?, include_gst=?, gst_percent=?, discount_percent=?, discount=?
-       WHERE id=? AND tenant_id=?`,
-      [client_id, order_date, notes || null, include_gst ? 1 : 0, include_gst ? (gst_percent || 0) : 0, discountPct, discountAmt, id, tenantId]
-    );
+    const taxable = Math.max(0, subtotal - discountAmt);
+    const total = taxable * (1 + (include_gst ? (Number(gst_percent) || 0) / 100 : 0));
+
+    // Handle amount_paid if supplied
+    if (req.body.amount_paid !== undefined) {
+      const newAmountPaid = Math.min(Math.max(0, Number(req.body.amount_paid || 0)), total);
+      const newStatus = newAmountPaid >= total && total > 0 ? 'paid' : (newAmountPaid > 0 ? 'partial' : 'pending');
+      const paidAt = newStatus === 'paid' ? new Date() : null;
+
+      await query(
+        `UPDATE sales_orders 
+         SET client_id=?, order_date=?, notes=?, include_gst=?, gst_percent=?, discount_percent=?, discount=?, amount_paid=?, status=?, paid_at=?
+         WHERE id=? AND tenant_id=?`,
+        [client_id, order_date, notes || null, include_gst ? 1 : 0, include_gst ? (gst_percent || 0) : 0, discountPct, discountAmt, newAmountPaid, newStatus, paidAt, id, tenantId]
+      );
+
+      // Sync sales_payments table
+      await query('DELETE FROM sales_payments WHERE order_id=? AND tenant_id=?', [id, tenantId]);
+      if (newAmountPaid > 0) {
+        const paymentMode = (req.body.payment_mode || 'cash').trim();
+        try {
+          await query(
+            'INSERT INTO sales_payments (tenant_id, order_id, amount, payment_date, payment_mode) VALUES (?,?,?,?,?)',
+            [tenantId, id, newAmountPaid, order_date, paymentMode]
+          );
+        } catch {
+          await query(
+            'INSERT INTO sales_payments (tenant_id, order_id, amount, payment_date) VALUES (?,?,?,?)',
+            [tenantId, id, newAmountPaid, order_date]
+          );
+        }
+      }
+    } else {
+      await query(
+        `UPDATE sales_orders 
+         SET client_id=?, order_date=?, notes=?, include_gst=?, gst_percent=?, discount_percent=?, discount=?
+         WHERE id=? AND tenant_id=?`,
+        [client_id, order_date, notes || null, include_gst ? 1 : 0, include_gst ? (gst_percent || 0) : 0, discountPct, discountAmt, id, tenantId]
+      );
+    }
 
     await query('DELETE FROM sales_order_items WHERE order_id=?', [id]);
 
@@ -399,6 +433,7 @@ export async function deleteOrder(req: AuthRequest, res: Response): Promise<void
   const { tenantId } = req.user!;
   const { id } = req.params;
   try {
+    await query('DELETE FROM sales_payments WHERE order_id=? AND tenant_id=?', [id, tenantId]);
     await query('DELETE FROM sales_order_items WHERE order_id=?', [id]);
     await query('DELETE FROM sales_orders WHERE id=? AND tenant_id=?', [id, tenantId]);
     res.json({ message: 'Deleted' });

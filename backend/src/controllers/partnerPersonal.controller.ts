@@ -121,7 +121,7 @@ export async function getPartnerPersonalLedger(req: AuthRequest, res: Response):
 
 export async function createPersonalEntry(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
-  const { partner_id, entry_date, type, category, amount, payment_mode, reference_no, description } = req.body;
+  const { partner_id, entry_date, type, category, amount, payment_mode, person_name, reference_no, description } = req.body;
 
   if (!partner_id || !amount || Number(amount) <= 0) {
     res.status(400).json({ message: 'Valid partner and amount are required' });
@@ -140,9 +140,9 @@ export async function createPersonalEntry(req: AuthRequest, res: Response): Prom
   try {
     const result = await query<any>(
       `INSERT INTO partner_personal_accounts 
-       (tenant_id, partner_id, entry_date, type, category, amount, payment_mode, reference_no, description)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [tenantId, partner_id, date, type, cat, Number(amount), mode, reference_no || null, description || null]
+       (tenant_id, partner_id, entry_date, type, category, amount, payment_mode, person_name, reference_no, description)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [tenantId, partner_id, date, type, cat, Number(amount), mode, person_name || null, reference_no || null, description || null]
     );
 
     res.status(201).json({ id: result.insertId, message: 'Personal account entry created successfully' });
@@ -155,7 +155,7 @@ export async function createPersonalEntry(req: AuthRequest, res: Response): Prom
 export async function updatePersonalEntry(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
   const { id } = req.params;
-  const { partner_id, entry_date, type, category, amount, payment_mode, reference_no, description } = req.body;
+  const { partner_id, entry_date, type, category, amount, payment_mode, person_name, reference_no, description } = req.body;
 
   if (!amount || Number(amount) <= 0) {
     res.status(400).json({ message: 'Valid amount is required' });
@@ -172,6 +172,7 @@ export async function updatePersonalEntry(req: AuthRequest, res: Response): Prom
     if (category !== undefined) { sets.push('category=?'); vals.push(category); }
     if (amount !== undefined) { sets.push('amount=?'); vals.push(Number(amount)); }
     if (payment_mode !== undefined) { sets.push('payment_mode=?'); vals.push(payment_mode); }
+    if (person_name !== undefined) { sets.push('person_name=?'); vals.push(person_name || null); }
     if (reference_no !== undefined) { sets.push('reference_no=?'); vals.push(reference_no || null); }
     if (description !== undefined) { sets.push('description=?'); vals.push(description || null); }
 

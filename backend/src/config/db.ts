@@ -114,6 +114,7 @@ export async function initDb(): Promise<void> {
         category VARCHAR(50) NOT NULL DEFAULT 'other',
         amount DECIMAL(12, 2) NOT NULL,
         payment_mode VARCHAR(30) DEFAULT 'cash',
+        person_name VARCHAR(255) NULL,
         reference_no VARCHAR(100) NULL,
         description TEXT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -121,6 +122,18 @@ export async function initDb(): Promise<void> {
         INDEX idx_personal_entry_date (entry_date)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
+
+    // Ensure person_name exists in partner_personal_accounts
+    try {
+      const [ppaCols] = await defaultPool.query<any[]>(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'partner_personal_accounts' AND COLUMN_NAME = 'person_name'`,
+        [dbName]
+      );
+      if (!ppaCols || ppaCols.length === 0) {
+        await defaultPool.query('ALTER TABLE partner_personal_accounts ADD COLUMN person_name VARCHAR(255) NULL AFTER payment_mode');
+        console.log('Added person_name column to partner_personal_accounts');
+      }
+    } catch {}
 
     // 5. Ensure payment_mode exists in sales_payments and purchases
     try {
