@@ -91,7 +91,7 @@ export async function upsertCategoryRate(req: AuthRequest, res: Response): Promi
 
 export async function getOrders(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
-  const { client_id, status, from, to } = req.query;
+  const { client_id, status, from, to, search } = req.query;
   const page = parseInt(req.query.page as string) || 1;
   const limit = parseInt(req.query.limit as string) || 20;
   const offset = (page - 1) * limit;
@@ -99,16 +99,22 @@ export async function getOrders(req: AuthRequest, res: Response): Promise<void> 
   try {
     const conds: string[] = ['o.tenant_id=?'];
     const vals: any[]     = [tenantId];
-    if (client_id) { conds.push('o.client_id=?');                               vals.push(client_id); }
+    if (client_id && client_id !== 'all') { conds.push('o.client_id=?');                               vals.push(client_id); }
     if (status === 'pending') { conds.push("o.status IN ('pending','partial')"); }
-    else if (status) { conds.push('o.status=?');                                vals.push(status); }
+    else if (status && status !== 'all') { conds.push('o.status=?');                                vals.push(status); }
     if (from)      { conds.push('o.order_date>=?');      vals.push(from); }
     if (to)        { conds.push('o.order_date<=?');      vals.push(to); }
+    if (search && String(search).trim()) {
+      conds.push('(o.invoice_number LIKE ? OR c.name LIKE ? OR c.city LIKE ?)');
+      const term = `%${String(search).trim()}%`;
+      vals.push(term, term, term);
+    }
 
     // Count query
     const [countRows] = await query<any[]>(
       `SELECT COUNT(DISTINCT o.id) AS total 
        FROM sales_orders o 
+       JOIN clients c ON c.id = o.client_id
        WHERE ${conds.join(' AND ')}`,
       vals
     );
@@ -451,7 +457,14 @@ export async function deleteOrder(req: AuthRequest, res: Response): Promise<void
 
 export async function getSalesSummary(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
+  const { client_id, from, to } = req.query;
   try {
+    const conds: string[] = ['o.tenant_id=?'];
+    const vals: any[]     = [tenantId];
+    if (client_id && client_id !== 'all') { conds.push('o.client_id=?'); vals.push(client_id); }
+    if (from) { conds.push('o.order_date>=?'); vals.push(from); }
+    if (to)   { conds.push('o.order_date<=?'); vals.push(to); }
+
     // Aggregate at order level first to avoid JOIN fan-out multiplying amount_paid
     const rows = await query<any[]>(
       `SELECT
@@ -465,12 +478,12 @@ export async function getSalesSummary(req: AuthRequest, res: Response): Promise<
                 GREATEST(0, COALESCE(SUM(i.quantity * i.rate_per_pc), 0) - o.discount) * (1 + o.gst_percent / 100) AS billed
          FROM sales_orders o
          LEFT JOIN sales_order_items i ON i.order_id = o.id
-         WHERE o.tenant_id = ?
+         WHERE ${conds.join(' AND ')}
          GROUP BY o.id
        ) sub`,
-      [tenantId]
+      vals
     );
-    res.json(rows[0]);
+    res.json(rows[0] || { total_billed: 0, total_received: 0, total_pending: 0, order_count: 0, pending_count: 0 });
   } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 export async function getNightiesCategorySummary(req: AuthRequest, res: Response): Promise<void> {
@@ -584,9 +597,25 @@ export async function getReceiptDetails(req: AuthRequest, res: Response): Promis
   const { receiptNo } = req.params;
 
   try {
-    // Check if receiptNo is a formatted receipt number (RCP-...) or a numeric order_id
     let payments: any[] = [];
-    if (receiptNo.startsWith('RCP-')) {
+    const cleanKey = String(receiptNo || '').trim();
+
+    // 1. Direct match on receipt_no
+    payments = await query<any[]>(
+      `SELECT p.*, o.invoice_number, o.order_date, o.amount_paid AS order_amount_paid, o.status AS order_status,
+              c.id AS client_id, c.name AS client_name, c.city AS client_city, c.phone AS client_phone, c.address AS client_address,
+              ((GREATEST(0, (SELECT COALESCE(SUM(i.quantity * i.rate_per_pc), 0) FROM sales_order_items i WHERE i.order_id = o.id) - o.discount)) * (1 + o.gst_percent / 100)) AS order_total
+       FROM sales_payments p
+       JOIN sales_orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
+       JOIN clients c ON c.id = o.client_id
+       WHERE p.receipt_no = ? AND p.tenant_id = ?
+       ORDER BY p.id ASC`,
+      [cleanKey, tenantId]
+    );
+
+    // 2. If not found and cleanKey looks like an invoice number or RCP-<invoiceNumber>
+    if (!payments.length) {
+      const possibleInv = cleanKey.replace(/^RCP-/, '');
       payments = await query<any[]>(
         `SELECT p.*, o.invoice_number, o.order_date, o.amount_paid AS order_amount_paid, o.status AS order_status,
                 c.id AS client_id, c.name AS client_name, c.city AS client_city, c.phone AS client_phone, c.address AS client_address,
@@ -594,15 +623,15 @@ export async function getReceiptDetails(req: AuthRequest, res: Response): Promis
          FROM sales_payments p
          JOIN sales_orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
          JOIN clients c ON c.id = o.client_id
-         WHERE p.receipt_no = ? AND p.tenant_id = ?
+         WHERE (o.invoice_number = ? OR o.invoice_number = ?) AND p.tenant_id = ?
          ORDER BY p.id ASC`,
-        [receiptNo, tenantId]
+        [cleanKey, possibleInv, tenantId]
       );
     }
 
-    // Fallback: If not found or if receiptNo was an order ID
-    if (!payments.length) {
-      const orderId = Number(receiptNo.replace(/\D/g, '')) || 0;
+    // 3. If still not found and cleanKey is a numeric order ID
+    if (!payments.length && /^\d+$/.test(cleanKey)) {
+      const numId = Number(cleanKey);
       payments = await query<any[]>(
         `SELECT p.*, o.invoice_number, o.order_date, o.amount_paid AS order_amount_paid, o.status AS order_status,
                 c.id AS client_id, c.name AS client_name, c.city AS client_city, c.phone AS client_phone, c.address AS client_address,
@@ -610,35 +639,114 @@ export async function getReceiptDetails(req: AuthRequest, res: Response): Promis
          FROM sales_payments p
          JOIN sales_orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
          JOIN clients c ON c.id = o.client_id
-         WHERE (p.order_id = ? OR p.id = ?) AND p.tenant_id = ?
+         WHERE p.order_id = ? AND p.tenant_id = ?
          ORDER BY p.id ASC`,
-        [orderId, orderId, tenantId]
+        [numId, tenantId]
       );
     }
 
+    // 4. If still no payments found, check if it's an existing sales_order (e.g. legacy order with amount_paid)
     if (!payments.length) {
-      res.status(404).json({ message: 'Receipt not found' });
+      let orderRows: any[] = [];
+      if (/^\d+$/.test(cleanKey)) {
+        orderRows = await query<any[]>(
+          `SELECT o.*, c.id AS client_id, c.name AS client_name, c.city AS client_city, c.phone AS client_phone, c.address AS client_address,
+                  ((GREATEST(0, (SELECT COALESCE(SUM(i.quantity * i.rate_per_pc), 0) FROM sales_order_items i WHERE i.order_id = o.id) - o.discount)) * (1 + o.gst_percent / 100)) AS order_total
+           FROM sales_orders o
+           JOIN clients c ON c.id = o.client_id
+           WHERE o.id = ? AND o.tenant_id = ?`,
+          [Number(cleanKey), tenantId]
+        );
+      } else {
+        const possibleInv = cleanKey.replace(/^RCP-/, '');
+        orderRows = await query<any[]>(
+          `SELECT o.*, c.id AS client_id, c.name AS client_name, c.city AS client_city, c.phone AS client_phone, c.address AS client_address,
+                  ((GREATEST(0, (SELECT COALESCE(SUM(i.quantity * i.rate_per_pc), 0) FROM sales_order_items i WHERE i.order_id = o.id) - o.discount)) * (1 + o.gst_percent / 100)) AS order_total
+           FROM sales_orders o
+           JOIN clients c ON c.id = o.client_id
+           WHERE (o.invoice_number = ? OR o.invoice_number = ?) AND o.tenant_id = ?`,
+          [cleanKey, possibleInv, tenantId]
+        );
+      }
+
+      if (!orderRows.length) {
+        res.status(404).json({ message: 'Receipt not found' });
+        return;
+      }
+
+      const ord = orderRows[0];
+      const ordTotal = Number(ord.order_total || 0);
+      const ordPaid = Number(ord.amount_paid || 0);
+
+      // Other outstanding invoices for this client
+      const otherOutstanding = await query<any[]>(
+        `SELECT o.id, o.invoice_number, o.order_date, o.status, o.amount_paid,
+                ((GREATEST(0, (SELECT COALESCE(SUM(i.quantity * i.rate_per_pc), 0) FROM sales_order_items i WHERE i.order_id = o.id) - o.discount)) * (1 + o.gst_percent / 100)) AS total
+         FROM sales_orders o
+         WHERE o.tenant_id = ? AND o.client_id = ? AND o.id != ? AND o.status IN ('pending', 'partial')
+         ORDER BY o.order_date ASC`,
+        [tenantId, ord.client_id, ord.id]
+      );
+
+      const clientTotalOutstanding = otherOutstanding.reduce(
+        (s, o) => s + Math.max(0, Number(o.total || 0) - Number(o.amount_paid || 0)),
+        Math.max(0, ordTotal - ordPaid)
+      );
+
+      res.json({
+        receipt_no: `RCP-${ord.invoice_number || ord.id}`,
+        payment_date: ord.order_date,
+        payment_mode: 'cash',
+        notes: ord.notes || '',
+        client: {
+          id: ord.client_id,
+          name: ord.client_name,
+          city: ord.client_city,
+          phone: ord.client_phone,
+          address: ord.client_address,
+        },
+        total_amount: ordPaid,
+        allocations: [{
+          order_id: ord.id,
+          invoice_number: ord.invoice_number,
+          order_date: ord.order_date,
+          amount_paid_in_receipt: ordPaid,
+          order_total: ordTotal,
+          order_amount_paid: ordPaid,
+          balance_remaining: Math.max(0, ordTotal - ordPaid),
+          status: ord.status,
+        }],
+        client_total_outstanding: clientTotalOutstanding,
+        other_outstanding: otherOutstanding.map(o => ({
+          ...o,
+          total: Number(o.total || 0),
+          amount_paid: Number(o.amount_paid || 0),
+          balance: Math.max(0, Number(o.total || 0) - Number(o.amount_paid || 0)),
+        })),
+      });
       return;
     }
 
     const first = payments[0];
     const clientId = first.client_id;
     const totalReceived = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
+    const coveredOrderIds = payments.map(p => p.order_id);
 
-    // Other outstanding invoices for this client
+    // Other outstanding invoices for this client (excluding orders covered in this receipt)
     const otherOutstanding = await query<any[]>(
       `SELECT o.id, o.invoice_number, o.order_date, o.status, o.amount_paid,
               ((GREATEST(0, (SELECT COALESCE(SUM(i.quantity * i.rate_per_pc), 0) FROM sales_order_items i WHERE i.order_id = o.id) - o.discount)) * (1 + o.gst_percent / 100)) AS total
        FROM sales_orders o
        WHERE o.tenant_id = ? AND o.client_id = ? AND o.status IN ('pending', 'partial')
+         ${coveredOrderIds.length ? `AND o.id NOT IN (${coveredOrderIds.map(() => '?').join(',')})` : ''}
        ORDER BY o.order_date ASC`,
-      [tenantId, clientId]
+      [tenantId, clientId, ...coveredOrderIds]
     );
 
     const clientTotalOutstanding = otherOutstanding.reduce(
       (s, o) => s + Math.max(0, Number(o.total || 0) - Number(o.amount_paid || 0)),
       0
-    );
+    ) + payments.reduce((s, p) => s + Math.max(0, Number(p.order_total || 0) - Number(p.order_amount_paid || 0)), 0);
 
     res.json({
       receipt_no: first.receipt_no || `RCP-${first.invoice_number || first.id}`,
