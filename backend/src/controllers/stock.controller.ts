@@ -10,73 +10,149 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
   });
 
   try {
-    // 1. Total raw fabric received per category (checks stock_movements + purchase_items fallback)
+    // 1. Total raw fabric received per category (canonical purchase_items + direct manual stock_movements)
     const received = await safe(query<any[]>(
       `SELECT 
          category, 
          SUM(quantity) AS qty
        FROM (
-         SELECT 
-           CASE WHEN category = 'shawl_nighty_lace' THEN 'shawl_nighty' 
-                WHEN category = '' OR category IS NULL THEN 'mixed'
-                ELSE category END AS category, 
-           quantity
-         FROM stock_movements WHERE tenant_id=? AND type='in'
-         UNION ALL
          SELECT
-           CASE WHEN pi.category = 'shawl_nighty_lace' THEN 'shawl_nighty'
-                WHEN pi.category = '' OR pi.category IS NULL THEN 'mixed'
-                ELSE pi.category END AS category,
+           CASE 
+             WHEN LOWER(pi.category) LIKE '%salwar%' THEN 'Mixed Fabric (Salwar)'
+             WHEN LOWER(pi.category) LIKE '%nighty%' THEN 'Mixed Fabric (Nighty)'
+             WHEN pi.category = 'shawl_nighty_lace' THEN 'Mixed Fabric (Nighty)'
+             WHEN pi.category = '' OR pi.category IS NULL THEN 'Mixed Fabric'
+             ELSE TRIM(pi.category)
+           END AS category,
            pi.quantity
          FROM purchase_items pi
          JOIN purchases p ON p.id = pi.purchase_id
-         WHERE p.tenant_id = ? AND NOT EXISTS (
-           SELECT 1 FROM stock_movements sm WHERE sm.tenant_id = p.tenant_id AND sm.reference = CONCAT('PUR-', p.id)
-         )
+         WHERE (p.tenant_id = ? OR p.tenant_id IS NULL)
+         UNION ALL
+         SELECT 
+           CASE 
+             WHEN LOWER(sm.category) LIKE '%salwar%' THEN 'Mixed Fabric (Salwar)'
+             WHEN LOWER(sm.category) LIKE '%nighty%' THEN 'Mixed Fabric (Nighty)'
+             WHEN sm.category = 'shawl_nighty_lace' THEN 'Mixed Fabric (Nighty)'
+             WHEN sm.category = '' OR sm.category IS NULL THEN 'Mixed Fabric'
+             ELSE TRIM(sm.category)
+           END AS category, 
+           sm.quantity
+         FROM stock_movements sm
+         WHERE (sm.tenant_id = ? OR sm.tenant_id IS NULL) AND sm.type='in' AND (sm.reference IS NULL OR sm.reference NOT LIKE 'PUR-%')
        ) t
        GROUP BY category`,
       [tenantId, tenantId]
     ));
 
-    // 2. Fabric in active production (tracked from stock_movements allocated + legacy production_batches fallback)
-    const allocated = await safe(query<any[]>(
-      `SELECT
-         category,
-         SUM(quantity) AS qty
-       FROM (
-         SELECT category, quantity
-         FROM stock_movements
-         WHERE tenant_id=? AND type='allocated'
-         UNION ALL
-         SELECT
-           CASE WHEN COALESCE(NULLIF(pb.category, ''), 'mixed') = 'shawl_nighty_lace' THEN 'shawl_nighty' 
-                ELSE COALESCE(NULLIF(pb.category, ''), 'mixed') END AS category,
-           COALESCE(pb.quantity, 0) AS quantity
-         FROM production_batches pb
-         WHERE pb.tenant_id=? 
-           AND pb.batch_number NOT IN ('BATCH-001', 'BATCH-002', '1', '2', 'BATCH-1', 'BATCH-2', 'Batch-1', 'Batch-2')
-           AND (LOWER(COALESCE(pb.status, 'active')) NOT IN ('finished', 'completed', 'delivered'))
-           AND (pb.raw_material_name IS NULL OR pb.raw_material_name = '')
-           AND NOT EXISTS (
-             SELECT 1 FROM stock_movements sm WHERE sm.tenant_id = pb.tenant_id AND sm.reference LIKE CONCAT(pb.batch_number, '%') AND sm.type = 'allocated'
-           )
-       ) a
-       GROUP BY category`,
-      [tenantId, tenantId]
-    ));
+    // 2. Fabric in active production (tracked from active stock_movements allocations + active production_batches)
+    let allocated: any[] = [];
+    try {
+      allocated = await query<any[]>(
+        `SELECT 
+           category,
+           SUM(qty) AS qty
+         FROM (
+           SELECT 
+             CASE 
+               WHEN LOWER(sm.category) LIKE '%salwar%' THEN 'Mixed Fabric (Salwar)'
+               WHEN LOWER(sm.category) LIKE '%nighty%' THEN 'Mixed Fabric (Nighty)'
+               WHEN sm.category = 'shawl_nighty_lace' THEN 'Mixed Fabric (Nighty)'
+               WHEN sm.category = '' OR sm.category IS NULL THEN 'Mixed Fabric'
+               ELSE TRIM(sm.category)
+             END AS category,
+             sm.quantity AS qty
+           FROM stock_movements sm
+           WHERE (sm.tenant_id = ? OR sm.tenant_id IS NULL) AND sm.type = 'allocated'
+           UNION ALL
+           SELECT
+             CASE 
+               WHEN pb.raw_material_name IS NOT NULL AND TRIM(pb.raw_material_name) != '' THEN TRIM(pb.raw_material_name)
+               WHEN LOWER(pb.category) LIKE '%salwar%' THEN 'Mixed Fabric (Salwar)'
+               WHEN LOWER(pb.category) LIKE '%nighty%' THEN 'Mixed Fabric (Nighty)'
+               WHEN pb.category = 'shawl_nighty_lace' THEN 'Mixed Fabric (Nighty)'
+               WHEN pb.category = '' OR pb.category IS NULL THEN 'Mixed Fabric'
+               ELSE TRIM(pb.category)
+             END AS category,
+             COALESCE(NULLIF(pb.raw_quantity_used, 0), pb.quantity, 0) AS qty
+           FROM production_batches pb
+           WHERE (pb.tenant_id = ? OR pb.tenant_id IS NULL)
+             AND (LOWER(COALESCE(pb.status, 'active')) NOT IN ('finished', 'completed', 'delivered'))
+             AND NOT EXISTS (
+               SELECT 1 FROM stock_movements sm 
+               WHERE (sm.tenant_id = pb.tenant_id OR sm.tenant_id IS NULL)
+                 AND sm.type = 'allocated'
+                 AND (sm.reference = pb.batch_number OR sm.reference LIKE CONCAT(pb.batch_number, '%'))
+             )
+         ) a
+         GROUP BY category`,
+        [tenantId, tenantId]
+      );
+    } catch {
+      allocated = await safe(query<any[]>(
+        `SELECT 
+           category,
+           SUM(qty) AS qty
+         FROM (
+           SELECT 
+             CASE 
+               WHEN LOWER(sm.category) LIKE '%salwar%' THEN 'Mixed Fabric (Salwar)'
+               WHEN LOWER(sm.category) LIKE '%nighty%' THEN 'Mixed Fabric (Nighty)'
+               WHEN sm.category = 'shawl_nighty_lace' THEN 'Mixed Fabric (Nighty)'
+               WHEN sm.category = '' OR sm.category IS NULL THEN 'Mixed Fabric'
+               ELSE TRIM(sm.category)
+             END AS category,
+             sm.quantity AS qty
+           FROM stock_movements sm
+           WHERE (sm.tenant_id = ? OR sm.tenant_id IS NULL) AND sm.type = 'allocated'
+           UNION ALL
+           SELECT
+             CASE 
+               WHEN LOWER(pb.category) LIKE '%salwar%' THEN 'Mixed Fabric (Salwar)'
+               WHEN LOWER(pb.category) LIKE '%nighty%' THEN 'Mixed Fabric (Nighty)'
+               WHEN pb.category = 'shawl_nighty_lace' THEN 'Mixed Fabric (Nighty)'
+               WHEN pb.category = '' OR pb.category IS NULL THEN 'Mixed Fabric'
+               ELSE TRIM(pb.category)
+             END AS category,
+             COALESCE(pb.quantity, 0) AS qty
+           FROM production_batches pb
+           WHERE (pb.tenant_id = ? OR pb.tenant_id IS NULL)
+             AND (LOWER(COALESCE(pb.status, 'active')) NOT IN ('finished', 'completed', 'delivered'))
+             AND NOT EXISTS (
+               SELECT 1 FROM stock_movements sm 
+               WHERE (sm.tenant_id = pb.tenant_id OR sm.tenant_id IS NULL)
+                 AND sm.type = 'allocated'
+                 AND (sm.reference = pb.batch_number OR sm.reference LIKE CONCAT(pb.batch_number, '%'))
+             )
+         ) a
+         GROUP BY category`,
+        [tenantId, tenantId]
+      ), []);
+    }
 
-    // 3. Finished goods produced (tracked from Batch 3 onwards, e.g. Batch 3 & 4 with 80 pcs salwar suit)
+    // 3. Finished goods produced per raw material category
     const finished = await safe(query<any[]>(
       `SELECT
-         CASE WHEN COALESCE(NULLIF(pb.category, ''), 'mixed') = 'shawl_nighty_lace' THEN 'shawl_nighty' 
-              ELSE COALESCE(NULLIF(pb.category, ''), 'mixed') END AS category,
+         CASE 
+           WHEN pb.raw_material_name IS NOT NULL AND TRIM(pb.raw_material_name) != '' THEN TRIM(pb.raw_material_name)
+           WHEN LOWER(pb.category) LIKE '%salwar%' THEN 'Mixed Fabric (Salwar)'
+           WHEN LOWER(pb.category) LIKE '%nighty%' THEN 'Mixed Fabric (Nighty)'
+           WHEN pb.category = 'shawl_nighty_lace' THEN 'Mixed Fabric (Nighty)'
+           WHEN pb.category = '' OR pb.category IS NULL THEN 'Mixed Fabric'
+           ELSE TRIM(pb.category)
+         END AS category,
          SUM(COALESCE(pb.quantity, 0)) AS qty
        FROM production_batches pb
-       WHERE pb.tenant_id=? 
-         AND pb.batch_number NOT IN ('BATCH-001', 'BATCH-002', '1', '2', 'BATCH-1', 'BATCH-2', 'Batch-1', 'Batch-2')
+       WHERE (pb.tenant_id = ? OR pb.tenant_id IS NULL)
          AND (LOWER(COALESCE(pb.status, '')) IN ('finished', 'completed', 'delivered'))
-       GROUP BY CASE WHEN COALESCE(NULLIF(pb.category, ''), 'mixed') = 'shawl_nighty_lace' THEN 'shawl_nighty' 
-                     ELSE COALESCE(NULLIF(pb.category, ''), 'mixed') END`,
+       GROUP BY CASE 
+         WHEN pb.raw_material_name IS NOT NULL AND TRIM(pb.raw_material_name) != '' THEN TRIM(pb.raw_material_name)
+         WHEN LOWER(pb.category) LIKE '%salwar%' THEN 'Mixed Fabric (Salwar)'
+         WHEN LOWER(pb.category) LIKE '%nighty%' THEN 'Mixed Fabric (Nighty)'
+         WHEN pb.category = 'shawl_nighty_lace' THEN 'Mixed Fabric (Nighty)'
+         WHEN pb.category = '' OR pb.category IS NULL THEN 'Mixed Fabric'
+         ELSE TRIM(pb.category)
+       END`,
       [tenantId]
     ));
 
@@ -86,15 +162,14 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
          COALESCE(NULLIF(pb.category, ''), 'shawl_nighty') AS category,
          SUM(COALESCE(pb.quantity, 0)) AS qty
        FROM production_batches pb
-       WHERE pb.tenant_id=? 
-         AND pb.batch_number NOT IN ('BATCH-001', 'BATCH-002', '1', '2', 'BATCH-1', 'BATCH-2', 'Batch-1', 'Batch-2')
+       WHERE (pb.tenant_id = ? OR pb.tenant_id IS NULL)
          AND (LOWER(COALESCE(pb.status, 'active')) NOT IN ('finished', 'completed', 'delivered')) 
          AND pb.category IN ('shawl_nighty', 'shawl_nighty_lace')
        GROUP BY pb.category`,
       [tenantId]
     ));
 
-    // 5. Finished goods breakdown by product and size (from Batch 3 onwards)
+    // 5. Finished goods breakdown by product and size
     const finishedBreakdown = await safe(query<any[]>(
       `SELECT
          COALESCE(NULLIF(pbi.category, ''), pb.category) AS category,
@@ -102,28 +177,39 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
          SUM(COALESCE(NULLIF(pbi.quantity, 0), pb.quantity, 0)) AS qty
        FROM production_batches pb
        LEFT JOIN production_batch_items pbi ON pbi.batch_id = pb.id
-       WHERE pb.tenant_id=? 
-         AND pb.batch_number NOT IN ('BATCH-001', 'BATCH-002', '1', '2', 'BATCH-1', 'BATCH-2', 'Batch-1', 'Batch-2')
+       WHERE (pb.tenant_id = ? OR pb.tenant_id IS NULL)
          AND (LOWER(COALESCE(pb.status, '')) IN ('finished', 'completed', 'delivered'))
        GROUP BY COALESCE(NULLIF(pbi.category, ''), pb.category), pbi.size`,
       [tenantId]
     ), []);
 
-    // 6. Sold goods
+    // 6. Sold goods mapped to raw material category
     const sold = await safe(query<any[]>(
       `SELECT
-         CASE WHEN i.category = 'shawl_nighty_lace' THEN 'shawl_nighty' ELSE i.category END AS category,
+         CASE 
+           WHEN LOWER(i.category) LIKE '%salwar%' THEN 'Mixed Fabric (Salwar)'
+           WHEN LOWER(i.category) LIKE '%nighty%' THEN 'Mixed Fabric (Nighty)'
+           WHEN i.category = 'shawl_nighty_lace' THEN 'Mixed Fabric (Nighty)'
+           WHEN i.category = '' OR i.category IS NULL THEN 'Mixed Fabric'
+           ELSE TRIM(i.category)
+         END AS category,
          SUM(i.quantity) AS qty
        FROM sales_order_items i
        JOIN sales_orders o ON o.id = i.order_id
-       WHERE o.tenant_id=?
-       GROUP BY CASE WHEN i.category = 'shawl_nighty_lace' THEN 'shawl_nighty' ELSE i.category END`,
+       WHERE (o.tenant_id = ? OR o.tenant_id IS NULL)
+       GROUP BY CASE 
+         WHEN LOWER(i.category) LIKE '%salwar%' THEN 'Mixed Fabric (Salwar)'
+         WHEN LOWER(i.category) LIKE '%nighty%' THEN 'Mixed Fabric (Nighty)'
+         WHEN i.category = 'shawl_nighty_lace' THEN 'Mixed Fabric (Nighty)'
+         WHEN i.category = '' OR i.category IS NULL THEN 'Mixed Fabric'
+         ELSE TRIM(i.category)
+       END`,
       [tenantId]
     ));
 
     // 7. Active raw materials master list
     const rawMaterials = await safe(query<any[]>(
-      `SELECT id, name, code, uom, default_rate FROM raw_materials WHERE tenant_id=? AND is_active=1 ORDER BY id ASC`,
+      `SELECT id, name, code, uom, default_rate FROM raw_materials WHERE (tenant_id = ? OR tenant_id IS NULL) AND is_active=1 ORDER BY id ASC`,
       [tenantId]
     ), []);
 
@@ -139,28 +225,38 @@ export async function getStockByVendor(req: AuthRequest, res: Response): Promise
   try {
     const rows = await query(
       `SELECT 
-         category,
-         vendor_name,
+         category, 
+         vendor_name, 
          SUM(quantity) AS received
        FROM (
-         SELECT 
-           CASE WHEN sm.category = '' OR sm.category IS NULL THEN 'mixed' ELSE sm.category END AS category,
-           COALESCE(v.name, 'Direct Vendor') AS vendor_name, 
-           sm.quantity
-         FROM stock_movements sm
-         LEFT JOIN vendors v ON v.id = sm.vendor_id
-         WHERE sm.tenant_id=? AND sm.type='in'
-         UNION ALL
          SELECT
-           CASE WHEN pi.category = '' OR pi.category IS NULL THEN 'mixed' ELSE pi.category END AS category,
+           CASE 
+             WHEN LOWER(pi.category) LIKE '%salwar%' THEN 'Mixed Fabric (Salwar)'
+             WHEN LOWER(pi.category) LIKE '%nighty%' THEN 'Mixed Fabric (Nighty)'
+             WHEN pi.category = 'shawl_nighty_lace' THEN 'Mixed Fabric (Nighty)'
+             WHEN pi.category = '' OR pi.category IS NULL THEN 'Mixed Fabric'
+             ELSE TRIM(pi.category)
+           END AS category,
            COALESCE(v.name, 'Direct Vendor') AS vendor_name,
            pi.quantity
          FROM purchase_items pi
          JOIN purchases p ON p.id = pi.purchase_id
          LEFT JOIN vendors v ON v.id = p.vendor_id
-         WHERE p.tenant_id = ? AND NOT EXISTS (
-           SELECT 1 FROM stock_movements sm WHERE sm.tenant_id = p.tenant_id AND sm.reference = CONCAT('PUR-', p.id)
-         )
+         WHERE (p.tenant_id = ? OR p.tenant_id IS NULL)
+         UNION ALL
+         SELECT 
+           CASE 
+             WHEN LOWER(sm.category) LIKE '%salwar%' THEN 'Mixed Fabric (Salwar)'
+             WHEN LOWER(sm.category) LIKE '%nighty%' THEN 'Mixed Fabric (Nighty)'
+             WHEN sm.category = 'shawl_nighty_lace' THEN 'Mixed Fabric (Nighty)'
+             WHEN sm.category = '' OR sm.category IS NULL THEN 'Mixed Fabric'
+             ELSE TRIM(sm.category)
+           END AS category, 
+           COALESCE(v.name, 'Direct Vendor') AS vendor_name,
+           sm.quantity
+         FROM stock_movements sm
+         LEFT JOIN vendors v ON v.id = sm.vendor_id
+         WHERE (sm.tenant_id = ? OR sm.tenant_id IS NULL) AND sm.type='in' AND (sm.reference IS NULL OR sm.reference NOT LIKE 'PUR-%')
        ) vt
        GROUP BY category, vendor_name`,
       [tenantId, tenantId]

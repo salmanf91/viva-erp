@@ -45,12 +45,29 @@ export default function StockPage() {
 
   if (loading) return <div className="spinner">Loading stock overview…</div>;
 
+  const normalize = s => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  const mapToRawMaterial = (cat) => {
+    if (!cat) return 'Mixed Fabric';
+    const norm = normalize(cat);
+    if (norm.includes('salwar')) return 'Mixed Fabric (Salwar)';
+    if (norm.includes('nighty')) return 'Mixed Fabric (Nighty)';
+    if (norm === 'mixed' || norm === 'mixedfabric') return 'Mixed Fabric';
+    const rm = (summary?.rawMaterials || []).find(r => normalize(r.name) === norm);
+    if (rm) return rm.name;
+    return cat;
+  };
+
   const getLabel = (cat) => {
     if (!cat) return 'Mixed Fabric';
-    const rm = (summary?.rawMaterials || []).find(r => (r.name || '').toLowerCase() === cat.toLowerCase());
+    const norm = normalize(cat);
+    const rm = (summary?.rawMaterials || []).find(r => normalize(r.name) === norm);
     if (rm) return rm.name;
-    const cfg = configs.find(c => (c.category || '').toLowerCase() === cat.toLowerCase() || (c.name || '').toLowerCase() === cat.toLowerCase());
+    const cfg = configs.find(c => normalize(c.category) === norm || normalize(c.name) === norm);
     if (cfg?.display_name || cfg?.name) return cfg.display_name || cfg.name;
+    if (norm === 'mixedfabricsalwar') return 'Mixed Fabric (Salwar)';
+    if (norm === 'mixedfabricnighty') return 'Mixed Fabric (Nighty)';
+    if (norm === 'mixed' || norm === 'mixedfabric') return 'Mixed Fabric';
     return DEFAULT_LABELS[cat] || (cat.includes('(') ? cat : cat.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()));
   };
 
@@ -59,22 +76,26 @@ export default function StockPage() {
     return COLOR_PALETTE[idx % COLOR_PALETTE.length];
   };
 
-  const normalize = s => (s || '').toLowerCase().replace(/[\s_-]+/g, '');
-
   const get = (arr, cat) => {
     if (!arr || !cat) return 0;
     const target = normalize(cat);
     return (arr || [])
-      .filter(r => normalize(r.category) === target)
+      .filter(r => {
+        const rNorm = normalize(r.category);
+        if (rNorm === target) return true;
+        if (target === 'mixedfabricsalwar' && rNorm.includes('salwar')) return true;
+        if (target === 'mixedfabricnighty' && (rNorm.includes('nighty') || rNorm === 'shawlnighty' || rNorm === 'ordinarynighty')) return true;
+        if ((target === 'mixed' || target === 'mixedfabric') && (rNorm === 'mixed' || rNorm === 'mixedfabric')) return true;
+        return false;
+      })
       .reduce((sum, r) => sum + Number(r.qty || 0), 0);
   };
 
   // Discover all active categories from raw materials catalog, data and configs
   const rawSet = new Set();
-  (summary?.rawMaterials || []).forEach(r => r.name && rawSet.add(r.name));
-  (configs || []).forEach(c => c.category && rawSet.add(c.category));
+  (summary?.rawMaterials || []).forEach(r => r.name && rawSet.add(mapToRawMaterial(r.name)));
   ['received', 'allocated', 'finished', 'sold'].forEach(key => {
-    (summary?.[key] || []).forEach(r => r.category && rawSet.add(r.category));
+    (summary?.[key] || []).forEach(r => r.category && rawSet.add(mapToRawMaterial(r.category)));
   });
   if (rawSet.size === 0) {
     rawSet.add('Mixed Fabric (Salwar)');

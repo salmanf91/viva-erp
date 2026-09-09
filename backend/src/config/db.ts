@@ -239,6 +239,13 @@ export async function initDb(): Promise<void> {
       }
     } catch {}
 
+    // Ensure category columns are wide enough for raw material names
+    try {
+      await defaultPool.query('ALTER TABLE stock_movements MODIFY category VARCHAR(255) NOT NULL');
+      await defaultPool.query('ALTER TABLE purchase_items MODIFY category VARCHAR(255) NOT NULL');
+      await defaultPool.query('ALTER TABLE production_batches MODIFY category VARCHAR(255) NOT NULL');
+    } catch {}
+
   } catch (err) {
     console.warn('initDb warning (schema check):', err instanceof Error ? err.message : String(err));
   }
