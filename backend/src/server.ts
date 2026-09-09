@@ -18,6 +18,7 @@ import reportRoutes     from './routes/report.routes';
 import zatcaRoutes      from './routes/zatca.routes';
 import tenantRoutes     from './routes/tenant.routes';
 import itemRoutes       from './routes/item.routes';
+import rawMaterialRoutes from './routes/rawMaterial.routes';
 import quotationRoutes  from './routes/quotation.routes';
 import deliveryNoteRoutes from './routes/deliveryNote.routes';
 
@@ -35,6 +36,7 @@ app.use('/api', apiLimiter);
 app.use('/api/auth',           authRoutes);
 app.use('/api/tenants',        tenantRoutes);
 app.use('/api/items',          itemRoutes);
+app.use('/api/raw-materials',  rawMaterialRoutes);
 app.use('/api/quotations',     quotationRoutes);
 app.use('/api/delivery-notes', deliveryNoteRoutes);
 app.use('/api/partners/personal', partnerPersonalRoutes);

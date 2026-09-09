@@ -185,6 +185,60 @@ export async function initDb(): Promise<void> {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
     `);
 
+    // 7. Ensure raw_materials table exists and has default seeds
+    await defaultPool.query(`
+      CREATE TABLE IF NOT EXISTS raw_materials (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        tenant_id INT NOT NULL DEFAULT 1,
+        name VARCHAR(255) NOT NULL,
+        code VARCHAR(50) NULL,
+        uom VARCHAR(20) DEFAULT 'pcs',
+        default_rate DECIMAL(10,2) DEFAULT 0.00,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_raw_mat_tenant (tenant_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+    `);
+
+    // Seed default raw materials if not present
+    try {
+      const [existingRm] = await defaultPool.query<any[]>(
+        `SELECT name FROM raw_materials WHERE tenant_id = 1`
+      );
+      const names = (existingRm || []).map(r => (r.name || '').trim().toLowerCase());
+      if (!names.includes('mixed fabric (salwar)')) {
+        await defaultPool.query(
+          `INSERT INTO raw_materials (tenant_id, name, uom) VALUES (1, 'Mixed Fabric (Salwar)', 'pcs')`
+        );
+      }
+      if (!names.includes('mixed fabric (nighty)')) {
+        await defaultPool.query(
+          `INSERT INTO raw_materials (tenant_id, name, uom) VALUES (1, 'Mixed Fabric (Nighty)', 'pcs')`
+        );
+      }
+    } catch {}
+
+    // Ensure production_batches has raw fabric tracking columns
+    try {
+      const [pbCols] = await defaultPool.query<any[]>(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'production_batches'`,
+        [dbName]
+      );
+      const existingPbCols = (pbCols as any[]).map(c => c.COLUMN_NAME);
+      if (!existingPbCols.includes('raw_material_id')) {
+        await defaultPool.query('ALTER TABLE production_batches ADD COLUMN raw_material_id INT NULL AFTER category');
+        console.log('Added raw_material_id column to production_batches');
+      }
+      if (!existingPbCols.includes('raw_material_name')) {
+        await defaultPool.query('ALTER TABLE production_batches ADD COLUMN raw_material_name VARCHAR(255) NULL AFTER raw_material_id');
+        console.log('Added raw_material_name column to production_batches');
+      }
+      if (!existingPbCols.includes('raw_quantity_used')) {
+        await defaultPool.query('ALTER TABLE production_batches ADD COLUMN raw_quantity_used INT NOT NULL DEFAULT 0 AFTER raw_material_name');
+        console.log('Added raw_quantity_used column to production_batches');
+      }
+    } catch {}
+
   } catch (err) {
     console.warn('initDb warning (schema check):', err instanceof Error ? err.message : String(err));
   }

@@ -551,6 +551,7 @@ export default function ProductionPage() {
   const [statsFinishedPcs, setStatsFinishedPcs] = useState(0);
   const [statsActiveCount, setStatsActiveCount] = useState(0);
   const [statsActivePcs, setStatsActivePcs] = useState(0);
+  const [stockRawMaterials, setStockRawMaterials] = useState([]);
 
   const defaultItemRow = (category, cfgs = []) => {
     const cat = category || cfgs[0]?.category || 'shawl_nighty_lace';
@@ -571,8 +572,10 @@ export default function ProductionPage() {
     };
   };
 
-  const emptyForm = (cfgs = []) => ({
+  const emptyForm = (cfgs = [], rawMats = stockRawMaterials) => ({
     batch_date: new Date().toISOString().slice(0, 10),
+    raw_material_name: rawMats[0]?.name || 'Mixed Fabric (Nighty)',
+    raw_quantity_used: '',
     notes: '',
     items: [defaultItemRow(cfgs[0]?.category, cfgs)],
   });
@@ -672,6 +675,46 @@ export default function ProductionPage() {
     }),
     api.get(`/expenses/overhead?month=${new Date().getMonth()+1}&year=${new Date().getFullYear()}`).then(r => { setRent(Number(r.data.rent ?? 0)); setElectricity(Number(r.data.electricity ?? 0)); }).catch(() => {}),
     api.get('/staff').then(r => setStaff(r.data)),
+    api.get('/stock/summary').then(r => {
+      const data = r.data || {};
+      const recMap = new Map();
+      (data.received || []).forEach(row => {
+        const k = (row.category || '').toLowerCase().trim();
+        recMap.set(k, (recMap.get(k) || 0) + Number(row.qty || 0));
+      });
+      const allocMap = new Map();
+      (data.allocated || []).forEach(row => {
+        const k = (row.category || '').toLowerCase().trim();
+        allocMap.set(k, (allocMap.get(k) || 0) + Number(row.qty || 0));
+      });
+
+      const rawList = (data.rawMaterials || []).map(rm => {
+        const k = rm.name.toLowerCase().trim();
+        const rec = recMap.get(k) || 0;
+        const alloc = allocMap.get(k) || 0;
+        const avail = Math.max(0, rec - alloc);
+        return { ...rm, received: rec, allocated: alloc, available: avail };
+      });
+
+      (data.received || []).forEach(row => {
+        const cat = row.category;
+        if (cat && !rawList.some(rm => rm.name.toLowerCase() === cat.toLowerCase())) {
+          const rec = Number(row.qty || 0);
+          const alloc = allocMap.get(cat.toLowerCase()) || 0;
+          rawList.push({ id: cat, name: cat, received: rec, allocated: alloc, available: Math.max(0, rec - alloc) });
+        }
+      });
+
+      if (rawList.length === 0) {
+        rawList.push(
+          { id: 1, name: 'Mixed Fabric (Nighty)', received: 0, allocated: 0, available: 0 },
+          { id: 2, name: 'Mixed Fabric (Salwar)', received: 0, allocated: 0, available: 0 }
+        );
+      }
+
+      setStockRawMaterials(rawList);
+      setForm(prev => prev.raw_material_name ? prev : { ...prev, raw_material_name: rawList[0]?.name || '' });
+    }).catch(() => {}),
   ]).finally(() => setLoading(false));
 
   const handleSaveFabric = async (cat, rate) => {
@@ -763,8 +806,11 @@ export default function ProductionPage() {
       alert('Please enter quantity for at least one item line.');
       return;
     }
+    const totalPcs = validItems.reduce((s, it) => s + (parseFloat(it.quantity) || 0), 0);
     await api.post('/production', {
       batch_date: form.batch_date,
+      raw_material_name: form.raw_material_name || null,
+      raw_quantity_used: form.raw_quantity_used !== '' ? parseFloat(form.raw_quantity_used) : totalPcs,
       notes: form.notes,
       items: validItems.map(it => ({
         category: it.category,
@@ -781,7 +827,7 @@ export default function ProductionPage() {
       }))
     });
     setShowNew(false);
-    setForm(emptyForm(configs));
+    setForm(emptyForm(configs, stockRawMaterials));
     load();
   };
 
@@ -1475,11 +1521,80 @@ export default function ProductionPage() {
               </div>
             </div>
 
-            {/* Product & Size Items List */}
+            {/* Step 1: Issue Raw Fabric from Stock */}
+            {(() => {
+              const selectedRawStock = stockRawMaterials.find(r => (r.name || '').toLowerCase() === (form.raw_material_name || '').toLowerCase()) || stockRawMaterials[0];
+              const qtyToUse = form.raw_quantity_used !== '' ? Number(form.raw_quantity_used) : formCostPreview.totalQty;
+              const isOverStock = selectedRawStock && qtyToUse > selectedRawStock.available;
+
+              return (
+                <div style={{
+                  background: '#f0f9ff',
+                  border: '1.5px solid #bae6fd',
+                  borderRadius: 10,
+                  padding: '12px 16px',
+                  marginBottom: 16
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: '#0369a1', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span>🧵 1. Issue Raw Fabric from Stock</span>
+                    </div>
+                    {selectedRawStock && (
+                      <span className={`badge ${selectedRawStock.available > 0 ? 'b-green' : 'b-red'}`} style={{ fontSize: 11 }}>
+                        {selectedRawStock.available} pcs available in stock
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#0284c7', marginBottom: 10 }}>
+                    Select raw fabric to consume from inventory. Stock will automatically be deducted and allocated to this batch.
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.6fr) minmax(0, 1fr)', gap: 12 }}>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: '#0369a1', display: 'block', marginBottom: 3 }}>
+                        Raw Material / Fabric Consumed *
+                      </label>
+                      <select
+                        value={form.raw_material_name}
+                        onChange={e => setForm(f => ({ ...f, raw_material_name: e.target.value }))}
+                        style={{ width: '100%', fontWeight: 700, padding: '7px 9px', borderRadius: 6, background: '#fff', border: '1px solid #7dd3fc' }}
+                      >
+                        {stockRawMaterials.map(rm => (
+                          <option key={rm.id || rm.name} value={rm.name}>
+                            {rm.name} ({rm.available} pcs available)
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: '#0369a1', display: 'block', marginBottom: 3 }}>
+                        Fabric Quantity Issued (pcs)
+                      </label>
+                      <input
+                        type="number"
+                        placeholder={`${formCostPreview.totalQty || 0}`}
+                        value={form.raw_quantity_used}
+                        onChange={e => setForm(f => ({ ...f, raw_quantity_used: e.target.value }))}
+                        style={{ width: '100%', fontWeight: 700, padding: '7px 9px', borderRadius: 6, background: '#fff', border: '1px solid #7dd3fc' }}
+                      />
+                    </div>
+                  </div>
+
+                  {isOverStock && (
+                    <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, padding: '6px 10px', marginTop: 8, fontSize: 11, color: '#b91c1c', fontWeight: 600 }}>
+                      ⚠️ Notice: Fabric issued ({qtyToUse} pcs) exceeds current available stock ({selectedRawStock.available} pcs) of {selectedRawStock.name}.
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Step 2: Target Finished Products & Sizes */}
             <div style={{ marginBottom: 16 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                 <label style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: 'var(--muted)', letterSpacing: '.5px' }}>
-                  📦 Batch Items (Categories, Sizes &amp; Custom Rates)
+                  👗 2. Target Finished Products to Manufacture
                 </label>
                 <button type="button" className="btn btn-ghost btn-sm" onClick={handleAddItemRow} style={{ color: 'var(--accent)', fontWeight: 700 }}>
                   + Add Item / Size Line

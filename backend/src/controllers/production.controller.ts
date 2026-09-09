@@ -271,22 +271,31 @@ export async function createBatch(req: AuthRequest, res: Response): Promise<void
 
     const avgCutRate = totalQuantity > 0 ? (weightedCutSum / totalQuantity) : (parsedItems[0]?.cut_rate || 5.00);
     const avgStitchRate = totalQuantity > 0 ? (weightedStitchSum / totalQuantity) : (parsedItems[0]?.stitch_rate || 15.00);
+
+    const rawMaterialId = req.body.raw_material_id ? Number(req.body.raw_material_id) : null;
+    const rawMaterialName = req.body.raw_material_name ? String(req.body.raw_material_name).trim() : null;
+    const rawQtyUsed = req.body.raw_quantity_used !== undefined ? Number(req.body.raw_quantity_used) : totalQuantity;
+
     let batchId: number;
     try {
       const [bRes] = await conn.execute(
-        'INSERT INTO production_batches (tenant_id,batch_number,category,quantity,cut_rate,stitch_rate,batch_date,notes) VALUES (?,?,?,?,?,?,?,?)',
-        [tenantId, batchNumber, primaryCategory, totalQuantity, avgCutRate, avgStitchRate, batch_date, notes || null]
+        'INSERT INTO production_batches (tenant_id,batch_number,category,raw_material_id,raw_material_name,raw_quantity_used,quantity,cut_rate,stitch_rate,batch_date,notes) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
+        [tenantId, batchNumber, primaryCategory, rawMaterialId, rawMaterialName, rawQtyUsed, totalQuantity, avgCutRate, avgStitchRate, batch_date, notes || null]
       );
       batchId = (bRes as any).insertId;
     } catch (e: any) {
-      if (e?.message && e.message.includes('notes')) {
+      try {
+        const [bRes] = await conn.execute(
+          'INSERT INTO production_batches (tenant_id,batch_number,category,quantity,cut_rate,stitch_rate,batch_date,notes) VALUES (?,?,?,?,?,?,?,?)',
+          [tenantId, batchNumber, primaryCategory, totalQuantity, avgCutRate, avgStitchRate, batch_date, notes || null]
+        );
+        batchId = (bRes as any).insertId;
+      } catch {
         const [bRes] = await conn.execute(
           'INSERT INTO production_batches (tenant_id,batch_number,category,quantity,cut_rate,stitch_rate,batch_date) VALUES (?,?,?,?,?,?,?)',
           [tenantId, batchNumber, primaryCategory, totalQuantity, avgCutRate, avgStitchRate, batch_date]
         );
         batchId = (bRes as any).insertId;
-      } else {
-        throw e;
       }
     }
 
@@ -320,14 +329,25 @@ export async function createBatch(req: AuthRequest, res: Response): Promise<void
           [tenantId, batchId, it.category, it.size || null, it.quantity, it.cut_rate || 0, it.stitch_rate || 0]
         );
       }
+    }
 
-      // stock: mark as allocated
-      if (it.quantity > 0) {
-        await conn.execute(
-          `INSERT INTO stock_movements (tenant_id,category,type,quantity,reference,movement_date)
-           VALUES (?,?,?,?,?,?)`,
-          [tenantId, it.category, 'allocated', it.quantity, `${batchNumber}${it.size ? ` (${it.size})` : ''}`, batch_date]
-        );
+    // Stock Movement: Deduct raw fabric issued to production
+    if (rawMaterialName && rawQtyUsed > 0) {
+      await conn.execute(
+        `INSERT INTO stock_movements (tenant_id,category,type,quantity,reference,movement_date)
+         VALUES (?,?,?,?,?,?)`,
+        [tenantId, rawMaterialName, 'allocated', rawQtyUsed, `${batchNumber} (Fabric Issued: ${primaryCategory})`, batch_date]
+      );
+    } else {
+      // Fallback for legacy requests: log allocated per finished product category
+      for (const it of parsedItems) {
+        if (it.quantity > 0) {
+          await conn.execute(
+            `INSERT INTO stock_movements (tenant_id,category,type,quantity,reference,movement_date)
+             VALUES (?,?,?,?,?,?)`,
+            [tenantId, it.category, 'allocated', it.quantity, `${batchNumber}${it.size ? ` (${it.size})` : ''}`, batch_date]
+          );
+        }
       }
     }
 

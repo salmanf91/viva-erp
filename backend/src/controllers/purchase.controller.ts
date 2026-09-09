@@ -155,11 +155,25 @@ export async function createPurchase(req: AuthRequest, res: Response): Promise<v
 
     for (const item of processedItems) {
       if (item.quantity > 0) {
+        // Register new raw material in catalog if not already present
+        try {
+          if (item.category && item.category !== 'mixed' && item.category.trim()) {
+            await conn.execute(
+              `INSERT INTO raw_materials (tenant_id, name, default_rate, is_active)
+               SELECT ?, ?, ?, 1
+               WHERE NOT EXISTS (
+                 SELECT 1 FROM raw_materials WHERE tenant_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?))
+               )`,
+              [tenantId, item.category.trim(), item.rate_per_pc || 0, tenantId, item.category.trim()]
+            );
+          }
+        } catch {}
+
         await conn.execute(
           'INSERT INTO purchase_items (purchase_id,category,quantity,rate_per_pc,amount) VALUES (?,?,?,?,?)',
           [purchaseId, item.category, item.quantity, item.rate_per_pc, item.amount]
         );
-        // record stock movement
+        // record stock movement as raw fabric received
         await conn.execute(
           'INSERT INTO stock_movements (tenant_id,category,vendor_id,type,quantity,reference,movement_date) VALUES (?,?,?,?,?,?,?)',
           [tenantId, item.category, vendor_id, 'in', item.quantity, `PUR-${purchaseId}`, invoice_date]
@@ -232,6 +246,19 @@ export async function updatePurchase(req: AuthRequest, res: Response): Promise<v
       // Update purchase_items
       await conn.execute('DELETE FROM purchase_items WHERE purchase_id = ?', [id]);
       for (const item of processedItems) {
+        try {
+          if (item.category && item.category !== 'mixed' && item.category.trim()) {
+            await conn.execute(
+              `INSERT INTO raw_materials (tenant_id, name, default_rate, is_active)
+               SELECT ?, ?, ?, 1
+               WHERE NOT EXISTS (
+                 SELECT 1 FROM raw_materials WHERE tenant_id = ? AND LOWER(TRIM(name)) = LOWER(TRIM(?))
+               )`,
+              [tenantId, item.category.trim(), item.rate_per_pc || 0, tenantId, item.category.trim()]
+            );
+          }
+        } catch {}
+
         await conn.execute(
           'INSERT INTO purchase_items (purchase_id,category,quantity,rate_per_pc,amount) VALUES (?,?,?,?,?)',
           [id, item.category, item.quantity, item.rate_per_pc, item.amount]
