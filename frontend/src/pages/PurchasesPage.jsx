@@ -23,6 +23,14 @@ export default function PurchasesPage() {
 
   const [vendors, setVendors]         = useState([]);
   const [products, setProducts]       = useState([]);
+  const [rawMaterials, setRawMaterials] = useState([
+    { id: 1, name: 'Mixed Fabric (Salwar)' },
+    { id: 2, name: 'Mixed Fabric (Nighty)' }
+  ]);
+  const [showRawMatModal, setShowRawMatModal] = useState(false);
+  const [rawMatInput, setRawMatInput]         = useState('');
+  const [rawMatTargetIdx, setRawMatTargetIdx] = useState(null);
+  const [savingRawMat, setSavingRawMat]       = useState(false);
   const [detail, setDetail]           = useState(null);
   const [loading, setLoading]         = useState(true);
   const [saving, setSaving]           = useState(false);
@@ -43,7 +51,7 @@ export default function PurchasesPage() {
     tax_inclusive: false,
     discount: '',
     notes: '',
-    items: [{ category: 'mixed', quantity: '', price_per_piece: '' }],
+    items: [{ category: 'Mixed Fabric (Salwar)', quantity: '', price_per_piece: '' }],
     freight: '',
     coolie: '',
     has_dispute: false,
@@ -68,6 +76,15 @@ export default function PurchasesPage() {
   }, [search]);
 
   const loadVendors = () => api.get('/purchases/vendors').then(r => setVendors(r.data || []));
+  const loadRawMaterials = () => {
+    api.get('/raw-materials')
+      .then(r => {
+        if (r.data && r.data.length > 0) {
+          setRawMaterials(r.data);
+        }
+      })
+      .catch(() => {});
+  };
   const loadProducts = () => {
     Promise.all([
       api.get('/items?all=1').catch(() => ({ data: [] })),
@@ -90,6 +107,7 @@ export default function PurchasesPage() {
   useEffect(() => {
     loadPurchases(1, '');
     loadVendors();
+    loadRawMaterials();
     loadProducts();
   }, []);
 
@@ -150,9 +168,33 @@ export default function PurchasesPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const addItem    = () => setForm(f => ({ ...f, items: [...f.items, { category: 'mixed', quantity: '', price_per_piece: '' }] }));
+  const addItem    = () => setForm(f => ({ ...f, items: [...f.items, { category: rawMaterials[0]?.name || 'Mixed Fabric (Salwar)', quantity: '', price_per_piece: '' }] }));
   const removeItem = i  => setForm(f => ({ ...f, items: f.items.filter((_, idx) => idx !== i) }));
   const setItem    = (i, k, v) => setForm(f => ({ ...f, items: f.items.map((it, idx) => idx === i ? { ...it, [k]: v } : it) }));
+
+  const handleCreateRawMaterial = async () => {
+    const trimmed = rawMatInput.trim();
+    if (!trimmed) return;
+    setSavingRawMat(true);
+    try {
+      const res = await api.post('/raw-materials', { name: trimmed });
+      const created = res.data;
+      setRawMaterials(prev => {
+        const exists = prev.some(r => r.name.toLowerCase() === created.name.toLowerCase());
+        return exists ? prev : [...prev, created];
+      });
+      if (rawMatTargetIdx !== null) {
+        setItem(rawMatTargetIdx, 'category', created.name);
+      }
+      setRawMatInput('');
+      setShowRawMatModal(false);
+      setRawMatTargetIdx(null);
+    } catch (err) {
+      console.error('Failed to create raw material', err);
+    } finally {
+      setSavingRawMat(false);
+    }
+  };
 
   // Form calculations
   const advancePaidNum = parseFloat(form.advance_paid) || 0;
@@ -572,15 +614,29 @@ export default function PurchasesPage() {
                               <td style={{ padding: '8px 12px' }}>
                                 <select
                                   value={it.category}
-                                  onChange={e => setItem(idx, 'category', e.target.value)}
-                                  style={{ width: '100%', padding: '7px 9px', borderRadius: 6, fontSize: 12 }}
+                                  onChange={e => {
+                                    if (e.target.value === '__add_new__') {
+                                      setRawMatTargetIdx(idx);
+                                      setShowRawMatModal(true);
+                                    } else {
+                                      setItem(idx, 'category', e.target.value);
+                                    }
+                                  }}
+                                  style={{ width: '100%', padding: '7px 9px', borderRadius: 6, fontSize: 12, fontWeight: 600 }}
                                 >
-                                  <option value="mixed">Mixed / Fabric Goods</option>
-                                  {products.map(p => (
-                                    <option key={p.category} value={p.category}>
-                                      {p.name || getProductLabel(p.category)}
-                                    </option>
-                                  ))}
+                                  <optgroup label="🧵 Raw Materials / Fabric">
+                                    {rawMaterials.map(rm => (
+                                      <option key={rm.id || rm.name} value={rm.name}>{rm.name}</option>
+                                    ))}
+                                  </optgroup>
+                                  {it.category && !rawMaterials.some(r => r.name.toLowerCase() === it.category.toLowerCase()) && (
+                                    <optgroup label="Other / Legacy">
+                                      <option value={it.category}>{getProductLabel(it.category)}</option>
+                                    </optgroup>
+                                  )}
+                                  <option value="__add_new__" style={{ color: 'var(--accent)', fontWeight: 700 }}>
+                                    ➕ + Add New Raw Material...
+                                  </option>
                                 </select>
                               </td>
 
@@ -661,18 +717,32 @@ export default function PurchasesPage() {
 
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                             <div>
-                              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Category / Item</label>
+                              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Raw Material / Item</label>
                               <select
                                 value={it.category}
-                                onChange={e => setItem(idx, 'category', e.target.value)}
-                                style={{ width: '100%', padding: '7px 9px', borderRadius: 6, fontSize: 12 }}
+                                onChange={e => {
+                                  if (e.target.value === '__add_new__') {
+                                    setRawMatTargetIdx(idx);
+                                    setShowRawMatModal(true);
+                                  } else {
+                                    setItem(idx, 'category', e.target.value);
+                                  }
+                                }}
+                                style={{ width: '100%', padding: '7px 9px', borderRadius: 6, fontSize: 12, fontWeight: 600 }}
                               >
-                                <option value="mixed">Mixed / Fabric Goods</option>
-                                {products.map(p => (
-                                  <option key={p.category} value={p.category}>
-                                    {p.name || getProductLabel(p.category)}
-                                  </option>
-                                ))}
+                                <optgroup label="🧵 Raw Materials / Fabric">
+                                  {rawMaterials.map(rm => (
+                                    <option key={rm.id || rm.name} value={rm.name}>{rm.name}</option>
+                                  ))}
+                                </optgroup>
+                                {it.category && !rawMaterials.some(r => r.name.toLowerCase() === it.category.toLowerCase()) && (
+                                  <optgroup label="Other / Legacy">
+                                    <option value={it.category}>{getProductLabel(it.category)}</option>
+                                  </optgroup>
+                                )}
+                                <option value="__add_new__" style={{ color: 'var(--accent)', fontWeight: 700 }}>
+                                  ➕ + Add New Raw Material...
+                                </option>
                               </select>
                             </div>
 
@@ -964,6 +1034,57 @@ export default function PurchasesPage() {
             </div>
           </div>
         </form>
+
+        {/* Quick Add Raw Material Modal */}
+        {showRawMatModal && (
+          <div style={{
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(15,23,42,0.6)', backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            zIndex: 9999, padding: 20
+          }}>
+            <div style={{
+              background: 'var(--white)', borderRadius: 12, padding: 24,
+              width: '100%', maxWidth: 420, boxShadow: '0 20px 25px -5px rgba(0,0,0,0.2)'
+            }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text)', marginBottom: 6 }}>
+                Add New Raw Material / Fabric
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
+                Specify the name of the new fabric or raw material (e.g. <i>Mixed Fabric (Kurti)</i>). It will be saved into your catalog for all purchase entries and stock tracking.
+              </div>
+              <div className="field mb16">
+                <label style={labelStyle}>Raw Material Name <span style={{ color: 'var(--red)' }}>*</span></label>
+                <input
+                  type="text"
+                  placeholder="e.g. Mixed Fabric (Kurti)"
+                  value={rawMatInput}
+                  onChange={e => setRawMatInput(e.target.value)}
+                  autoFocus
+                  style={{ width: '100%', padding: '9px 12px', borderRadius: 8 }}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleCreateRawMaterial(); } }}
+                />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => { setShowRawMatModal(false); setRawMatInput(''); setRawMatTargetIdx(null); }}
+                  style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 8, padding: '7px 14px', fontSize: 12, fontWeight: 600, color: 'var(--muted)', cursor: 'pointer' }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCreateRawMaterial}
+                  disabled={savingRawMat || !rawMatInput.trim()}
+                  style={{ background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 18px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                >
+                  {savingRawMat ? 'Saving...' : 'Add Material'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

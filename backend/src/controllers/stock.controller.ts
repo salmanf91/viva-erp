@@ -38,19 +38,31 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
       [tenantId, tenantId]
     ));
 
-    // 2. Fabric in active production (tracked from Batch 3 onwards, excluding legacy Batches 1 & 2)
+    // 2. Fabric in active production (tracked from stock_movements allocated + legacy production_batches fallback)
     const allocated = await safe(query<any[]>(
       `SELECT
-         CASE WHEN COALESCE(NULLIF(pb.category, ''), 'mixed') = 'shawl_nighty_lace' THEN 'shawl_nighty' 
-              ELSE COALESCE(NULLIF(pb.category, ''), 'mixed') END AS category,
-         SUM(COALESCE(pb.quantity, 0)) AS qty
-       FROM production_batches pb
-       WHERE pb.tenant_id=? 
-         AND pb.batch_number NOT IN ('BATCH-001', 'BATCH-002', '1', '2', 'BATCH-1', 'BATCH-2', 'Batch-1', 'Batch-2')
-         AND (LOWER(COALESCE(pb.status, 'active')) NOT IN ('finished', 'completed', 'delivered'))
-       GROUP BY CASE WHEN COALESCE(NULLIF(pb.category, ''), 'mixed') = 'shawl_nighty_lace' THEN 'shawl_nighty' 
-                     ELSE COALESCE(NULLIF(pb.category, ''), 'mixed') END`,
-      [tenantId]
+         category,
+         SUM(quantity) AS qty
+       FROM (
+         SELECT category, quantity
+         FROM stock_movements
+         WHERE tenant_id=? AND type='allocated'
+         UNION ALL
+         SELECT
+           CASE WHEN COALESCE(NULLIF(pb.category, ''), 'mixed') = 'shawl_nighty_lace' THEN 'shawl_nighty' 
+                ELSE COALESCE(NULLIF(pb.category, ''), 'mixed') END AS category,
+           COALESCE(pb.quantity, 0) AS quantity
+         FROM production_batches pb
+         WHERE pb.tenant_id=? 
+           AND pb.batch_number NOT IN ('BATCH-001', 'BATCH-002', '1', '2', 'BATCH-1', 'BATCH-2', 'Batch-1', 'Batch-2')
+           AND (LOWER(COALESCE(pb.status, 'active')) NOT IN ('finished', 'completed', 'delivered'))
+           AND (pb.raw_material_name IS NULL OR pb.raw_material_name = '')
+           AND NOT EXISTS (
+             SELECT 1 FROM stock_movements sm WHERE sm.tenant_id = pb.tenant_id AND sm.reference LIKE CONCAT(pb.batch_number, '%') AND sm.type = 'allocated'
+           )
+       ) a
+       GROUP BY category`,
+      [tenantId, tenantId]
     ));
 
     // 3. Finished goods produced (tracked from Batch 3 onwards, e.g. Batch 3 & 4 with 80 pcs salwar suit)
@@ -109,7 +121,13 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
       [tenantId]
     ));
 
-    res.json({ received, allocated, finished, shawlBreakdown, finishedBreakdown, sold });
+    // 7. Active raw materials master list
+    const rawMaterials = await safe(query<any[]>(
+      `SELECT id, name, code, uom, default_rate FROM raw_materials WHERE tenant_id=? AND is_active=1 ORDER BY id ASC`,
+      [tenantId]
+    ), []);
+
+    res.json({ received, allocated, finished, shawlBreakdown, finishedBreakdown, sold, rawMaterials });
   } catch (error) {
     console.error('getStockSummary error:', error);
     res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });

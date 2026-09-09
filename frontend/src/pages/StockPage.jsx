@@ -46,10 +46,12 @@ export default function StockPage() {
   if (loading) return <div className="spinner">Loading stock overview…</div>;
 
   const getLabel = (cat) => {
-    if (!cat) return 'Mixed';
-    const cfg = configs.find(c => (c.category || '').toLowerCase() === cat.toLowerCase());
+    if (!cat) return 'Mixed Fabric';
+    const rm = (summary?.rawMaterials || []).find(r => (r.name || '').toLowerCase() === cat.toLowerCase());
+    if (rm) return rm.name;
+    const cfg = configs.find(c => (c.category || '').toLowerCase() === cat.toLowerCase() || (c.name || '').toLowerCase() === cat.toLowerCase());
     if (cfg?.display_name || cfg?.name) return cfg.display_name || cfg.name;
-    return DEFAULT_LABELS[cat] || cat.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    return DEFAULT_LABELS[cat] || (cat.includes('(') ? cat : cat.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()));
   };
 
   const getColor = (cat, idx = 0) => {
@@ -67,15 +69,16 @@ export default function StockPage() {
       .reduce((sum, r) => sum + Number(r.qty || 0), 0);
   };
 
-  // Discover all active categories from data and configs
+  // Discover all active categories from raw materials catalog, data and configs
   const rawSet = new Set();
+  (summary?.rawMaterials || []).forEach(r => r.name && rawSet.add(r.name));
   (configs || []).forEach(c => c.category && rawSet.add(c.category));
   ['received', 'allocated', 'finished', 'sold'].forEach(key => {
     (summary?.[key] || []).forEach(r => r.category && rawSet.add(r.category));
   });
   if (rawSet.size === 0) {
-    rawSet.add('shawl_nighty');
-    rawSet.add('ordinary_nighty');
+    rawSet.add('Mixed Fabric (Salwar)');
+    rawSet.add('Mixed Fabric (Nighty)');
   }
 
   // Deduplicate by normalized key
@@ -96,7 +99,7 @@ export default function StockPage() {
     const sold     = get(summary?.sold,      cat);
     const fin      = Math.max(0, totalFin - sold); // Net finished goods on hand
     const used     = alloc + totalFin;
-    const avail    = Math.max(0, rec - used);      // Unallocated raw fabric remaining
+    const avail    = Math.max(0, rec - (totalFin > 0 ? used : alloc)); // Unallocated raw fabric remaining
     const color    = getColor(cat, idx);
     const label    = getLabel(cat);
     return { cat, label, color, rec, alloc, totalFin, sold, fin, used, avail };
