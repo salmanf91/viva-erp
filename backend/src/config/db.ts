@@ -154,6 +154,11 @@ export async function initDb(): Promise<void> {
         await defaultPool.query("ALTER TABLE sales_payments ADD COLUMN notes TEXT NULL AFTER receipt_no");
         console.log('Added notes column to sales_payments');
       }
+
+      // Backfill any sales_payments missing a receipt_no with a unique sequential receipt number
+      await defaultPool.query(
+        "UPDATE sales_payments SET receipt_no = CONCAT('RCP-', YEAR(payment_date), '-', LPAD(id, 4, '0')) WHERE receipt_no IS NULL OR receipt_no = ''"
+      );
     } catch {}
 
     try {

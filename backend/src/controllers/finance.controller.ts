@@ -194,7 +194,7 @@ export async function getCashLedger(req: AuthRequest, res: Response): Promise<vo
           description: `💵 Payment (${modeLabel}) — ${sp.client_name}`,
           amount: 0,
           direction: 'in',
-          ref: sp.receipt_no || `RCP-${sp.invoice_number || sp.id}`,
+          ref: sp.receipt_no || `RCP-${sp.id}`,
           note: sp.notes || null,
           party: sp.client_name,
         });
@@ -396,7 +396,7 @@ export async function getClientLedger(req: AuthRequest, res: Response): Promise<
         const notePart = p.notes ? ` - ${p.notes}` : '';
         groupedPaymentsMap.set(key, {
           id: p.id,
-          ref: p.receipt_no || (p.invoice_number ? `RCP-${p.invoice_number}` : `RCP-${p.id}`),
+          ref: p.receipt_no || `RCP-${p.id}`,
           date: p.date,
           type: 'payment',
           amount: 0,
