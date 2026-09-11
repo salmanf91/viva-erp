@@ -613,7 +613,24 @@ export async function getReceiptDetails(req: AuthRequest, res: Response): Promis
       [cleanKey, tenantId]
     );
 
-    // 2. If not found and cleanKey looks like an invoice number or RCP-<invoiceNumber>
+    // 2. Direct match by payment ID (e.g. PAY-12, RCP-12, or pure number 12)
+    if (!payments.length) {
+      const numMatch = cleanKey.match(/^(?:PAY-|RCP-)?(\d+)$/i);
+      if (numMatch) {
+        payments = await query<any[]>(
+          `SELECT p.*, o.invoice_number, o.order_date, o.amount_paid AS order_amount_paid, o.status AS order_status,
+                  c.id AS client_id, c.name AS client_name, c.city AS client_city, c.phone AS client_phone, c.address AS client_address,
+                  ((GREATEST(0, (SELECT COALESCE(SUM(i.quantity * i.rate_per_pc), 0) FROM sales_order_items i WHERE i.order_id = o.id) - o.discount)) * (1 + o.gst_percent / 100)) AS order_total
+           FROM sales_payments p
+           JOIN sales_orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
+           JOIN clients c ON c.id = o.client_id
+           WHERE p.id = ? AND p.tenant_id = ?`,
+          [Number(numMatch[1]), tenantId]
+        );
+      }
+    }
+
+    // 3. Fallback: match by invoice number
     if (!payments.length) {
       const possibleInv = cleanKey.replace(/^RCP-/, '');
       payments = await query<any[]>(
@@ -875,11 +892,14 @@ export async function getSalesPayments(req: AuthRequest, res: Response): Promise
     // Group raw payments by receipt_no (or by id if receipt_no is null)
     const groupedMap = new Map<string, any>();
     for (const p of rawPayments) {
-      const key = p.receipt_no || `RCP-${p.invoice_number || p.id}`;
+      const hasReceiptNo = Boolean(p.receipt_no && String(p.receipt_no).trim());
+      const key = hasReceiptNo ? String(p.receipt_no).trim() : `PAY-${p.id}`;
+      const displayReceiptNo = hasReceiptNo ? String(p.receipt_no).trim() : `RCP-${p.id}`;
+
       if (!groupedMap.has(key)) {
         groupedMap.set(key, {
           receipt_key: key,
-          receipt_no: p.receipt_no || key,
+          receipt_no: displayReceiptNo,
           payment_date: p.payment_date,
           payment_mode: p.payment_mode || 'cash',
           notes: p.notes || '',
@@ -935,6 +955,15 @@ export async function deletePayment(req: AuthRequest, res: Response): Promise<vo
         'SELECT * FROM sales_payments WHERE receipt_no=? AND tenant_id=?',
         [paymentId, tenantId]
       );
+    }
+    if (!paymentRows.length) {
+      const numMatch = String(paymentId).match(/^(?:PAY-|RCP-)?(\d+)$/i);
+      if (numMatch) {
+        paymentRows = await query<any[]>(
+          'SELECT * FROM sales_payments WHERE id=? AND tenant_id=?',
+          [Number(numMatch[1]), tenantId]
+        );
+      }
     }
     if (!paymentRows.length) {
       paymentRows = await query<any[]>(
@@ -1001,6 +1030,15 @@ export async function updateReceipt(req: AuthRequest, res: Response): Promise<vo
         'SELECT * FROM sales_payments WHERE receipt_no=? AND tenant_id=?',
         [cleanKey, tenantId]
       );
+    }
+    if (!paymentRows.length) {
+      const numMatch = cleanKey.match(/^(?:PAY-|RCP-)?(\d+)$/i);
+      if (numMatch) {
+        paymentRows = await query<any[]>(
+          'SELECT * FROM sales_payments WHERE id=? AND tenant_id=?',
+          [Number(numMatch[1]), tenantId]
+        );
+      }
     }
     if (!paymentRows.length) {
       paymentRows = await query<any[]>(
