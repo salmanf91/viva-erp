@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import api from '../api/client';
 import { exportToCSV } from '../utils/csvExport';
 
@@ -16,43 +16,25 @@ const toDateStr = d => {
   return `${yyyy}-${mm}-${dd}`;
 };
 
-const REPORT_SECTIONS = [
-  {
-    id: 'executive',
-    label: 'Executive & Financials',
-    icon: '📊',
-    tabs: [
-      { id: 'overview', label: 'Executive Overview', icon: '📊' },
-      { id: 'pnl', label: 'P&L Statement', icon: '📈' },
-    ]
-  },
-  {
-    id: 'commercial',
-    label: 'Commercial & Sales',
-    icon: '💼',
-    tabs: [
-      { id: 'sales', label: 'Sales Report', icon: '🚚' },
-      { id: 'purchases', label: 'Fabric Purchases', icon: '📦' },
-    ]
-  },
-  {
-    id: 'manufacturing',
-    label: 'Manufacturing & Stock',
-    icon: '🏭',
-    tabs: [
-      { id: 'production', label: 'Production Log', icon: '✂️' },
-      { id: 'inventory', label: 'Inventory & Stock', icon: '🏭' },
-    ]
-  },
-  {
-    id: 'people',
-    label: 'People & Overheads',
-    icon: '👥',
-    tabs: [
-      { id: 'staff', label: 'Staff & Payroll', icon: '👷' },
-      { id: 'expenses', label: 'Operating Expenses', icon: '🧾' },
-    ]
-  }
+const PRESET_LABELS = {
+  this_month: 'This Month',
+  last_month: 'Last Month',
+  this_quarter: 'Quarter',
+  this_year: 'This Year',
+  this_week: 'This Week',
+  today: 'Today',
+  custom: 'Custom Range',
+};
+
+const REPORT_TABS = [
+  ['overview', '📊 Overview'],
+  ['pnl', '📈 P&L'],
+  ['sales', '🚚 Sales'],
+  ['purchases', '📦 Purchases'],
+  ['production', '✂️ Production'],
+  ['inventory', '🏭 Inventory'],
+  ['staff', '👷 Staff'],
+  ['expenses', '🧾 Expenses'],
 ];
 
 export default function ReportsPage() {
@@ -62,13 +44,22 @@ export default function ReportsPage() {
   const [toDate, setToDate] = useState(toDateStr(now));
   const [customFrom, setCustomFrom] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`);
   const [customTo, setCustomTo] = useState(toDateStr(now));
-  const [isCustomOpen, setIsCustomOpen] = useState(false);
+  const [showDateMenu, setShowDateMenu] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
 
-  // Active section based on activeTab
-  const activeSection = REPORT_SECTIONS.find(s => s.tabs.some(t => t.id === activeTab)) || REPORT_SECTIONS[0];
+  const dateMenuRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = e => {
+      if (dateMenuRef.current && !dateMenuRef.current.contains(e.target)) {
+        setShowDateMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Tab Data States
   const [overviewData, setOverviewData] = useState(null);
@@ -241,217 +232,176 @@ export default function ReportsPage() {
 
   return (
     <div className="reports-page">
-      {/* ── Page Header ── */}
-      <div className="sec-hd mb16" style={{ flexWrap: 'wrap', gap: 12 }}>
+      {/* ── Page Header with Consolidated Controls ── */}
+      <div className="sec-hd mb16" style={{ flexWrap: 'wrap', gap: 14, alignItems: 'center' }}>
         <div>
           <div className="sec-title">📑 Reports &amp; Analytics</div>
-          <div className="sec-sub">Comprehensive business insights across all operations</div>
+          <div className="sec-sub">Business performance &amp; operations insights</div>
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+
+        {/* Action Controls & Date Dropdown */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          {/* Consolidated Date Dropdown */}
+          <div ref={dateMenuRef} style={{ position: 'relative' }}>
+            <button
+              onClick={() => setShowDateMenu(prev => !prev)}
+              style={{
+                padding: '7px 14px',
+                borderRadius: 8,
+                border: '1.5px solid var(--border)',
+                background: showDateMenu ? 'var(--accent-l)' : 'var(--white)',
+                color: showDateMenu ? 'var(--accent)' : 'var(--text)',
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 8,
+                boxShadow: '0 1px 2px rgba(0,0,0,0.05)',
+                transition: 'all .15s'
+              }}
+            >
+              <span style={{ fontSize: 14 }}>📅</span>
+              <span>{PRESET_LABELS[preset] || 'Custom'}: <strong style={{ color: 'var(--accent)' }}>{fmtD(fromDate)} – {fmtD(toDate)}</strong></span>
+              <span style={{ fontSize: 10, color: 'var(--muted)', transform: showDateMenu ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}>▼</span>
+            </button>
+
+            {/* Popover Dropdown Menu */}
+            {showDateMenu && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 6px)',
+                  right: 0,
+                  width: 300,
+                  background: '#fff',
+                  borderRadius: 10,
+                  border: '1px solid var(--border)',
+                  boxShadow: '0 10px 25px rgba(0,0,0,0.12)',
+                  padding: 12,
+                  zIndex: 200,
+                }}
+              >
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.5px' }}>
+                  Select Reporting Period
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 12 }}>
+                  {[
+                    ['this_month', 'This Month'],
+                    ['last_month', 'Last Month'],
+                    ['this_quarter', 'This Quarter'],
+                    ['this_year', 'This Year'],
+                    ['this_week', 'This Week'],
+                    ['today', 'Today'],
+                  ].map(([k, label]) => (
+                    <button
+                      key={k}
+                      onClick={() => {
+                        applyPreset(k);
+                        setShowDateMenu(false);
+                      }}
+                      style={{
+                        padding: '7px 10px',
+                        fontSize: 12,
+                        fontWeight: preset === k ? 700 : 500,
+                        borderRadius: 6,
+                        border: preset === k ? '1.5px solid var(--accent)' : '1px solid var(--border)',
+                        background: preset === k ? 'var(--accent-l)' : 'var(--light)',
+                        color: preset === k ? 'var(--accent)' : 'var(--text)',
+                        cursor: 'pointer',
+                        textAlign: 'left',
+                        transition: 'all .12s'
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+
+                <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 8 }}>
+                    Custom Date Range
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                      <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>From:</span>
+                      <input
+                        type="date"
+                        value={customFrom}
+                        onChange={e => setCustomFrom(e.target.value)}
+                        style={{ fontSize: 12, padding: '5px 8px', borderRadius: 6, border: '1px solid var(--border)', outline: 'none' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                      <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>To:</span>
+                      <input
+                        type="date"
+                        value={customTo}
+                        onChange={e => setCustomTo(e.target.value)}
+                        style={{ fontSize: 12, padding: '5px 8px', borderRadius: 6, border: '1px solid var(--border)', outline: 'none' }}
+                      />
+                    </div>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => {
+                        handleApplyCustom();
+                        setShowDateMenu(false);
+                      }}
+                      style={{ width: '100%', marginTop: 4, height: 32, fontWeight: 700 }}
+                    >
+                      Apply Custom Dates
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           <button className="btn btn-ghost btn-sm" onClick={exportCSV} title="Download CSV">
             📥 Export CSV
           </button>
           <button className="btn btn-primary btn-sm" onClick={printReport} title="Print report">
-            🖨️ Print Report
+            🖨️ Print
+          </button>
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={loadReport}
+            disabled={loading}
+            title="Refresh current report"
+            style={{ width: 34, height: 34, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <span style={{ display: 'inline-block', transform: loading ? 'rotate(180deg)' : 'none', transition: 'transform .5s' }}>🔄</span>
           </button>
         </div>
       </div>
 
-      {/* ── Consolidated Date Filter Bar ── */}
-      <div className="card mb16" style={{ padding: '12px 18px', background: '#fff' }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 14 }}>
-          {/* Quick-Select Presets */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginRight: 4 }}>
-              Period:
-            </span>
-            {[
-              ['this_month', 'This Month'],
-              ['last_month', 'Last Month'],
-              ['this_quarter', 'Quarter'],
-              ['this_year', 'This Year'],
-              ['custom', 'Custom Range…'],
-            ].map(([k, label]) => {
-              const active = preset === k;
-              return (
-                <button
-                  key={k}
-                  onClick={() => applyPreset(k)}
-                  style={{
-                    padding: '6px 14px',
-                    fontSize: 12,
-                    fontWeight: active ? 700 : 600,
-                    borderRadius: 8,
-                    cursor: 'pointer',
-                    border: active ? '1.5px solid var(--accent)' : '1px solid var(--border)',
-                    background: active ? 'var(--accent-l)' : '#fff',
-                    color: active ? 'var(--accent)' : 'var(--muted)',
-                    transition: 'all 0.15s ease',
-                    boxShadow: active ? '0 1px 3px rgba(79, 70, 229, 0.15)' : 'none',
-                  }}
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Active Scope Badge + Reload */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-            <div
+      {/* ── Single-Row Underline Navigation Tabs ── */}
+      <div style={{ display: 'flex', gap: 4, borderBottom: '1.5px solid var(--border)', marginBottom: 20, flexWrap: 'wrap' }}>
+        {REPORT_TABS.map(([t, label]) => {
+          const active = activeTab === t;
+          return (
+            <button
+              key={t}
+              onClick={() => setActiveTab(t)}
               style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 7,
-                fontSize: 12,
-                fontWeight: 700,
-                color: 'var(--text)',
-                background: 'var(--light)',
-                padding: '6px 14px',
-                borderRadius: 8,
-                border: '1px solid var(--border)'
+                padding: '10px 16px',
+                fontWeight: active ? 700 : 600,
+                fontSize: 13,
+                border: 'none',
+                background: 'none',
+                cursor: 'pointer',
+                color: active ? 'var(--accent)' : 'var(--muted)',
+                borderBottom: active ? '2.5px solid var(--accent)' : '2.5px solid transparent',
+                marginBottom: -2,
+                transition: 'all .15s ease',
+                whiteSpace: 'nowrap'
               }}
             >
-              <span style={{ fontSize: 14 }}>📅</span>
-              <span>{fmtD(fromDate)} — {fmtD(toDate)}</span>
-            </div>
-
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={loadReport}
-              disabled={loading}
-              title="Refresh report data"
-              style={{ height: 32, padding: '0 12px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}
-            >
-              <span style={{ display: 'inline-block', transform: loading ? 'rotate(180deg)' : 'none', transition: 'transform 0.5s ease' }}>🔄</span>
-              <span>{loading ? 'Refreshing…' : 'Refresh'}</span>
+              {label}
             </button>
-          </div>
-        </div>
-
-        {/* Inline Drawer for Custom Date Selection */}
-        {isCustomOpen && (
-          <div
-            style={{
-              marginTop: 12,
-              paddingTop: 12,
-              borderTop: '1px solid var(--border)',
-              display: 'flex',
-              flexWrap: 'wrap',
-              alignItems: 'center',
-              gap: 12,
-              background: 'var(--light)',
-              padding: '10px 14px',
-              borderRadius: 8,
-            }}
-          >
-            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>Custom Range:</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>From:</span>
-              <input
-                type="date"
-                value={customFrom}
-                onChange={e => setCustomFrom(e.target.value)}
-                style={{ fontSize: 12, padding: '5px 10px', borderRadius: 6, border: '1px solid var(--border)', background: '#fff', outline: 'none' }}
-              />
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>To:</span>
-              <input
-                type="date"
-                value={customTo}
-                onChange={e => setCustomTo(e.target.value)}
-                style={{ fontSize: 12, padding: '5px 10px', borderRadius: 6, border: '1px solid var(--border)', background: '#fff', outline: 'none' }}
-              />
-            </div>
-            <button
-              className="btn btn-primary btn-sm"
-              onClick={handleApplyCustom}
-              style={{ fontSize: 12, padding: '5px 14px', height: 30 }}
-            >
-              Apply Range
-            </button>
-            <button
-              className="btn btn-ghost btn-sm"
-              onClick={() => setIsCustomOpen(false)}
-              style={{ fontSize: 12, padding: '5px 12px', height: 30 }}
-            >
-              Cancel
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* ── Grouped Categorized Navigation ── */}
-      <div className="card mb16" style={{ padding: '8px 12px', background: '#fff' }}>
-        {/* Tier 1: Functional Sections */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
-          {REPORT_SECTIONS.map(section => {
-            const isCurrentSection = section.tabs.some(t => t.id === activeTab);
-            return (
-              <button
-                key={section.id}
-                onClick={() => {
-                  if (!isCurrentSection) {
-                    setActiveTab(section.tabs[0].id);
-                  }
-                }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 8,
-                  padding: '8px 12px',
-                  borderRadius: 8,
-                  cursor: 'pointer',
-                  border: isCurrentSection ? '1.5px solid var(--accent)' : '1px solid transparent',
-                  background: isCurrentSection ? 'var(--accent-l)' : 'transparent',
-                  color: isCurrentSection ? 'var(--accent)' : 'var(--muted)',
-                  fontWeight: isCurrentSection ? 800 : 600,
-                  fontSize: 13,
-                  transition: 'all 0.15s ease',
-                }}
-              >
-                <span>{section.icon}</span>
-                <span>{section.label}</span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Tier 2: Specific Sub-Reports for the Active Section */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingTop: 8, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginLeft: 4 }}>
-            Report:
-          </span>
-          {activeSection?.tabs.map(tabItem => {
-            const isSelected = activeTab === tabItem.id;
-            return (
-              <button
-                key={tabItem.id}
-                onClick={() => setActiveTab(tabItem.id)}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  padding: '6px 14px',
-                  borderRadius: 20,
-                  cursor: 'pointer',
-                  border: isSelected ? '1.5px solid var(--accent)' : '1px solid var(--border)',
-                  background: isSelected ? 'var(--accent)' : '#fff',
-                  color: isSelected ? '#fff' : 'var(--text)',
-                  fontWeight: isSelected ? 700 : 500,
-                  fontSize: 12,
-                  transition: 'all 0.15s ease',
-                  boxShadow: isSelected ? '0 2px 4px rgba(79, 70, 229, 0.25)' : 'none',
-                }}
-              >
-                <span>{tabItem.icon}</span>
-                <span>{tabItem.label}</span>
-              </button>
-            );
-          })}
-        </div>
+          );
+        })}
       </div>
 
       {/* ── Loading Spinner ── */}
