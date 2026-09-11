@@ -989,3 +989,105 @@ export async function deletePayment(req: AuthRequest, res: Response): Promise<vo
     res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
   }
 }
+
+export async function updateReceipt(req: AuthRequest, res: Response): Promise<void> {
+  const { tenantId } = req.user!;
+  const cleanKey = String(req.params.receiptNo || req.params.paymentId || '').trim();
+
+  try {
+    let paymentRows: any[] = [];
+    if (cleanKey.startsWith('RCP-')) {
+      paymentRows = await query<any[]>(
+        'SELECT * FROM sales_payments WHERE receipt_no=? AND tenant_id=?',
+        [cleanKey, tenantId]
+      );
+    }
+    if (!paymentRows.length) {
+      paymentRows = await query<any[]>(
+        'SELECT * FROM sales_payments WHERE (id=? OR receipt_no=?) AND tenant_id=?',
+        [cleanKey, cleanKey, tenantId]
+      );
+    }
+    if (!paymentRows.length && /^\d+$/.test(cleanKey)) {
+      paymentRows = await query<any[]>(
+        'SELECT * FROM sales_payments WHERE order_id=? AND tenant_id=?',
+        [Number(cleanKey), tenantId]
+      );
+    }
+
+    if (!paymentRows.length) {
+      res.status(404).json({ message: 'Payment receipt not found' });
+      return;
+    }
+
+    const originalReceiptNo = paymentRows[0].receipt_no || (cleanKey.startsWith('RCP-') ? cleanKey : `RCP-${paymentRows[0].id}`);
+    const { payment_date, payment_mode, notes, allocations } = req.body;
+
+    const paymentDate = payment_date || paymentRows[0].payment_date || new Date().toISOString().slice(0, 10);
+    const paymentMode = (payment_mode || paymentRows[0].payment_mode || 'cash').trim();
+    const paymentNotes = notes !== undefined ? (notes ? String(notes).trim() : null) : paymentRows[0].notes;
+
+    if (Array.isArray(allocations)) {
+      const validAllocs = allocations.filter((a: any) => a && a.order_id && Number(a.amount) > 0);
+      if (validAllocs.length === 0) {
+        res.status(400).json({ message: 'At least one invoice allocation must have an amount greater than 0. Use delete if you want to remove the receipt.' });
+        return;
+      }
+
+      const oldOrderIds = paymentRows.map(p => p.order_id);
+      const newOrderIds = validAllocs.map((a: any) => Number(a.order_id));
+      const allAffectedOrderIds = Array.from(new Set([...oldOrderIds, ...newOrderIds]));
+
+      const oldPaymentIds = paymentRows.map(p => p.id);
+      await query(
+        `DELETE FROM sales_payments WHERE id IN (${oldPaymentIds.map(() => '?').join(',')}) AND tenant_id=?`,
+        [...oldPaymentIds, tenantId]
+      );
+
+      for (const alloc of validAllocs) {
+        await query(
+          `INSERT INTO sales_payments (tenant_id, order_id, amount, payment_date, payment_mode, receipt_no, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [tenantId, alloc.order_id, Number(alloc.amount), paymentDate, paymentMode, originalReceiptNo, paymentNotes]
+        );
+      }
+
+      for (const orderId of allAffectedOrderIds) {
+        const remainingRows = await query<any[]>(
+          'SELECT COALESCE(SUM(amount), 0) AS total_paid FROM sales_payments WHERE order_id=? AND tenant_id=?',
+          [orderId, tenantId]
+        );
+        const newPaid = Number(remainingRows[0]?.total_paid || 0);
+
+        const orderTotals = await query<any[]>(
+          `SELECT (GREATEST(0, COALESCE(SUM(i.quantity * i.rate_per_pc), 0) - o.discount)) * (1 + o.gst_percent / 100) AS total
+           FROM sales_orders o
+           LEFT JOIN sales_order_items i ON i.order_id = o.id
+           WHERE o.id=? AND o.tenant_id=?
+           GROUP BY o.id`,
+          [orderId, tenantId]
+        );
+        const orderTotal = Number(orderTotals[0]?.total || 0);
+        const cappedPaid = Math.min(newPaid, orderTotal);
+        const newStatus = cappedPaid >= orderTotal && orderTotal > 0 ? 'paid' : (cappedPaid > 0 ? 'partial' : 'pending');
+        const paidAt = newStatus === 'paid' ? 'NOW()' : 'NULL';
+
+        await query(
+          `UPDATE sales_orders SET amount_paid=?, status=?, paid_at=${paidAt === 'NULL' ? 'NULL' : 'NOW()'} WHERE id=? AND tenant_id=?`,
+          [cappedPaid, newStatus, orderId, tenantId]
+        );
+      }
+    } else {
+      const paymentIds = paymentRows.map(p => p.id);
+      await query(
+        `UPDATE sales_payments SET payment_date=?, payment_mode=?, notes=? WHERE id IN (${paymentIds.map(() => '?').join(',')}) AND tenant_id=?`,
+        [paymentDate, paymentMode, paymentNotes, ...paymentIds, tenantId]
+      );
+    }
+
+    res.json({ message: 'Receipt updated successfully', receipt_no: originalReceiptNo });
+  } catch (error) {
+    console.error('updateReceipt error:', error);
+    res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
+  }
+}

@@ -5,6 +5,7 @@ import {
   getCategoryRates, upsertCategoryRate,
   getOrders, getOrder, createOrder, updateOrder, markPaid, recordPayment, deleteOrder, getSalesSummary,
   getNightiesCategorySummary, getSalesPayments, deletePayment, recordMultiInvoicePayment, getReceiptDetails,
+  updateReceipt,
 } from '../controllers/sales.controller';
 
 const router = Router();
@@ -25,6 +26,8 @@ router.post('/rates', upsertCategoryRate);
 router.get('/payments',               getSalesPayments);
 router.post('/multi-payment',         recordMultiInvoicePayment);
 router.get('/receipts/:receiptNo',    getReceiptDetails);
+router.put('/receipts/:receiptNo',    updateReceipt);
+router.put('/payments/:paymentId',    updateReceipt);
 router.delete('/receipts/:paymentId', deletePayment);
 router.delete('/payments/:paymentId', deletePayment);
 
