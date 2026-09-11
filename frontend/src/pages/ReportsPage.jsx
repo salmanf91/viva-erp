@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import api from '../api/client';
 import { exportToCSV } from '../utils/csvExport';
 
@@ -16,52 +16,44 @@ const toDateStr = d => {
   return `${yyyy}-${mm}-${dd}`;
 };
 
-const PRESET_LABELS = {
-  this_month: 'This Month',
-  last_month: 'Last Month',
-  this_quarter: 'Quarter',
-  this_year: 'This Year',
-  this_week: 'This Week',
-  today: 'Today',
-  custom: 'Custom Range',
-};
-
-const REPORT_GROUPS = [
+const REPORT_SECTIONS = [
   {
-    title: 'Financial',
-    items: [
-      { id: 'overview',   label: 'Executive Overview', icon: '📊' },
-      { id: 'pnl',        label: 'Profit & Loss (P&L)', icon: '📈' },
+    id: 'executive',
+    label: 'Executive & Financials',
+    icon: '📊',
+    tabs: [
+      { id: 'overview', label: 'Executive Overview', icon: '📊' },
+      { id: 'pnl', label: 'P&L Statement', icon: '📈' },
     ]
   },
   {
-    title: 'Operations',
-    items: [
-      { id: 'sales',      label: 'Sales Orders', icon: '🚚' },
-      { id: 'purchases',  label: 'Fabric Purchases', icon: '📦' },
+    id: 'commercial',
+    label: 'Commercial & Sales',
+    icon: '💼',
+    tabs: [
+      { id: 'sales', label: 'Sales Report', icon: '🚚' },
+      { id: 'purchases', label: 'Fabric Purchases', icon: '📦' },
+    ]
+  },
+  {
+    id: 'manufacturing',
+    label: 'Manufacturing & Stock',
+    icon: '🏭',
+    tabs: [
       { id: 'production', label: 'Production Log', icon: '✂️' },
-      { id: 'inventory',  label: 'Stock & Inventory', icon: '🏭' },
+      { id: 'inventory', label: 'Inventory & Stock', icon: '🏭' },
     ]
   },
   {
-    title: 'Costs & Team',
-    items: [
-      { id: 'staff',      label: 'Staff & Payroll', icon: '👷' },
-      { id: 'expenses',   label: 'Operating Expenses', icon: '🧾' },
+    id: 'people',
+    label: 'People & Overheads',
+    icon: '👥',
+    tabs: [
+      { id: 'staff', label: 'Staff & Payroll', icon: '👷' },
+      { id: 'expenses', label: 'Operating Expenses', icon: '🧾' },
     ]
   }
 ];
-
-const REPORT_INFO = {
-  overview:   { title: 'Executive Overview', desc: 'Consolidated bottom-line profitability and key manufacturing metrics' },
-  pnl:        { title: 'Profit & Loss Statement (P&L)', desc: 'Summary of billed income, cost of goods, and operational expenses' },
-  sales:      { title: 'Sales Orders & Invoicing', desc: 'Billed sales volume, client order fulfillment, and payment collection' },
-  purchases:  { title: 'Fabric & Raw Material Purchases', desc: 'Procurement invoices, supplier balances, freight, and procurement expenses' },
-  production: { title: 'Production & Manufacturing Log', desc: 'Job-order cutting, stitching output, and batch progress' },
-  inventory:  { title: 'Inventory & Finished Goods', desc: 'Stock valuation, allocated fabric, and finished goods on hand' },
-  staff:      { title: 'Staff Performance & Payroll', desc: 'Tailor piece-rate earnings, wage advances, and settled balances' },
-  expenses:   { title: 'Operating Expenses & Overheads', desc: 'Facility utilities, transport, maintenance, and administrative costs' },
-};
 
 export default function ReportsPage() {
   const now = new Date();
@@ -70,22 +62,13 @@ export default function ReportsPage() {
   const [toDate, setToDate] = useState(toDateStr(now));
   const [customFrom, setCustomFrom] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`);
   const [customTo, setCustomTo] = useState(toDateStr(now));
-  const [showDateMenu, setShowDateMenu] = useState(false);
+  const [isCustomOpen, setIsCustomOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
 
-  const dateMenuRef = useRef(null);
-
-  useEffect(() => {
-    const handleClickOutside = e => {
-      if (dateMenuRef.current && !dateMenuRef.current.contains(e.target)) {
-        setShowDateMenu(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  // Active section based on activeTab
+  const activeSection = REPORT_SECTIONS.find(s => s.tabs.some(t => t.id === activeTab)) || REPORT_SECTIONS[0];
 
   // Tab Data States
   const [overviewData, setOverviewData] = useState(null);
@@ -258,431 +241,396 @@ export default function ReportsPage() {
 
   return (
     <div className="reports-page">
-      {/* ── Page Header with Consolidated Controls ── */}
-      <div className="sec-hd mb16" style={{ flexWrap: 'wrap', gap: 14, alignItems: 'center' }}>
+      {/* ── Page Header ── */}
+      <div className="sec-hd mb16" style={{ flexWrap: 'wrap', gap: 12 }}>
         <div>
           <div className="sec-title">📑 Reports &amp; Analytics</div>
-          <div className="sec-sub">Business performance &amp; operations insights</div>
+          <div className="sec-sub">Comprehensive business insights across all operations</div>
         </div>
-
-        {/* Action Controls & Date Dropdown */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          {/* Consolidated Date Dropdown */}
-          <div ref={dateMenuRef} style={{ position: 'relative' }}>
-            <button
-              onClick={() => setShowDateMenu(prev => !prev)}
-              style={{
-                padding: '7px 14px',
-                borderRadius: 8,
-                border: '1px solid var(--border)',
-                background: showDateMenu ? '#f1f5f9' : '#ffffff',
-                color: '#0f172a',
-                fontSize: 13,
-                fontWeight: 600,
-                cursor: 'pointer',
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 8,
-                boxShadow: '0 1px 2px rgba(0,0,0,0.03)',
-                transition: 'all .15s'
-              }}
-            >
-              <span style={{ fontSize: 14 }}>📅</span>
-              <span>{PRESET_LABELS[preset] || 'Custom'}: <strong style={{ color: '#0f172a' }}>{fmtD(fromDate)} – {fmtD(toDate)}</strong></span>
-              <span style={{ fontSize: 10, color: 'var(--muted)', transform: showDateMenu ? 'rotate(180deg)' : 'none', transition: 'transform .2s' }}>▼</span>
-            </button>
-
-            {/* Popover Dropdown Menu */}
-            {showDateMenu && (
-              <div
-                style={{
-                  position: 'absolute',
-                  top: 'calc(100% + 6px)',
-                  right: 0,
-                  width: 300,
-                  background: '#fff',
-                  borderRadius: 10,
-                  border: '1px solid var(--border)',
-                  boxShadow: '0 10px 25px rgba(0,0,0,0.12)',
-                  padding: 12,
-                  zIndex: 200,
-                }}
-              >
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 8, letterSpacing: '0.5px' }}>
-                  Select Reporting Period
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 12 }}>
-                  {[
-                    ['this_month', 'This Month'],
-                    ['last_month', 'Last Month'],
-                    ['this_quarter', 'This Quarter'],
-                    ['this_year', 'This Year'],
-                    ['this_week', 'This Week'],
-                    ['today', 'Today'],
-                  ].map(([k, label]) => (
-                    <button
-                      key={k}
-                      onClick={() => {
-                        applyPreset(k);
-                        setShowDateMenu(false);
-                      }}
-                      style={{
-                        padding: '7px 10px',
-                        fontSize: 12,
-                        fontWeight: preset === k ? 700 : 500,
-                        borderRadius: 6,
-                        border: preset === k ? '1.5px solid var(--accent)' : '1px solid var(--border)',
-                        background: preset === k ? 'var(--accent-l)' : 'var(--light)',
-                        color: preset === k ? 'var(--accent)' : 'var(--text)',
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                        transition: 'all .12s'
-                      }}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-
-                <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', marginBottom: 8 }}>
-                    Custom Date Range
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                      <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>From:</span>
-                      <input
-                        type="date"
-                        value={customFrom}
-                        onChange={e => setCustomFrom(e.target.value)}
-                        style={{ fontSize: 12, padding: '5px 8px', borderRadius: 6, border: '1px solid var(--border)', outline: 'none' }}
-                      />
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                      <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>To:</span>
-                      <input
-                        type="date"
-                        value={customTo}
-                        onChange={e => setCustomTo(e.target.value)}
-                        style={{ fontSize: 12, padding: '5px 8px', borderRadius: 6, border: '1px solid var(--border)', outline: 'none' }}
-                      />
-                    </div>
-                    <button
-                      className="btn btn-primary btn-sm"
-                      onClick={() => {
-                        handleApplyCustom();
-                        setShowDateMenu(false);
-                      }}
-                      style={{ width: '100%', marginTop: 4, height: 32, fontWeight: 700 }}
-                    >
-                      Apply Custom Dates
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="btn btn-ghost btn-sm" onClick={exportCSV} title="Download CSV">
             📥 Export CSV
           </button>
           <button className="btn btn-primary btn-sm" onClick={printReport} title="Print report">
-            🖨️ Print
-          </button>
-          <button
-            className="btn btn-ghost btn-sm"
-            onClick={loadReport}
-            disabled={loading}
-            title="Refresh current report"
-            style={{ width: 34, height: 34, padding: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
-          >
-            <span style={{ display: 'inline-block', transform: loading ? 'rotate(180deg)' : 'none', transition: 'transform .5s' }}>🔄</span>
+            🖨️ Print Report
           </button>
         </div>
       </div>
 
-      {/* ── Main Layout: Option 2 Left Sidebar Navigation + Right Content ── */}
-      <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
-        {/* Left Navigation Sidebar */}
-        <aside
-          style={{
-            width: 230,
-            flexShrink: 0,
-            background: '#ffffff',
-            borderRadius: 10,
-            border: '1px solid var(--border)',
-            padding: '12px 6px',
-            position: 'sticky',
-            top: 20,
-            boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-          }}
-        >
-          {REPORT_GROUPS.map((grp, gIdx) => (
-            <div key={grp.title} style={{ marginBottom: gIdx < REPORT_GROUPS.length - 1 ? 14 : 0 }}>
-              <div
-                style={{
-                  fontSize: 10,
-                  fontWeight: 800,
-                  color: '#94a3b8',
-                  textTransform: 'uppercase',
-                  letterSpacing: '0.6px',
-                  padding: '4px 10px 6px',
-                }}
-              >
-                {grp.title}
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {grp.items.map(item => {
-                  const active = activeTab === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => setActiveTab(item.id)}
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 8,
-                        width: '100%',
-                        padding: '8px 10px',
-                        borderRadius: 6,
-                        border: 'none',
-                        borderLeft: active ? '3px solid var(--accent)' : '3px solid transparent',
-                        background: active ? '#f1f5f9' : 'transparent',
-                        color: active ? '#0f172a' : '#475569',
-                        fontSize: 13,
-                        fontWeight: active ? 700 : 500,
-                        cursor: 'pointer',
-                        textAlign: 'left',
-                        transition: 'all .12s ease',
-                      }}
-                      onMouseEnter={e => {
-                        if (!active) {
-                          e.currentTarget.style.background = '#f8fafc';
-                          e.currentTarget.style.color = '#0f172a';
-                        }
-                      }}
-                      onMouseLeave={e => {
-                        if (!active) {
-                          e.currentTarget.style.background = 'transparent';
-                          e.currentTarget.style.color = '#475569';
-                        }
-                      }}
-                    >
-                      <span style={{ fontSize: 14 }}>{item.icon}</span>
-                      <span>{item.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </aside>
+      {/* ── Consolidated Date Filter Bar ── */}
+      <div className="card mb16" style={{ padding: '12px 18px', background: '#fff' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 14 }}>
+          {/* Quick-Select Presets */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginRight: 4 }}>
+              Period:
+            </span>
+            {[
+              ['this_month', 'This Month'],
+              ['last_month', 'Last Month'],
+              ['this_quarter', 'Quarter'],
+              ['this_year', 'This Year'],
+              ['custom', 'Custom Range…'],
+            ].map(([k, label]) => {
+              const active = preset === k;
+              return (
+                <button
+                  key={k}
+                  onClick={() => applyPreset(k)}
+                  style={{
+                    padding: '6px 14px',
+                    fontSize: 12,
+                    fontWeight: active ? 700 : 600,
+                    borderRadius: 8,
+                    cursor: 'pointer',
+                    border: active ? '1.5px solid var(--accent)' : '1px solid var(--border)',
+                    background: active ? 'var(--accent-l)' : '#fff',
+                    color: active ? 'var(--accent)' : 'var(--muted)',
+                    transition: 'all 0.15s ease',
+                    boxShadow: active ? '0 1px 3px rgba(79, 70, 229, 0.15)' : 'none',
+                  }}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
 
-        {/* Right Content Area */}
-        <main style={{ flex: 1, minWidth: 0 }}>
-          {/* Active Report Header Card */}
+          {/* Active Scope Badge + Reload */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <div
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 7,
+                fontSize: 12,
+                fontWeight: 700,
+                color: 'var(--text)',
+                background: 'var(--light)',
+                padding: '6px 14px',
+                borderRadius: 8,
+                border: '1px solid var(--border)'
+              }}
+            >
+              <span style={{ fontSize: 14 }}>📅</span>
+              <span>{fmtD(fromDate)} — {fmtD(toDate)}</span>
+            </div>
+
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={loadReport}
+              disabled={loading}
+              title="Refresh report data"
+              style={{ height: 32, padding: '0 12px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            >
+              <span style={{ display: 'inline-block', transform: loading ? 'rotate(180deg)' : 'none', transition: 'transform 0.5s ease' }}>🔄</span>
+              <span>{loading ? 'Refreshing…' : 'Refresh'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Inline Drawer for Custom Date Selection */}
+        {isCustomOpen && (
           <div
             style={{
-              background: '#ffffff',
-              padding: '14px 18px',
-              borderRadius: 10,
-              border: '1px solid var(--border)',
-              marginBottom: 16,
+              marginTop: 12,
+              paddingTop: 12,
+              borderTop: '1px solid var(--border)',
               display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
               flexWrap: 'wrap',
-              gap: 10,
-              boxShadow: '0 1px 2px rgba(0,0,0,0.02)',
+              alignItems: 'center',
+              gap: 12,
+              background: 'var(--light)',
+              padding: '10px 14px',
+              borderRadius: 8,
             }}
           >
-            <div>
-              <div style={{ fontSize: 16, fontWeight: 800, color: '#0f172a' }}>
-                {REPORT_INFO[activeTab]?.title || 'Report'}
+            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>Custom Range:</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>From:</span>
+              <input
+                type="date"
+                value={customFrom}
+                onChange={e => setCustomFrom(e.target.value)}
+                style={{ fontSize: 12, padding: '5px 10px', borderRadius: 6, border: '1px solid var(--border)', background: '#fff', outline: 'none' }}
+              />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>To:</span>
+              <input
+                type="date"
+                value={customTo}
+                onChange={e => setCustomTo(e.target.value)}
+                style={{ fontSize: 12, padding: '5px 10px', borderRadius: 6, border: '1px solid var(--border)', background: '#fff', outline: 'none' }}
+              />
+            </div>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={handleApplyCustom}
+              style={{ fontSize: 12, padding: '5px 14px', height: 30 }}
+            >
+              Apply Range
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => setIsCustomOpen(false)}
+              style={{ fontSize: 12, padding: '5px 12px', height: 30 }}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* ── Grouped Categorized Navigation ── */}
+      <div className="card mb16" style={{ padding: '8px 12px', background: '#fff' }}>
+        {/* Tier 1: Functional Sections */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 8, paddingBottom: 8, borderBottom: '1px solid var(--border)' }}>
+          {REPORT_SECTIONS.map(section => {
+            const isCurrentSection = section.tabs.some(t => t.id === activeTab);
+            return (
+              <button
+                key={section.id}
+                onClick={() => {
+                  if (!isCurrentSection) {
+                    setActiveTab(section.tabs[0].id);
+                  }
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  padding: '8px 12px',
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                  border: isCurrentSection ? '1.5px solid var(--accent)' : '1px solid transparent',
+                  background: isCurrentSection ? 'var(--accent-l)' : 'transparent',
+                  color: isCurrentSection ? 'var(--accent)' : 'var(--muted)',
+                  fontWeight: isCurrentSection ? 800 : 600,
+                  fontSize: 13,
+                  transition: 'all 0.15s ease',
+                }}
+              >
+                <span>{section.icon}</span>
+                <span>{section.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Tier 2: Specific Sub-Reports for the Active Section */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingTop: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.5px', marginLeft: 4 }}>
+            Report:
+          </span>
+          {activeSection?.tabs.map(tabItem => {
+            const isSelected = activeTab === tabItem.id;
+            return (
+              <button
+                key={tabItem.id}
+                onClick={() => setActiveTab(tabItem.id)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 14px',
+                  borderRadius: 20,
+                  cursor: 'pointer',
+                  border: isSelected ? '1.5px solid var(--accent)' : '1px solid var(--border)',
+                  background: isSelected ? 'var(--accent)' : '#fff',
+                  color: isSelected ? '#fff' : 'var(--text)',
+                  fontWeight: isSelected ? 700 : 500,
+                  fontSize: 12,
+                  transition: 'all 0.15s ease',
+                  boxShadow: isSelected ? '0 2px 4px rgba(79, 70, 229, 0.25)' : 'none',
+                }}
+              >
+                <span>{tabItem.icon}</span>
+                <span>{tabItem.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Loading Spinner ── */}
+      {loading && <div className="spinner" style={{ margin: '30px 0' }}>Loading report data…</div>}
+
+      {/* ── Error Banner ── */}
+      {!loading && errorMsg && (
+        <div className="alert alert-yellow mb16" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <div className="a-icon">⚠️</div>
+            <div className="a-body">{errorMsg}</div>
+          </div>
+          <button className="btn btn-ghost btn-sm" onClick={loadReport}>Retry</button>
+        </div>
+      )}
+
+      {/* ── Tab 1: Overview ── */}
+      {!loading && activeTab === 'overview' && overviewData && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {/* TIER 1: EXECUTIVE HERO BANNER */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16 }}>
+            {/* Card 1: Estimated Net Profit */}
+            <div
+              className="card"
+              style={{
+                padding: '20px 24px',
+                background: (overviewData.profitability?.net_profit >= 0)
+                  ? 'linear-gradient(135deg, #ffffff 0%, #f0fdf4 100%)'
+                  : 'linear-gradient(135deg, #ffffff 0%, #fef2f2 100%)',
+                border: `1.5px solid ${overviewData.profitability?.net_profit >= 0 ? '#86efac' : '#fca5a5'}`,
+                boxShadow: '0 4px 12px rgba(0,0,0,0.04)',
+                position: 'relative',
+                overflow: 'hidden'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  🎯 Primary Bottom Line
+                </span>
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    padding: '2px 8px',
+                    borderRadius: 12,
+                    background: overviewData.profitability?.net_profit >= 0 ? 'var(--green-l)' : 'var(--red-l)',
+                    color: overviewData.profitability?.net_profit >= 0 ? 'var(--green)' : 'var(--red)',
+                  }}
+                >
+                  {overviewData.profitability?.net_profit >= 0 ? '● Profitable Operation' : '● Operating at Loss'}
+                </span>
               </div>
-              <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>
-                {REPORT_INFO[activeTab]?.desc || ''}
+
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)' }}>Estimated Net Profit</div>
+              <div style={{ fontSize: 32, fontWeight: 900, color: overviewData.profitability?.net_profit >= 0 ? 'var(--green)' : 'var(--red)', marginTop: 4, letterSpacing: '-0.5px' }}>
+                {fmt(overviewData.profitability?.net_profit)}
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 6, background: '#fff', border: '1px solid var(--border)', color: 'var(--text)' }}>
+                  Net Margin: <strong style={{ color: overviewData.profitability?.net_profit >= 0 ? 'var(--green)' : 'var(--red)' }}>{overviewData.profitability?.margin_pct}%</strong>
+                </span>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  Revenue minus Direct Costs &amp; Overheads
+                </span>
               </div>
             </div>
-            <div style={{ fontSize: 12, color: '#64748b', fontWeight: 600 }}>
-              Period: <strong style={{ color: '#0f172a' }}>{fmtD(fromDate)} – {fmtD(toDate)}</strong>
+
+            {/* Card 2: Total Revenue */}
+            <div
+              className="card"
+              style={{
+                padding: '20px 24px',
+                background: 'linear-gradient(135deg, #ffffff 0%, #f5f3ff 100%)',
+                border: '1.5px solid #c7d2fe',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.04)',
+                position: 'relative',
+                overflow: 'hidden'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  💼 Top-Line Commercial
+                </span>
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    padding: '2px 8px',
+                    borderRadius: 12,
+                    background: 'var(--accent-l)',
+                    color: 'var(--accent)',
+                  }}
+                >
+                  {overviewData.sales?.total_sales > 0
+                    ? `${Math.min(100, Math.round(((overviewData.sales?.total_collected || 0) / overviewData.sales?.total_sales) * 100))}% Collected`
+                    : '0% Collected'}
+                </span>
+              </div>
+
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)' }}>Total Billed Revenue</div>
+              <div style={{ fontSize: 32, fontWeight: 900, color: 'var(--accent)', marginTop: 4, letterSpacing: '-0.5px' }}>
+                {fmt(overviewData.sales?.total_sales)}
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 6, background: '#dcfce7', color: 'var(--green)', border: '1px solid #bbf7d0' }}>
+                  ✓ Collected: {fmt(overviewData.sales?.total_collected)}
+                </span>
+                <span style={{ fontSize: 12, fontWeight: 700, padding: '4px 10px', borderRadius: 6, background: '#fef3c7', color: 'var(--yellow)', border: '1px solid #fde68a' }}>
+                  ⏳ Pending: {fmt(Math.max(0, (overviewData.sales?.total_sales || 0) - (overviewData.sales?.total_collected || 0)))}
+                </span>
+              </div>
             </div>
           </div>
 
-          {/* Loading Spinner */}
-          {loading && <div className="spinner" style={{ margin: '30px 0' }}>Loading report data…</div>}
+          {/* TIER 2: OPERATIONAL COST DRIVERS & WORKING CAPITAL */}
+          <div style={{ fontSize: 12, fontWeight: 800, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.8px', marginTop: 4 }}>
+            Operational Cost Drivers &amp; Working Capital
+          </div>
 
-          {/* Error Banner */}
-          {!loading && errorMsg && (
-            <div className="alert alert-yellow mb16" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                <div className="a-icon">⚠️</div>
-                <div className="a-body">{errorMsg}</div>
+          <div className="g4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
+            {/* Fabric Purchases */}
+            <div className="card" style={{ padding: '16px', borderTop: '3px solid #64748b' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Fabric Purchases</div>
+                <span style={{ fontSize: 16 }}>📦</span>
               </div>
-              <button className="btn btn-ghost btn-sm" onClick={loadReport}>Retry</button>
+              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text)', marginTop: 6 }}>
+                {fmt(overviewData.purchases?.total_purchased)}
+              </div>
+              <div style={{ marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, background: 'var(--light)', padding: '2px 8px', borderRadius: 4, border: '1px solid var(--border)' }}>
+                <span style={{ color: 'var(--muted)' }}>Paid:</span>
+                <strong style={{ color: 'var(--text)' }}>{fmt(overviewData.purchases?.total_paid)}</strong>
+              </div>
             </div>
-          )}
 
-          {/* ── Tab 1: Overview ── */}
-          {!loading && activeTab === 'overview' && overviewData && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              {/* TIER 1: EXECUTIVE HERO BANNER */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
-                {/* Card 1: Estimated Net Profit */}
-                <div
-                  className="card"
-                  style={{
-                    padding: '20px 22px',
-                    background: '#ffffff',
-                    border: '1px solid var(--border)',
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-                    position: 'relative',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                      Bottom Line Result
-                    </span>
-                    <span
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 700,
-                        padding: '2px 8px',
-                        borderRadius: 12,
-                        background: overviewData.profitability?.net_profit >= 0 ? '#f0fdf4' : '#fef2f2',
-                        color: overviewData.profitability?.net_profit >= 0 ? '#16a34a' : '#dc2626',
-                      }}
-                    >
-                      {overviewData.profitability?.net_profit >= 0 ? '● Profitable' : '● Net Loss'}
-                    </span>
-                  </div>
-
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#64748b' }}>Estimated Net Profit</div>
-                  <div style={{ fontSize: 28, fontWeight: 900, color: overviewData.profitability?.net_profit >= 0 ? '#16a34a' : '#dc2626', marginTop: 4, letterSpacing: '-0.5px' }}>
-                    {fmt(overviewData.profitability?.net_profit)}
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 8px', borderRadius: 6, background: '#f8fafc', border: '1px solid var(--border)', color: '#0f172a' }}>
-                      Margin: <strong>{overviewData.profitability?.margin_pct}%</strong>
-                    </span>
-                    <span style={{ fontSize: 12, color: '#64748b' }}>
-                      Revenue minus Direct Costs &amp; Overheads
-                    </span>
-                  </div>
-                </div>
-
-                {/* Card 2: Total Revenue */}
-                <div
-                  className="card"
-                  style={{
-                    padding: '20px 22px',
-                    background: '#ffffff',
-                    border: '1px solid var(--border)',
-                    boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-                    position: 'relative',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                      Commercial Invoiced
-                    </span>
-                    <span
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 700,
-                        padding: '2px 8px',
-                        borderRadius: 12,
-                        background: '#f1f5f9',
-                        color: '#334155',
-                      }}
-                    >
-                      {overviewData.sales?.total_sales > 0
-                        ? `${Math.min(100, Math.round(((overviewData.sales?.total_collected || 0) / overviewData.sales?.total_sales) * 100))}% Collected`
-                        : '0% Collected'}
-                    </span>
-                  </div>
-
-                  <div style={{ fontSize: 13, fontWeight: 600, color: '#64748b' }}>Total Billed Revenue</div>
-                  <div style={{ fontSize: 28, fontWeight: 900, color: '#0f172a', marginTop: 4, letterSpacing: '-0.5px' }}>
-                    {fmt(overviewData.sales?.total_sales)}
-                  </div>
-
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 8px', borderRadius: 6, background: '#f0fdf4', color: '#16a34a', border: '1px solid #dcfce7' }}>
-                      ✓ Collected: {fmt(overviewData.sales?.total_collected)}
-                    </span>
-                    <span style={{ fontSize: 12, fontWeight: 700, padding: '3px 8px', borderRadius: 6, background: '#f8fafc', color: '#64748b', border: '1px solid #e2e8f0' }}>
-                      ⏳ Pending: {fmt(Math.max(0, (overviewData.sales?.total_sales || 0) - (overviewData.sales?.total_collected || 0)))}
-                    </span>
-                  </div>
-                </div>
+            {/* Labor & Payroll */}
+            <div className="card" style={{ padding: '16px', borderTop: '3px solid var(--cyan)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Labor &amp; Payroll</div>
+                <span style={{ fontSize: 16 }}>✂️</span>
               </div>
-
-              {/* TIER 2: OPERATIONAL COST DRIVERS & WORKING CAPITAL */}
-              <div style={{ fontSize: 11, fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.6px', marginTop: 4 }}>
-                Operational Cost Drivers &amp; Working Capital
+              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--cyan)', marginTop: 6 }}>
+                {fmt(overviewData.labor?.total_labor_cost)}
               </div>
-
-              <div className="g4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
-                {/* Fabric Purchases */}
-                <div className="card" style={{ padding: '16px', background: '#ffffff', border: '1px solid var(--border)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Fabric Purchases</div>
-                    <span style={{ fontSize: 15, opacity: 0.8 }}>📦</span>
-                  </div>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: '#0f172a', marginTop: 6 }}>
-                    {fmt(overviewData.purchases?.total_purchased)}
-                  </div>
-                  <div style={{ marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, background: '#f8fafc', padding: '2px 8px', borderRadius: 4, border: '1px solid var(--border)' }}>
-                    <span style={{ color: '#64748b' }}>Paid:</span>
-                    <strong style={{ color: '#0f172a' }}>{fmt(overviewData.purchases?.total_paid)}</strong>
-                  </div>
-                </div>
-
-                {/* Labor & Payroll */}
-                <div className="card" style={{ padding: '16px', background: '#ffffff', border: '1px solid var(--border)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Labor &amp; Payroll</div>
-                    <span style={{ fontSize: 15, opacity: 0.8 }}>✂️</span>
-                  </div>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: '#0f172a', marginTop: 6 }}>
-                    {fmt(overviewData.labor?.total_labor_cost)}
-                  </div>
-                  <div style={{ marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, background: '#f8fafc', padding: '2px 8px', borderRadius: 4, border: '1px solid var(--border)', color: '#475569' }}>
-                    <strong>{fmtInt(overviewData.labor?.completed_pieces)}</strong> pcs completed
-                  </div>
-                </div>
-
-                {/* Operating Expenses */}
-                <div className="card" style={{ padding: '16px', background: '#ffffff', border: '1px solid var(--border)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Operating Overheads</div>
-                    <span style={{ fontSize: 15, opacity: 0.8 }}>🧾</span>
-                  </div>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: '#0f172a', marginTop: 6 }}>
-                    {fmt(overviewData.expenses?.total_amount)}
-                  </div>
-                  <div style={{ marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, background: '#f8fafc', padding: '2px 8px', borderRadius: 4, border: '1px solid var(--border)', color: '#475569' }}>
-                    <strong>{overviewData.expenses?.total_count}</strong> expenses logged
-                  </div>
-                </div>
-
-                {/* Total Receivables */}
-                <div className="card" style={{ padding: '16px', background: '#ffffff', border: '1px solid var(--border)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase' }}>Client Receivables</div>
-                    <span style={{ fontSize: 15, opacity: 0.8 }}>⏳</span>
-                  </div>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: '#0f172a', marginTop: 6 }}>
-                    {fmt(overviewData.outstanding?.receivables)}
-                  </div>
-                  <div style={{ marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, background: '#f8fafc', padding: '2px 8px', borderRadius: 4, border: '1px solid var(--border)', color: '#475569' }}>
-                    <span>Uncollected client dues</span>
-                  </div>
-                </div>
+              <div style={{ marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, background: 'var(--cyan-l)', padding: '2px 8px', borderRadius: 4, color: 'var(--cyan)' }}>
+                <strong>{fmtInt(overviewData.labor?.completed_pieces)}</strong> pcs completed
               </div>
+            </div>
+
+            {/* Operating Expenses */}
+            <div className="card" style={{ padding: '16px', borderTop: '3px solid var(--red)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Operating Overheads</div>
+                <span style={{ fontSize: 16 }}>🧾</span>
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--red)', marginTop: 6 }}>
+                {fmt(overviewData.expenses?.total_amount)}
+              </div>
+              <div style={{ marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, background: 'var(--red-l)', padding: '2px 8px', borderRadius: 4, color: 'var(--red)' }}>
+                <strong>{overviewData.expenses?.total_count}</strong> expenses logged
+              </div>
+            </div>
+
+            {/* Total Receivables */}
+            <div className="card" style={{ padding: '16px', borderTop: '3px solid var(--yellow)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Client Receivables</div>
+                <span style={{ fontSize: 16 }}>⏳</span>
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--yellow)', marginTop: 6 }}>
+                {fmt(overviewData.outstanding?.receivables)}
+              </div>
+              <div style={{ marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, background: 'var(--yellow-l)', padding: '2px 8px', borderRadius: 4, color: 'var(--yellow)' }}>
+                <span>Uncollected client dues</span>
+              </div>
+            </div>
+          </div>
 
           {/* Operational Breakdown Cards */}
           <div className="g2">
@@ -1327,8 +1275,6 @@ export default function ReportsPage() {
           </div>
         </div>
       )}
-        </main>
-      </div>
     </div>
   );
 }
