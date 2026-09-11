@@ -403,11 +403,20 @@ export async function recordPayment(req: AuthRequest, res: Response): Promise<vo
     const seqRows = await query<any[]>(
       `SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(receipt_no, '-', -1) AS UNSIGNED)), 0) + 1 AS next_seq
        FROM sales_payments 
-       WHERE tenant_id=? AND YEAR(payment_date)=? AND receipt_no LIKE 'RCP-%'`,
+       WHERE tenant_id=? AND YEAR(payment_date)=? AND receipt_no REGEXP '^RCP-[0-9]{4}-[0-9]+$'`,
       [tenantId, year]
     );
-    const seq = seqRows[0].next_seq;
-    const receiptNo = `RCP-${year}-${String(seq).padStart(4, '0')}`;
+    let seq = Number(seqRows[0]?.next_seq || 1);
+    let receiptNo = `RCP-${year}-${String(seq).padStart(4, '0')}`;
+    while (true) {
+      const existing = await query<any[]>(
+        `SELECT id FROM sales_payments WHERE tenant_id=? AND receipt_no=? LIMIT 1`,
+        [tenantId, receiptNo]
+      );
+      if (!existing || existing.length === 0) break;
+      seq++;
+      receiptNo = `RCP-${year}-${String(seq).padStart(4, '0')}`;
+    }
 
     // Insert payment with receipt_no and notes
     await query(
@@ -531,11 +540,20 @@ export async function recordMultiInvoicePayment(req: AuthRequest, res: Response)
     const seqRows = await query<any[]>(
       `SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(receipt_no, '-', -1) AS UNSIGNED)), 0) + 1 AS next_seq
        FROM sales_payments 
-       WHERE tenant_id=? AND YEAR(payment_date)=? AND receipt_no LIKE 'RCP-%'`,
+       WHERE tenant_id=? AND YEAR(payment_date)=? AND receipt_no REGEXP '^RCP-[0-9]{4}-[0-9]+$'`,
       [tenantId, year]
     );
-    const seq = seqRows[0].next_seq;
-    const receiptNo = `RCP-${year}-${String(seq).padStart(4, '0')}`;
+    let seq = Number(seqRows[0]?.next_seq || 1);
+    let receiptNo = `RCP-${year}-${String(seq).padStart(4, '0')}`;
+    while (true) {
+      const existing = await query<any[]>(
+        `SELECT id FROM sales_payments WHERE tenant_id=? AND receipt_no=? LIMIT 1`,
+        [tenantId, receiptNo]
+      );
+      if (!existing || existing.length === 0) break;
+      seq++;
+      receiptNo = `RCP-${year}-${String(seq).padStart(4, '0')}`;
+    }
 
     let totalAllocated = 0;
 
@@ -600,18 +618,48 @@ export async function getReceiptDetails(req: AuthRequest, res: Response): Promis
     let payments: any[] = [];
     const cleanKey = String(receiptNo || '').trim();
 
+    // 0. Match composite key (client_date_receiptNo)
+    if (cleanKey.includes('_')) {
+      const parts = cleanKey.split('_');
+      if (parts.length >= 3 && !isNaN(Number(parts[0]))) {
+        const cId = Number(parts[0]);
+        const pDate = parts[1];
+        const rNo = parts.slice(2).join('_');
+        payments = await query<any[]>(
+          `SELECT p.*, o.invoice_number, o.order_date, o.amount_paid AS order_amount_paid, o.status AS order_status,
+                  c.id AS client_id, c.name AS client_name, c.city AS client_city, c.phone AS client_phone, c.address AS client_address,
+                  ((GREATEST(0, (SELECT COALESCE(SUM(i.quantity * i.rate_per_pc), 0) FROM sales_order_items i WHERE i.order_id = o.id) - o.discount)) * (1 + o.gst_percent / 100)) AS order_total
+           FROM sales_payments p
+           JOIN sales_orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
+           JOIN clients c ON c.id = o.client_id
+           WHERE p.receipt_no = ? AND o.client_id = ? AND DATE(p.payment_date) = ? AND p.tenant_id = ?
+           ORDER BY p.id ASC`,
+          [rNo, cId, pDate, tenantId]
+        );
+      }
+    }
+
     // 1. Direct match on receipt_no
-    payments = await query<any[]>(
-      `SELECT p.*, o.invoice_number, o.order_date, o.amount_paid AS order_amount_paid, o.status AS order_status,
-              c.id AS client_id, c.name AS client_name, c.city AS client_city, c.phone AS client_phone, c.address AS client_address,
-              ((GREATEST(0, (SELECT COALESCE(SUM(i.quantity * i.rate_per_pc), 0) FROM sales_order_items i WHERE i.order_id = o.id) - o.discount)) * (1 + o.gst_percent / 100)) AS order_total
-       FROM sales_payments p
-       JOIN sales_orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
-       JOIN clients c ON c.id = o.client_id
-       WHERE p.receipt_no = ? AND p.tenant_id = ?
-       ORDER BY p.id ASC`,
-      [cleanKey, tenantId]
-    );
+    if (!payments.length) {
+      payments = await query<any[]>(
+        `SELECT p.*, o.invoice_number, o.order_date, o.amount_paid AS order_amount_paid, o.status AS order_status,
+                c.id AS client_id, c.name AS client_name, c.city AS client_city, c.phone AS client_phone, c.address AS client_address,
+                ((GREATEST(0, (SELECT COALESCE(SUM(i.quantity * i.rate_per_pc), 0) FROM sales_order_items i WHERE i.order_id = o.id) - o.discount)) * (1 + o.gst_percent / 100)) AS order_total
+         FROM sales_payments p
+         JOIN sales_orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
+         JOIN clients c ON c.id = o.client_id
+         WHERE p.receipt_no = ? AND p.tenant_id = ?
+         ORDER BY p.id ASC`,
+        [cleanKey, tenantId]
+      );
+
+      // If multiple payments matched across different clients or dates, isolate to the most recent client/date
+      if (payments.length > 1) {
+        const targetClientId = payments[payments.length - 1].client_id;
+        const targetDate = String(payments[payments.length - 1].payment_date).slice(0, 10);
+        payments = payments.filter(p => p.client_id === targetClientId && String(p.payment_date).slice(0, 10) === targetDate);
+      }
+    }
 
     // 2. Direct match by payment ID (e.g. PAY-12, RCP-12, or pure number 12)
     if (!payments.length) {
@@ -855,7 +903,7 @@ export async function getSalesPayments(req: AuthRequest, res: Response): Promise
          COALESCE(SUM(CASE WHEN p.payment_mode = 'upi' THEN p.amount ELSE 0 END), 0) AS upi_collected,
          COALESCE(SUM(CASE WHEN p.payment_mode = 'bank_transfer' THEN p.amount ELSE 0 END), 0) AS bank_collected,
          COALESCE(SUM(CASE WHEN p.payment_mode = 'cheque' THEN p.amount ELSE 0 END), 0) AS cheque_collected,
-         COUNT(DISTINCT COALESCE(p.receipt_no, CONCAT('ID-', p.id))) AS total_count
+         COUNT(DISTINCT CONCAT(o.client_id, '_', DATE(p.payment_date), '_', COALESCE(p.receipt_no, CONCAT('ID-', p.id)))) AS total_count
        FROM sales_payments p
        JOIN sales_orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
        JOIN clients c ON c.id = o.client_id
@@ -889,11 +937,12 @@ export async function getSalesPayments(req: AuthRequest, res: Response): Promise
       vals
     );
 
-    // Group raw payments by receipt_no (or by id if receipt_no is null)
+    // Group raw payments strictly by client_id, payment_date, and receipt_no
     const groupedMap = new Map<string, any>();
     for (const p of rawPayments) {
+      const pDate = p.payment_date ? (typeof p.payment_date === 'string' ? p.payment_date.slice(0, 10) : new Date(p.payment_date).toISOString().slice(0, 10)) : '';
       const hasReceiptNo = Boolean(p.receipt_no && String(p.receipt_no).trim());
-      const key = hasReceiptNo ? String(p.receipt_no).trim() : `PAY-${p.id}`;
+      const key = hasReceiptNo ? `${p.client_id}_${pDate}_${String(p.receipt_no).trim()}` : `PAY-${p.id}`;
       const displayReceiptNo = hasReceiptNo ? String(p.receipt_no).trim() : `RCP-${p.id}`;
 
       if (!groupedMap.has(key)) {
@@ -950,11 +999,29 @@ export async function deletePayment(req: AuthRequest, res: Response): Promise<vo
   try {
     // Find all payment rows matching receipt_no OR id
     let paymentRows: any[] = [];
-    if (paymentId.startsWith('RCP-')) {
+    if (paymentId.includes('_')) {
+      const parts = paymentId.split('_');
+      if (parts.length >= 3 && !isNaN(Number(parts[0]))) {
+        const cId = Number(parts[0]);
+        const pDate = parts[1];
+        const rNo = parts.slice(2).join('_');
+        paymentRows = await query<any[]>(
+          `SELECT p.* FROM sales_payments p
+           JOIN sales_orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
+           WHERE p.receipt_no = ? AND o.client_id = ? AND DATE(p.payment_date) = ? AND p.tenant_id = ?`,
+          [rNo, cId, pDate, tenantId]
+        );
+      }
+    }
+    if (!paymentRows.length && paymentId.startsWith('RCP-')) {
       paymentRows = await query<any[]>(
         'SELECT * FROM sales_payments WHERE receipt_no=? AND tenant_id=?',
         [paymentId, tenantId]
       );
+      if (paymentRows.length > 1) {
+        const targetDate = String(paymentRows[paymentRows.length - 1].payment_date).slice(0, 10);
+        paymentRows = paymentRows.filter(p => String(p.payment_date).slice(0, 10) === targetDate);
+      }
     }
     if (!paymentRows.length) {
       const numMatch = String(paymentId).match(/^(?:PAY-|RCP-)?(\d+)$/i);
@@ -1025,11 +1092,29 @@ export async function updateReceipt(req: AuthRequest, res: Response): Promise<vo
 
   try {
     let paymentRows: any[] = [];
-    if (cleanKey.startsWith('RCP-')) {
+    if (cleanKey.includes('_')) {
+      const parts = cleanKey.split('_');
+      if (parts.length >= 3 && !isNaN(Number(parts[0]))) {
+        const cId = Number(parts[0]);
+        const pDate = parts[1];
+        const rNo = parts.slice(2).join('_');
+        paymentRows = await query<any[]>(
+          `SELECT p.* FROM sales_payments p
+           JOIN sales_orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
+           WHERE p.receipt_no=? AND o.client_id=? AND DATE(p.payment_date)=? AND p.tenant_id=?`,
+          [rNo, cId, pDate, tenantId]
+        );
+      }
+    }
+    if (!paymentRows.length && cleanKey.startsWith('RCP-')) {
       paymentRows = await query<any[]>(
         'SELECT * FROM sales_payments WHERE receipt_no=? AND tenant_id=?',
         [cleanKey, tenantId]
       );
+      if (paymentRows.length > 1) {
+        const targetDate = String(paymentRows[paymentRows.length - 1].payment_date).slice(0, 10);
+        paymentRows = paymentRows.filter(p => String(p.payment_date).slice(0, 10) === targetDate);
+      }
     }
     if (!paymentRows.length) {
       const numMatch = cleanKey.match(/^(?:PAY-|RCP-)?(\d+)$/i);

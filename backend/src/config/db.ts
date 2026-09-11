@@ -155,10 +155,31 @@ export async function initDb(): Promise<void> {
         console.log('Added notes column to sales_payments');
       }
 
-      // Backfill any sales_payments missing a receipt_no with a unique sequential receipt number
+      // Backfill any sales_payments missing a receipt_no with a unique ID-based receipt number (RCP-YYYY-Pid)
+      // This guarantees no collision with sequential multi-invoice receipts (RCP-YYYY-0001, etc.)
       await defaultPool.query(
-        "UPDATE sales_payments SET receipt_no = CONCAT('RCP-', YEAR(payment_date), '-', LPAD(id, 4, '0')) WHERE receipt_no IS NULL OR receipt_no = ''"
+        "UPDATE sales_payments SET receipt_no = CONCAT('RCP-', YEAR(payment_date), '-P', id) WHERE receipt_no IS NULL OR receipt_no = ''"
       );
+
+      // Clean up any existing collisions where a receipt_no is shared across multiple clients or different payment dates
+      try {
+        await defaultPool.query(`
+          UPDATE sales_payments sp
+          JOIN sales_orders o ON o.id = sp.order_id
+          JOIN (
+            SELECT p1.receipt_no, MIN(p1.id) AS min_id
+            FROM sales_payments p1
+            JOIN sales_orders o1 ON o1.id = p1.order_id
+            WHERE p1.receipt_no IS NOT NULL AND p1.receipt_no != ''
+            GROUP BY p1.receipt_no
+            HAVING COUNT(DISTINCT o1.client_id) > 1 OR COUNT(DISTINCT DATE(p1.payment_date)) > 1
+          ) coll ON coll.receipt_no = sp.receipt_no
+          SET sp.receipt_no = CONCAT('RCP-', YEAR(sp.payment_date), '-P', sp.id)
+          WHERE sp.id = coll.min_id
+        `);
+      } catch (collErr) {
+        console.warn('Receipt collision cleanup notice:', collErr);
+      }
     } catch {}
 
     try {
