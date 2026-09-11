@@ -174,7 +174,7 @@ export async function getCashLedger(req: AuthRequest, res: Response): Promise<vo
     // 3. Sales payments received — grouped by receipt
     const rawClientPayments = await query<any[]>(
       `SELECT sp.id, sp.payment_date AS date, sp.payment_mode, sp.receipt_no, sp.notes, sp.amount,
-              o.invoice_number, c.name AS client_name
+              o.invoice_number, c.name AS client_name, c.id AS client_id
        FROM sales_payments sp
        JOIN sales_orders o ON o.id = sp.order_id
        JOIN clients c ON c.id = o.client_id
@@ -185,7 +185,8 @@ export async function getCashLedger(req: AuthRequest, res: Response): Promise<vo
 
     const cashReceiptsMap = new Map<string, any>();
     for (const sp of rawClientPayments) {
-      const key = sp.receipt_no || `PAY-${sp.id}`;
+      const pDate = sp.date ? String(sp.date).slice(0, 10) : '';
+      const key = sp.receipt_no ? `${sp.client_id}_${pDate}_${sp.receipt_no}` : `PAY-${sp.id}`;
       if (!cashReceiptsMap.has(key)) {
         const modeLabel = sp.payment_mode ? sp.payment_mode.replace(/_/g, ' ').toUpperCase() : 'CASH';
         cashReceiptsMap.set(key, {
@@ -390,7 +391,8 @@ export async function getClientLedger(req: AuthRequest, res: Response): Promise<
     // Group multi-invoice payment rows under a single receipt row
     const groupedPaymentsMap = new Map<string, any>();
     for (const p of rawPayments) {
-      const key = p.receipt_no || `PAY-${p.id}`;
+      const pDate = p.date ? String(p.date).slice(0, 10) : '';
+      const key = p.receipt_no ? `${pDate}_${p.receipt_no}` : `PAY-${p.id}`;
       if (!groupedPaymentsMap.has(key)) {
         const modeLabel = p.payment_mode ? p.payment_mode.replace(/_/g, ' ').toUpperCase() : 'CASH';
         const notePart = p.notes ? ` - ${p.notes}` : '';
