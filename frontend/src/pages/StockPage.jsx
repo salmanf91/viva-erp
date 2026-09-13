@@ -50,11 +50,11 @@ export default function StockPage() {
   const mapToRawMaterial = (cat) => {
     if (!cat) return 'Mixed Fabric';
     const norm = normalize(cat);
-    if (norm.includes('salwar')) return 'Mixed Fabric (Salwar)';
-    if (norm.includes('nighty')) return 'Mixed Fabric (Nighty)';
-    if (norm === 'mixed' || norm === 'mixedfabric') return 'Mixed Fabric';
     const rm = (summary?.rawMaterials || []).find(r => normalize(r.name) === norm);
     if (rm) return rm.name;
+    if (norm.includes('salwar')) return 'Mixed Fabric (Salwar)';
+    if (norm.includes('nighty') || norm === 'shawlnighty' || norm === 'ordinarynighty') return 'Mixed Fabric (Nighty)';
+    if (norm === 'mixed' || norm === 'mixedfabric') return 'Mixed Fabric';
     return cat;
   };
 
@@ -78,14 +78,14 @@ export default function StockPage() {
 
   const get = (arr, cat) => {
     if (!arr || !cat) return 0;
-    const target = normalize(cat);
+    const targetNorm = normalize(cat);
     return (arr || [])
       .filter(r => {
+        if (!r.category) return targetNorm === 'mixed' || targetNorm === 'mixedfabric';
         const rNorm = normalize(r.category);
-        if (rNorm === target) return true;
-        if (target === 'mixedfabricsalwar' && rNorm.includes('salwar')) return true;
-        if (target === 'mixedfabricnighty' && (rNorm.includes('nighty') || rNorm === 'shawlnighty' || rNorm === 'ordinarynighty')) return true;
-        if ((target === 'mixed' || target === 'mixedfabric') && (rNorm === 'mixed' || rNorm === 'mixedfabric')) return true;
+        if (rNorm === targetNorm) return true;
+        const mapped = mapToRawMaterial(r.category);
+        if (mapped === cat || normalize(mapped) === targetNorm) return true;
         return false;
       })
       .reduce((sum, r) => sum + Number(r.qty || 0), 0);
@@ -120,7 +120,7 @@ export default function StockPage() {
     const sold     = get(summary?.sold,      cat);
     const fin      = Math.max(0, totalFin - sold); // Net finished goods on hand
     const used     = alloc + totalFin;
-    const avail    = Math.max(0, rec - (totalFin > 0 ? used : alloc)); // Unallocated raw fabric remaining
+    const avail    = Math.max(0, rec - used); // Unallocated raw fabric remaining
     const color    = getColor(cat, idx);
     const label    = getLabel(cat);
     return { cat, label, color, rec, alloc, totalFin, sold, fin, used, avail };

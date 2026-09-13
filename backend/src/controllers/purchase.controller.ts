@@ -107,10 +107,10 @@ export async function createPurchase(req: AuthRequest, res: Response): Promise<v
         rate_per_pc = parseFloat((amount / qty).toFixed(2));
       }
 
-      if (qty > 0 && rate_per_pc > 0) {
+      if (qty > 0) {
         subtotal += amount;
         processedItems.push({
-          category: item.category || 'mixed',
+          category: (item.category || 'mixed').trim(),
           quantity: qty,
           rate_per_pc,
           amount
@@ -118,7 +118,7 @@ export async function createPurchase(req: AuthRequest, res: Response): Promise<v
       } else if (item.category && parseFloat(item.amount) > 0) {
         subtotal += parseFloat(item.amount);
         processedItems.push({
-          category: item.category,
+          category: item.category.trim(),
           quantity: qty,
           rate_per_pc: rateInput,
           amount: parseFloat(item.amount)
@@ -268,10 +268,12 @@ export async function updatePurchase(req: AuthRequest, res: Response): Promise<v
       // Sync stock movements
       await conn.execute('DELETE FROM stock_movements WHERE reference = CONCAT(\'PUR-\', ?)', [id]);
       for (const item of processedItems) {
-        await conn.execute(
-          'INSERT INTO stock_movements (tenant_id,category,vendor_id,type,quantity,reference,movement_date) VALUES (?,?,?,?,?,?,?)',
-          [tenantId, item.category, vendor_id, 'in', item.quantity, `PUR-${id}`, invoice_date]
-        );
+        if (item.quantity > 0) {
+          await conn.execute(
+            'INSERT INTO stock_movements (tenant_id,category,vendor_id,type,quantity,reference,movement_date) VALUES (?,?,?,?,?,?,?)',
+            [tenantId, item.category, vendor_id, 'in', item.quantity, `PUR-${id}`, invoice_date]
+          );
+        }
       }
     } else {
       // Recalculate totals based on existing items
