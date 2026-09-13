@@ -263,13 +263,20 @@ export async function initDb(): Promise<void> {
         await defaultPool.query('ALTER TABLE production_batches ADD COLUMN raw_quantity_used INT NOT NULL DEFAULT 0 AFTER raw_material_name');
         console.log('Added raw_quantity_used column to production_batches');
       }
+      if (!existingPbCols.includes('notes')) {
+        await defaultPool.query('ALTER TABLE production_batches ADD COLUMN notes TEXT NULL');
+        console.log('Added notes column to production_batches');
+      }
     } catch {}
 
-    // Ensure category columns are wide enough for raw material names
+    // Ensure category columns are wide enough for raw material names and charset/collations match
     try {
       await defaultPool.query('ALTER TABLE stock_movements MODIFY category VARCHAR(255) NOT NULL');
       await defaultPool.query('ALTER TABLE purchase_items MODIFY category VARCHAR(255) NOT NULL');
       await defaultPool.query('ALTER TABLE production_batches MODIFY category VARCHAR(255) NOT NULL');
+      await defaultPool.query('ALTER TABLE purchase_items CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+      await defaultPool.query('ALTER TABLE stock_movements CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+      await defaultPool.query('ALTER TABLE production_batches CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
     } catch {}
 
   } catch (err) {
