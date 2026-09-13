@@ -205,8 +205,10 @@ export async function getStaffHistory(req: AuthRequest, res: Response): Promise<
     if (staff_id) { conditions.push('e.staff_id=?'); vals.push(staff_id); }
 
     if (from_date && to_date) {
+      const d1 = String(from_date);
+      const d2 = String(to_date);
       conditions.push('COALESCE(e.completion_date, e.entry_date) BETWEEN ? AND ?');
-      vals.push(from_date, to_date);
+      vals.push(d1 <= d2 ? d1 : d2, d1 <= d2 ? d2 : d1);
     } else if (month && year) {
       const cycle = getSalaryCycleDates(Number(month), Number(year));
       conditions.push('COALESCE(e.completion_date, e.entry_date) BETWEEN ? AND ?');
@@ -360,8 +362,10 @@ export async function getPayrollSummary(req: AuthRequest, res: Response): Promis
   let endDate: string;
 
   if (from_date && to_date) {
-    startDate = String(from_date);
-    endDate = String(to_date);
+    const d1 = String(from_date);
+    const d2 = String(to_date);
+    startDate = d1 <= d2 ? d1 : d2;
+    endDate = d1 <= d2 ? d2 : d1;
   } else {
     const cycle = getSalaryCycleDates(Number(month || (new Date().getMonth() + 1)), Number(year || new Date().getFullYear()));
     startDate = cycle.startDate;
@@ -435,8 +439,10 @@ export async function settleStaff(req: AuthRequest, res: Response): Promise<void
   let endDate: string;
 
   if (from_date && to_date) {
-    startDate = String(from_date);
-    endDate = String(to_date);
+    const d1 = String(from_date);
+    const d2 = String(to_date);
+    startDate = d1 <= d2 ? d1 : d2;
+    endDate = d1 <= d2 ? d2 : d1;
   } else {
     const cycle = getSalaryCycleDates(Number(month || (new Date().getMonth() + 1)), Number(year || new Date().getFullYear()));
     startDate = cycle.startDate;
@@ -464,8 +470,9 @@ export async function settleStaff(req: AuthRequest, res: Response): Promise<void
 
     // Record settlement
     try {
-      const targetMonth = Number(month || (new Date().getMonth() + 1));
-      const targetYear  = Number(year || new Date().getFullYear());
+      const targetDate = from_date ? new Date(String(from_date)) : new Date();
+      const targetMonth = Number(month || (targetDate.getMonth() + 1));
+      const targetYear  = Number(year || targetDate.getFullYear());
       await query(
         `INSERT INTO payroll_settlements (tenant_id, staff_id, month, year, amount, settled_at)
          VALUES (?, ?, ?, ?, 0, NOW())
@@ -486,8 +493,10 @@ export async function undoSettleStaff(req: AuthRequest, res: Response): Promise<
   let endDate: string;
 
   if (from_date && to_date) {
-    startDate = String(from_date);
-    endDate = String(to_date);
+    const d1 = String(from_date);
+    const d2 = String(to_date);
+    startDate = d1 <= d2 ? d1 : d2;
+    endDate = d1 <= d2 ? d2 : d1;
   } else {
     const cycle = getSalaryCycleDates(Number(month || (new Date().getMonth() + 1)), Number(year || new Date().getFullYear()));
     startDate = cycle.startDate;
@@ -515,8 +524,9 @@ export async function undoSettleStaff(req: AuthRequest, res: Response): Promise<
 
     // Remove settlement record if present
     try {
-      const targetMonth = Number(month || (new Date().getMonth() + 1));
-      const targetYear  = Number(year || new Date().getFullYear());
+      const targetDate = from_date ? new Date(String(from_date)) : new Date();
+      const targetMonth = Number(month || (targetDate.getMonth() + 1));
+      const targetYear  = Number(year || targetDate.getFullYear());
       await query(
         `DELETE FROM payroll_settlements WHERE tenant_id=? AND staff_id=? AND month=? AND year=?`,
         [tenantId, staff_id, targetMonth, targetYear]
@@ -543,8 +553,10 @@ export async function getStaffAdvances(req: AuthRequest, res: Response): Promise
     }
 
     if (from_date && to_date) {
+      const d1 = String(from_date);
+      const d2 = String(to_date);
       whereClause += ' AND a.advance_date BETWEEN ? AND ?';
-      params.push(from_date, to_date);
+      params.push(d1 <= d2 ? d1 : d2, d1 <= d2 ? d2 : d1);
     } else if (month && year) {
       const cycle = getSalaryCycleDates(Number(month), Number(year));
       whereClause += ' AND a.advance_date BETWEEN ? AND ?';
