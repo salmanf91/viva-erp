@@ -198,11 +198,13 @@ export function getSalaryCycleDates(month: number, year: number) {
 
 export async function getStaffHistory(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
-  const { staff_id, month, year, from_date, to_date } = req.query;
+  const { staff_id, month, year, from_date, to_date, category, work_type } = req.query;
   try {
     const conditions: string[] = ['e.tenant_id=?'];
     const vals: any[] = [tenantId];
     if (staff_id) { conditions.push('e.staff_id=?'); vals.push(staff_id); }
+    if (category && String(category).trim() !== '') { conditions.push('e.category=?'); vals.push(String(category).trim()); }
+    if (work_type && String(work_type).trim() !== '') { conditions.push('e.work_type=?'); vals.push(String(work_type).trim()); }
 
     if (from_date && to_date) {
       const d1 = String(from_date);
@@ -242,6 +244,7 @@ export async function upsertWorkEntry(req: AuthRequest, res: Response): Promise<
     rawList = req.body;
   } else if (Array.isArray(req.body.items) && req.body.items.length > 0) {
     rawList = req.body.items.map((item: any) => ({
+      id: item.id || req.body.id,
       staff_id: item.staff_id || req.body.staff_id,
       batch_id: item.batch_id !== undefined ? item.batch_id : req.body.batch_id,
       entry_date: item.entry_date || req.body.entry_date,
@@ -252,52 +255,59 @@ export async function upsertWorkEntry(req: AuthRequest, res: Response): Promise<
       allocated_pcs: item.allocated_pcs !== undefined ? item.allocated_pcs : req.body.allocated_pcs,
       completed_pcs: item.completed_pcs !== undefined ? item.completed_pcs : req.body.completed_pcs,
     }));
-  } else {
+  } else if (req.body && req.body.staff_id) {
     rawList = [req.body];
   }
 
   if (!rawList.length) {
-    res.status(400).json({ message: 'No entries provided' });
+    res.status(400).json({ message: 'No work entry data provided' });
     return;
   }
 
-  const results: any[] = [];
-
   try {
-    for (const entry of rawList) {
-      const { staff_id, batch_id, entry_date, completion_date, category, size, work_type, allocated_pcs, completed_pcs } = entry;
-      if (!staff_id || !category || !work_type) continue;
+    for (const item of rawList) {
+      const {
+        id,
+        staff_id,
+        batch_id,
+        entry_date,
+        completion_date,
+        work_type,
+        category,
+        size,
+        allocated_pcs,
+        completed_pcs,
+      } = item;
 
-      const date      = entry_date || new Date().toISOString().slice(0, 10);
-      const compDate  = completion_date || (Number(completed_pcs) > 0 ? date : null);
-      const allocated = Number(allocated_pcs) || 0;
-      const completed = Number(completed_pcs) || 0;
-      const itemSize  = size ? String(size).trim() : null;
-      const batchId   = batch_id ? Number(batch_id) : null;
+      if (!staff_id || !entry_date || !work_type || !category) {
+        continue;
+      }
 
-      try {
-        const r = await query<any>(
-          `INSERT INTO staff_work_entries (tenant_id,staff_id,batch_id,entry_date,completion_date,category,size,work_type,allocated_pcs,completed_pcs)
-           VALUES (?,?,?,?,?,?,?,?,?,?)`,
-          [tenantId, staff_id, batchId, date, compDate, category, itemSize, work_type, allocated, completed]
+      const allocated = parseInt(allocated_pcs) || 0;
+      const completed = parseInt(completed_pcs) || 0;
+      const itemSize = size ? String(size).trim() : null;
+      const batchId = batch_id ? Number(batch_id) : null;
+      const date = entry_date;
+      const compDate = completion_date || (completed > 0 ? date : null);
+
+      if (id) {
+        await query(
+          `UPDATE staff_work_entries
+           SET batch_id=?, entry_date=?, completion_date=?, work_type=?, category=?, size=?, allocated_pcs=?, completed_pcs=?
+           WHERE id=? AND tenant_id=?`,
+          [batchId, date, compDate, work_type, category, itemSize, allocated, completed, id, tenantId]
         );
-        results.push({ id: r.insertId, staff_id, batch_id: batchId, entry_date: date, completion_date: compDate, category, size: itemSize, work_type, allocated_pcs: allocated, completed_pcs: completed });
-      } catch {
-        // Fallback for missing columns
-        const r = await query<any>(
-          `INSERT INTO staff_work_entries (tenant_id,staff_id,entry_date,category,work_type,allocated_pcs,completed_pcs)
-           VALUES (?,?,?,?,?,?,?)`,
-          [tenantId, staff_id, date, category, work_type, allocated, completed]
+      } else {
+        await query(
+          `INSERT INTO staff_work_entries
+             (tenant_id, staff_id, batch_id, entry_date, completion_date, work_type, category, size, allocated_pcs, completed_pcs, is_settled)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`,
+          [tenantId, staff_id, batchId, date, compDate, work_type, category, itemSize, allocated, completed]
         );
-        results.push({ id: r.insertId, staff_id, entry_date: date, category, work_type, allocated_pcs: allocated, completed_pcs: completed });
       }
     }
 
-    if (Array.isArray(req.body) || Array.isArray(req.body?.items)) {
-      res.status(201).json(results);
-    } else {
-      res.status(201).json(results[0] || { message: 'Created' });
-    }
+    res.json({ message: 'Work entries saved successfully' });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
@@ -307,40 +317,28 @@ export async function upsertWorkEntry(req: AuthRequest, res: Response): Promise<
 export async function updateWorkEntry(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
   const { id } = req.params;
-  const { batch_id, entry_date, completion_date, category, size, work_type, allocated_pcs, completed_pcs, is_settled } = req.body;
+  const { batch_id, entry_date, completion_date, work_type, category, size, allocated_pcs, completed_pcs } = req.body;
+
   try {
-    const sets: string[] = [];
-    const vals: any[]    = [];
-    if (batch_id !== undefined)        { sets.push('batch_id=?');        vals.push(batch_id ? Number(batch_id) : null); }
-    if (entry_date !== undefined)      { sets.push('entry_date=?');      vals.push(entry_date); }
-    if (category !== undefined)        { sets.push('category=?');        vals.push(category); }
-    if (size !== undefined)            { sets.push('size=?');            vals.push(size ? String(size).trim() : null); }
-    if (work_type !== undefined)       { sets.push('work_type=?');       vals.push(work_type); }
-    if (allocated_pcs !== undefined)   { sets.push('allocated_pcs=?');   vals.push(Number(allocated_pcs) || 0); }
-    if (completed_pcs !== undefined)   { sets.push('completed_pcs=?');   vals.push(Number(completed_pcs) || 0); }
-    if (is_settled !== undefined)      { sets.push('is_settled=?');      vals.push(is_settled ? 1 : 0); }
-    
-    if (completion_date !== undefined) {
-      sets.push('completion_date=?');
-      vals.push(completion_date || null);
-    } else if (completed_pcs !== undefined && Number(completed_pcs) > 0) {
-      sets.push('completion_date=COALESCE(completion_date, entry_date)');
-    }
+    const allocated = parseInt(allocated_pcs) || 0;
+    const completed = parseInt(completed_pcs) || 0;
+    const itemSize = size ? String(size).trim() : null;
+    const batchId = batch_id ? Number(batch_id) : null;
+    const date = entry_date;
+    const compDate = completion_date || (completed > 0 ? date : null);
 
-    if (!sets.length) { res.status(400).json({ message: 'Nothing to update' }); return; }
-    vals.push(id, tenantId);
-    
-    try {
-      await query(`UPDATE staff_work_entries SET ${sets.join(',')} WHERE id=? AND tenant_id=?`, vals);
-    } catch {
-      // Filter out columns if missing
-      const fallbackSets = sets.filter(s => !s.includes('completion_date') && !s.includes('size') && !s.includes('batch_id'));
-      await query(`UPDATE staff_work_entries SET ${fallbackSets.join(',')} WHERE id=? AND tenant_id=?`, vals.filter((_, idx) => idx < fallbackSets.length).concat([id, tenantId]));
-    }
+    await query(
+      `UPDATE staff_work_entries
+       SET batch_id=?, entry_date=?, completion_date=?, work_type=?, category=?, size=?, allocated_pcs=?, completed_pcs=?
+       WHERE id=? AND tenant_id=?`,
+      [batchId, date, compDate, work_type, category, itemSize, allocated, completed, id, tenantId]
+    );
 
-    const rows = await query<any[]>('SELECT * FROM staff_work_entries WHERE id=? AND tenant_id=?', [id, tenantId]);
-    res.json(rows[0] || { message: 'Updated' });
-  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
+    res.json({ message: 'Work entry updated successfully' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
+  }
 }
 
 export async function deleteWorkEntry(req: AuthRequest, res: Response): Promise<void> {
@@ -348,7 +346,7 @@ export async function deleteWorkEntry(req: AuthRequest, res: Response): Promise<
   const { id } = req.params;
   try {
     await query('DELETE FROM staff_work_entries WHERE id=? AND tenant_id=?', [id, tenantId]);
-    res.json({ message: 'Deleted' });
+    res.json({ message: 'Work entry deleted successfully' });
   } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
 }
 
@@ -356,7 +354,7 @@ export async function deleteWorkEntry(req: AuthRequest, res: Response): Promise<
 
 export async function getPayrollSummary(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
-  const { month, year, from_date, to_date } = req.query;
+  const { month, year, from_date, to_date, category, work_type } = req.query;
 
   let startDate: string;
   let endDate: string;
@@ -373,6 +371,22 @@ export async function getPayrollSummary(req: AuthRequest, res: Response): Promis
   }
 
   try {
+    const entryConditions: string[] = [
+      'e.tenant_id = ?',
+      'COALESCE(e.completion_date, e.entry_date) BETWEEN ? AND ?'
+    ];
+    const entryParams: any[] = [tenantId, startDate, endDate];
+
+    if (category && String(category).trim() !== '') {
+      entryConditions.push('e.category = ?');
+      entryParams.push(String(category).trim());
+    }
+
+    if (work_type && String(work_type).trim() !== '') {
+      entryConditions.push('e.work_type = ?');
+      entryParams.push(String(work_type).trim());
+    }
+
     const rows = await query<any[]>(
       `SELECT s.id, s.name, s.role, s.can_stitch, s.rate_per_pc, s.phone,
          COALESCE(SUM(e.completed_pcs), 0)                                                                            AS total_pieces,
@@ -385,11 +399,10 @@ export async function getPayrollSummary(req: AuthRequest, res: Response): Promis
          COALESCE(SUM(CASE WHEN e.is_settled=0 AND e.completed_pcs>0 THEN ${earningExpr} ELSE 0 END),0)               AS pending
        FROM staff s
        LEFT JOIN staff_work_entries e ON e.staff_id=s.id
-         AND e.tenant_id=? 
-         AND COALESCE(e.completion_date, e.entry_date) BETWEEN ? AND ?
+         AND ${entryConditions.join(' AND ')}
        WHERE s.tenant_id=? AND s.is_active=1
        GROUP BY s.id ORDER BY s.role, s.name`,
-      [tenantId, startDate, endDate, tenantId]
+      [...entryParams, tenantId]
     );
 
     // Fetch advances in this salary cycle
