@@ -5,7 +5,12 @@ const f2      = n => Number(n || 0).toFixed(2);
 const fmt     = n => '₹' + Number(n || 0).toLocaleString('en-IN');
 const fmtDate = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
 
-const DEFAULT_CAT_LABEL = { shawl_nighty: 'Shawl Nighty', shawl_nighty_lace: 'Shawl Nighty + Lace', ordinary_nighty: 'Ordinary Nighty' };
+const DEFAULT_CAT_LABEL = {
+  shawl_nighty: 'Shawl Nighty',
+  shawl_nighty_lace: 'Shawl Nighty + Lace',
+  ordinary_nighty: 'Ordinary Nighty',
+  salwar_suit: 'Salwar Suit'
+};
 const getProductLabel = (cat, cfgs = []) => {
   const match = (cfgs || []).find(c => (c.category || '').toLowerCase() === (cat || '').toLowerCase() || (c.name || '').toLowerCase() === (cat || '').toLowerCase());
   if (match?.display_name || match?.name) return match.display_name || match.name;
@@ -13,7 +18,12 @@ const getProductLabel = (cat, cfgs = []) => {
 };
 
 const getProductColor = cat => {
-  const colors = { shawl_nighty: 'var(--accent)', shawl_nighty_lace: 'var(--cyan)', ordinary_nighty: 'var(--green)' };
+  const colors = {
+    shawl_nighty: 'var(--accent)',
+    shawl_nighty_lace: 'var(--cyan)',
+    ordinary_nighty: 'var(--green)',
+    salwar_suit: '#8b5cf6'
+  };
   return colors[cat] || 'var(--orange)';
 };
 
