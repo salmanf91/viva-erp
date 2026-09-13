@@ -34,6 +34,9 @@ export default function StaffPage() {
   const [customFrom, setCustomFrom] = useState(defaultCycle.start);
   const [customTo, setCustomTo]     = useState(defaultCycle.end);
 
+  const [filterProduct, setFilterProduct]   = useState('');
+  const [filterWorkType, setFilterWorkType] = useState('');
+
   const [staff, setStaff]         = useState([]);
   const [payroll, setPayroll]     = useState([]);
   const [admins, setAdmins]       = useState([]);
@@ -169,12 +172,19 @@ export default function StaffPage() {
   const loadConfigs  = () => api.get('/production/configs').then(r => setConfigs(r.data)).catch(() => []);
   const loadBatches  = () => api.get('/production?limit=50').then(r => setBatches(r.data?.active || r.data?.data || [])).catch(() => []);
 
+  const availableCategories = Array.from(new Set([
+    ...CATEGORIES,
+    ...(configs || []).map(c => c.category).filter(Boolean)
+  ]));
+
   const loadPayroll = useCallback(() => {
     const params = dateMode === 'custom' && customFrom && customTo
       ? { from_date: customFrom, to_date: customTo }
       : { month, year };
+    if (filterProduct) params.category = filterProduct;
+    if (filterWorkType) params.work_type = filterWorkType;
     return api.get('/staff/payroll', { params }).then(r => setPayroll(r.data));
-  }, [dateMode, customFrom, customTo, month, year]);
+  }, [dateMode, customFrom, customTo, month, year, filterProduct, filterWorkType]);
 
   const loadAdvances = useCallback(() => {
     const params = dateMode === 'custom' && customFrom && customTo
@@ -191,10 +201,12 @@ export default function StaffPage() {
       ? { from_date: customFrom, to_date: customTo }
       : { month, year };
     if (historyStaffFilter) params.staff_id = historyStaffFilter;
+    if (filterProduct) params.category = filterProduct;
+    if (filterWorkType) params.work_type = filterWorkType;
     api.get('/staff/work-entries/history', { params })
       .then(r => setHistoryRows(r.data))
       .finally(() => setHistoryLoading(false));
-  }, [dateMode, customFrom, customTo, month, year, historyStaffFilter]);
+  }, [dateMode, customFrom, customTo, month, year, historyStaffFilter, filterProduct, filterWorkType]);
 
   useEffect(() => {
     Promise.all([loadStaff(), loadAdmins(), loadConfigs(), loadBatches()]).finally(() => setLoading(false));
@@ -602,6 +614,29 @@ export default function StaffPage() {
                 </select>
               )}
 
+              {/* Work Type Filter */}
+              <select
+                value={filterWorkType}
+                onChange={e => setFilterWorkType(e.target.value)}
+                style={{ fontSize: 13, border: '1.5px solid var(--border)', borderRadius: 8, padding: '6px 12px', background: 'var(--white)', color: 'var(--text)', outline: 'none' }}
+              >
+                <option value="">All Work Types</option>
+                <option value="cutting">✂️ Cutting</option>
+                <option value="stitching">🧵 Stitching</option>
+              </select>
+
+              {/* Product Type Filter */}
+              <select
+                value={filterProduct}
+                onChange={e => setFilterProduct(e.target.value)}
+                style={{ fontSize: 13, border: '1.5px solid var(--border)', borderRadius: 8, padding: '6px 12px', background: 'var(--white)', color: 'var(--text)', outline: 'none' }}
+              >
+                <option value="">All Products</option>
+                {availableCategories.map(cat => (
+                  <option key={cat} value={cat}>{getProductLabel(cat)}</option>
+                ))}
+              </select>
+
               {dateMode === 'cycle' ? (
                 <>
                   <select value={month} onChange={e => setMonth(+e.target.value)}
@@ -703,14 +738,16 @@ export default function StaffPage() {
             {/* Quick stats summary banner */}
             {payroll.length > 0 && (
               <div style={{ display: 'flex', gap: 10, margin: '10px 0 16px', flexWrap: 'wrap' }}>
-                <div className="chip" style={{ background: '#ede9fe', borderColor: '#ddd6fe', color: '#6d28d9' }}>
-                  Total Pcs: <b>{payroll.reduce((s, p) => s + Number(p.total_pieces || 0), 0)} pcs</b>
-                  {payroll.some(p => Number(p.cut_pieces || 0) > 0 || Number(p.stitch_pieces || 0) > 0) && (
-                    <span style={{ fontSize: 11, marginLeft: 4, opacity: 0.85 }}>
-                      ({payroll.reduce((s, p) => s + Number(p.cut_pieces || 0), 0)} cut · {payroll.reduce((s, p) => s + Number(p.stitch_pieces || 0), 0)} stitch)
-                    </span>
-                  )}
-                </div>
+                {(!filterWorkType || filterWorkType === 'cutting') && (
+                  <div className="chip" style={{ background: '#ede9fe', borderColor: '#ddd6fe', color: '#6d28d9' }}>
+                    ✂️ Cutting Total: <b>{payroll.reduce((s, p) => s + Number(p.cut_pieces || 0), 0)} pcs</b>
+                  </div>
+                )}
+                {(!filterWorkType || filterWorkType === 'stitching') && (
+                  <div className="chip" style={{ background: '#e0f2fe', borderColor: '#bae6fd', color: '#0369a1' }}>
+                    🧵 Stitching Total: <b>{payroll.reduce((s, p) => s + Number(p.stitch_pieces || 0), 0)} pcs</b>
+                  </div>
+                )}
                 <div className="chip">
                   Gross Earned: <b>{fmt(payroll.reduce((s, p) => s + Number(p.total_due || 0), 0))}</b>
                 </div>
@@ -735,7 +772,12 @@ export default function StaffPage() {
                 <thead>
                   <tr>
                     <th>Staff Name</th>
-                    <th style={{ textAlign: 'center' }}>Pieces Worked</th>
+                    {(!filterWorkType || filterWorkType === 'cutting') && (
+                      <th style={{ textAlign: 'center' }}>Cutting Pcs</th>
+                    )}
+                    {(!filterWorkType || filterWorkType === 'stitching') && (
+                      <th style={{ textAlign: 'center' }}>Stitching Pcs</th>
+                    )}
                     <th>Breakdown &amp; Rates</th>
                     <th style={{ textAlign: 'right' }}>Earned</th>
                     <th style={{ textAlign: 'right' }}>Advance Paid</th>
@@ -746,7 +788,6 @@ export default function StaffPage() {
                 </thead>
                 <tbody>
                   {payroll.map(p => {
-                    const totalPcs    = Number(p.total_pieces  || 0);
                     const cutPcs      = Number(p.cut_pieces    || 0);
                     const stitchPcs   = Number(p.stitch_pieces || 0);
                     const cutDue      = Number(p.cut_due       || 0);
@@ -768,18 +809,20 @@ export default function StaffPage() {
                           </span>
                           {!!p.can_stitch && <span className="badge b-green" style={{ fontSize: 10, marginLeft: 4 }}>+Stitch</span>}
                         </td>
-                        <td style={{ textAlign: 'center' }}>
-                          <div style={{ fontWeight: 800, fontSize: 15, color: totalPcs > 0 ? 'var(--text)' : 'var(--muted)' }}>
-                            {totalPcs} <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>pcs</span>
-                          </div>
-                          {(cutPcs > 0 || stitchPcs > 0) && (
-                            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                              {cutPcs > 0 && <span>✂️ {cutPcs}</span>}
-                              {cutPcs > 0 && stitchPcs > 0 && <span> · </span>}
-                              {stitchPcs > 0 && <span>🧵 {stitchPcs}</span>}
+                        {(!filterWorkType || filterWorkType === 'cutting') && (
+                          <td style={{ textAlign: 'center' }}>
+                            <div style={{ fontWeight: 800, fontSize: 15, color: cutPcs > 0 ? '#6d28d9' : 'var(--muted)' }}>
+                              {cutPcs > 0 ? `${cutPcs} pcs` : '—'}
                             </div>
-                          )}
-                        </td>
+                          </td>
+                        )}
+                        {(!filterWorkType || filterWorkType === 'stitching') && (
+                          <td style={{ textAlign: 'center' }}>
+                            <div style={{ fontWeight: 800, fontSize: 15, color: stitchPcs > 0 ? '#0284c7' : 'var(--muted)' }}>
+                              {stitchPcs > 0 ? `${stitchPcs} pcs` : '—'}
+                            </div>
+                          </td>
+                        )}
                         <td>
                           {!hasCut && !hasStitch
                             ? <span style={{ color: 'var(--muted)', fontSize: 12 }}>No entries</span>
