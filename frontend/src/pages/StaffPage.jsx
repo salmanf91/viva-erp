@@ -10,6 +10,7 @@ const CAT_LABEL  = { shawl_nighty: 'Shawl Nighty', ordinary_nighty: 'Ordinary Ni
 const getProductLabel = cat => CAT_LABEL[cat] || (cat ? cat.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') : '—');
 const CATEGORIES = ['shawl_nighty', 'ordinary_nighty', 'shawl_nighty_lace'];
 import StaffReportTab from '../components/StaffReportTab';
+import { exportToCSV } from '../utils/csvExport';
 
 export default function StaffPage() {
   const { user } = useAuth();
@@ -217,6 +218,86 @@ export default function StaffPage() {
     loadHistory();
     loadAdvances();
   }, [loadPayroll, loadHistory, loadAdvances]);
+
+  const exportPayrollCSV = () => {
+    const rawLabel = dateMode === 'custom' ? formatPeriodLabel() : `${MONTHS[month - 1]}_${year}`;
+    const cleanLabel = (rawLabel || 'export').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = `payroll_settlement_${cleanLabel}`;
+    const headers = [
+      'Staff Name',
+      'Role',
+      'Phone',
+      'Rate Per Pc (₹)',
+      'Cut Pieces',
+      'Cut Due (₹)',
+      'Stitch Pieces',
+      'Stitch Due (₹)',
+      'Total Pieces',
+      'Gross Earned (₹)',
+      'Total Advances (₹)',
+      'Advances Deducted (₹)',
+      'Advances Pending (₹)',
+      'Settled (₹)',
+      'Net Payable (₹)'
+    ];
+    const rows = (payroll || []).map(p => [
+      p.name || '',
+      ROLE_LABEL[p.role] || p.role || '',
+      p.phone || '',
+      p.rate_per_pc || 0,
+      p.cut_pieces || 0,
+      p.cut_due || 0,
+      p.stitch_pieces || 0,
+      p.stitch_due || 0,
+      p.total_pieces || 0,
+      p.total_due || 0,
+      p.total_advances || 0,
+      p.advance_deducted || 0,
+      p.advance_pending || 0,
+      p.settled || 0,
+      p.net_payable || 0
+    ]);
+    exportToCSV(filename, headers, rows);
+  };
+
+  const exportWorkEntriesCSV = () => {
+    const rawLabel = dateMode === 'custom' ? formatPeriodLabel() : `${MONTHS[month - 1]}_${year}`;
+    const cleanLabel = (rawLabel || 'export').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = `work_entries_${cleanLabel}`;
+    const headers = [
+      'Entry ID',
+      'Allocation Date',
+      'Completion Date',
+      'Staff Name',
+      'Staff Role',
+      'Batch Number',
+      'Product / Category',
+      'Size',
+      'Work Type',
+      'Allocated Pcs',
+      'Completed Pcs',
+      'Remaining Pcs',
+      'Earned Amount (₹)',
+      'Status'
+    ];
+    const rows = (historyRows || []).map(r => [
+      r.id,
+      r.entry_date ? String(r.entry_date).slice(0, 10) : '',
+      r.completion_date ? String(r.completion_date).slice(0, 10) : '',
+      r.staff_name || '',
+      ROLE_LABEL[r.staff_role] || r.staff_role || '',
+      r.batch_number || 'No Batch',
+      getProductLabel(r.category),
+      r.size || '—',
+      r.work_type === 'stitching' ? 'Stitching' : 'Cutting',
+      r.allocated_pcs || 0,
+      r.completed_pcs || 0,
+      r.remaining_pcs || 0,
+      r.earned_amount || 0,
+      r.is_settled ? 'Settled' : (r.remaining_pcs > 0 ? 'Pending' : 'Done')
+    ]);
+    exportToCSV(filename, headers, rows);
+  };
 
   const addStaff = async () => {
     if (!form.name.trim()) return;
@@ -726,6 +807,15 @@ export default function StaffPage() {
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={exportPayrollCSV}
+                  style={{ border: '1px solid var(--border)', background: 'var(--white)', fontWeight: 600 }}
+                  title="Export current filtered payroll & settlement data to Excel/CSV"
+                >
+                  📥 Export CSV
+                </button>
                 <button className="btn btn-ghost btn-sm" onClick={() => setShowAdvancesList(true)} style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
                   💵 Advances Log ({advances.length} · {fmt(totalAdvancesInCycle)})
                 </button>
@@ -931,10 +1021,19 @@ export default function StaffPage() {
         <div className="card">
           <div className="card-hd" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ fontSize: 16, fontWeight: 700 }}>Work Entries Log — {MONTHS[month-1]} {year}</span>
+              <span style={{ fontSize: 16, fontWeight: 700 }}>Work Entries Log — {dateMode === 'custom' ? formatPeriodLabel() : `${MONTHS[month-1]} ${year}`}</span>
               <span className="badge b-accent" style={{ fontSize: 11 }}>{historyRows.length} entries</span>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={exportWorkEntriesCSV}
+                style={{ border: '1px solid var(--border)', background: 'var(--white)', fontWeight: 600 }}
+                title="Export current filtered work entries to Excel/CSV"
+              >
+                📥 Export CSV
+              </button>
               <a href="/staff-log" className="btn btn-ghost btn-sm" style={{ textDecoration: 'none', border: '1px solid var(--border)', background: 'var(--white)' }}>
                 📋 Open Daily Log View →
               </a>
@@ -946,7 +1045,7 @@ export default function StaffPage() {
 
           {historyLoading ? <div className="spinner">Loading entries…</div> : historyRows.length === 0 ? (
             <div className="empty-state">
-              <p>No work entries logged for {MONTHS[month-1]} {year}.</p>
+              <p>No work entries logged for {dateMode === 'custom' ? formatPeriodLabel() : `${MONTHS[month-1]} ${year}`}.</p>
               <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={() => setShowAddEntry(true)}>
                 + Log First Work Entry
               </button>

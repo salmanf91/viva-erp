@@ -5,6 +5,7 @@ const DEFAULT_LABELS = {
   shawl_nighty: 'Shawl Nighty',
   shawl_nighty_lace: 'Shawl Nighty (With Lace)',
   ordinary_nighty: 'Ordinary Nighty',
+  salwar_suit: 'Salwar Suit',
   mixed: 'Mixed Fabric'
 };
 
@@ -12,7 +13,8 @@ const DEFAULT_COLORS = {
   shawl_nighty: '#6c63ff',
   ordinary_nighty: '#10b981',
   mixed: '#f59e0b',
-  shawl_nighty_lace: '#06b6d4'
+  shawl_nighty_lace: '#06b6d4',
+  salwar_suit: '#8b5cf6'
 };
 
 const COLOR_PALETTE = ['#6c63ff', '#10b981', '#f59e0b', '#06b6d4', '#ec4899', '#8b5cf6', '#3b82f6', '#14b8a6'];

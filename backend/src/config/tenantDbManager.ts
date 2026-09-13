@@ -65,6 +65,11 @@ export async function ensureTenantSchema(pool: mysql.Pool, _dbName?: string): Pr
     }
   } catch {}
 
+  // Ensure product_config.category is VARCHAR(100) to support dynamic categories (e.g. salwar_suit) without enum limits
+  try {
+    await pool.query('ALTER TABLE product_config MODIFY category VARCHAR(100) NOT NULL');
+  } catch {}
+
   // 1. Ensure Essential Missing Tables
   const coreTables = [
     `CREATE TABLE IF NOT EXISTS users (
