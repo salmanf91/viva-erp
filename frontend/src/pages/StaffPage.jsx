@@ -18,6 +18,22 @@ export default function StaffPage() {
   const now = new Date();
   const [year, setYear]           = useState(now.getFullYear());
   const [month, setMonth]         = useState(now.getMonth() + 1);
+
+  // Custom Date Filter for Payroll & Settlement
+  const [dateMode, setDateMode]   = useState('cycle'); // 'cycle' | 'custom'
+  const defaultCycle = (() => {
+    const m = now.getMonth() + 1;
+    const y = now.getFullYear();
+    const prevM = m === 1 ? 12 : m - 1;
+    const prevY = m === 1 ? y - 1 : y;
+    return {
+      start: `${prevY}-${String(prevM).padStart(2, '0')}-21`,
+      end: `${y}-${String(m).padStart(2, '0')}-20`
+    };
+  })();
+  const [customFrom, setCustomFrom] = useState(defaultCycle.start);
+  const [customTo, setCustomTo]     = useState(defaultCycle.end);
+
   const [staff, setStaff]         = useState([]);
   const [payroll, setPayroll]     = useState([]);
   const [admins, setAdmins]       = useState([]);
@@ -78,28 +94,107 @@ export default function StaffPage() {
   const [editForm, setEditForm] = useState({ name: '', role: 'tailor', phone: '', rate_per_pc: '', can_stitch: false });
   const [adminForm, setAdminForm] = useState({ name: '', email: '', password: '' });
 
+  // Quick Preset Helper for Custom Date Filter
+  const applyQuickPreset = (type) => {
+    const today = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const toStr = dt => `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}`;
+
+    if (type === 'today') {
+      const s = toStr(today);
+      setDateMode('custom');
+      setCustomFrom(s);
+      setCustomTo(s);
+    } else if (type === 'yesterday') {
+      const yd = new Date(today);
+      yd.setDate(today.getDate() - 1);
+      const s = toStr(yd);
+      setDateMode('custom');
+      setCustomFrom(s);
+      setCustomTo(s);
+    } else if (type === 'this_week') {
+      const day = today.getDay();
+      const diff = today.getDate() - day + (day === 0 ? -6 : 1); // Monday
+      const monday = new Date(today);
+      monday.setDate(diff);
+      setDateMode('custom');
+      setCustomFrom(toStr(monday));
+      setCustomTo(toStr(today));
+    } else if (type === 'this_month') {
+      const y = today.getFullYear();
+      const m = today.getMonth() + 1;
+      const lastDay = new Date(y, m, 0).getDate();
+      setDateMode('custom');
+      setCustomFrom(`${y}-${pad(m)}-01`);
+      setCustomTo(`${y}-${pad(m)}-${pad(lastDay)}`);
+    } else if (type === 'cycle') {
+      setDateMode('cycle');
+    }
+  };
+
+  // Formatted Label for the Selected Period
+  const formatPeriodLabel = () => {
+    if (dateMode === 'custom') {
+      if (!customFrom || !customTo) return 'Custom Range';
+      if (customFrom === customTo) {
+        const parts = customFrom.split('-');
+        if (parts.length === 3) {
+          const mIdx = parseInt(parts[1], 10) - 1;
+          return `${parseInt(parts[2], 10)} ${MONTHS[mIdx] || ''} ${parts[0]} (Single Day)`;
+        }
+        return `${customFrom} (Single Day)`;
+      }
+      const p1 = customFrom.split('-');
+      const p2 = customTo.split('-');
+      if (p1.length === 3 && p2.length === 3) {
+        const m1 = MONTHS[parseInt(p1[1], 10) - 1] || '';
+        const m2 = MONTHS[parseInt(p2[1], 10) - 1] || '';
+        if (p1[0] === p2[0]) {
+          return `${parseInt(p1[2], 10)} ${m1} – ${parseInt(p2[2], 10)} ${m2} ${p1[0]}`;
+        }
+        return `${parseInt(p1[2], 10)} ${m1} ${p1[0]} – ${parseInt(p2[2], 10)} ${m2} ${p2[0]}`;
+      }
+      return `${customFrom} – ${customTo}`;
+    }
+    const prevM = month === 1 ? 12 : month - 1;
+    const prevY = month === 1 ? year - 1 : year;
+    return `21 ${MONTHS[prevM - 1]} ${prevY !== year ? prevY : ''} – 20 ${MONTHS[month - 1]} ${year}`;
+  };
+
   const loadStaff = () => Promise.all([
     api.get('/staff').then(r => setStaff(r.data)),
     api.get('/staff/liability').then(r => setLiability(r.data?.total_liability || 0)),
   ]);
   const loadAdmins   = () => api.get('/staff/admins').then(r => setAdmins(r.data));
-  const loadPayroll  = () => api.get(`/staff/payroll?month=${month}&year=${year}`).then(r => setPayroll(r.data));
   const loadConfigs  = () => api.get('/production/configs').then(r => setConfigs(r.data)).catch(() => []);
   const loadBatches  = () => api.get('/production?limit=50').then(r => setBatches(r.data?.active || r.data?.data || [])).catch(() => []);
+
+  const loadPayroll = useCallback(() => {
+    const params = dateMode === 'custom' && customFrom && customTo
+      ? { from_date: customFrom, to_date: customTo }
+      : { month, year };
+    return api.get('/staff/payroll', { params }).then(r => setPayroll(r.data));
+  }, [dateMode, customFrom, customTo, month, year]);
+
   const loadAdvances = useCallback(() => {
-    api.get('/staff/advances', { params: { month, year } })
+    const params = dateMode === 'custom' && customFrom && customTo
+      ? { from_date: customFrom, to_date: customTo }
+      : { month, year };
+    api.get('/staff/advances', { params })
       .then(r => setAdvances(r.data || []))
       .catch(() => {});
-  }, [month, year]);
+  }, [dateMode, customFrom, customTo, month, year]);
 
   const loadHistory = useCallback(() => {
     setHistoryLoading(true);
-    const params = { month, year };
+    const params = dateMode === 'custom' && customFrom && customTo
+      ? { from_date: customFrom, to_date: customTo }
+      : { month, year };
     if (historyStaffFilter) params.staff_id = historyStaffFilter;
     api.get('/staff/work-entries/history', { params })
       .then(r => setHistoryRows(r.data))
       .finally(() => setHistoryLoading(false));
-  }, [month, year, historyStaffFilter]);
+  }, [dateMode, customFrom, customTo, month, year, historyStaffFilter]);
 
   useEffect(() => {
     Promise.all([loadStaff(), loadAdmins(), loadConfigs(), loadBatches()]).finally(() => setLoading(false));
@@ -109,7 +204,7 @@ export default function StaffPage() {
     loadPayroll();
     loadHistory();
     loadAdvances();
-  }, [month, year, loadHistory, loadAdvances]);
+  }, [loadPayroll, loadHistory, loadAdvances]);
 
   const addStaff = async () => {
     if (!form.name.trim()) return;
@@ -354,9 +449,13 @@ export default function StaffPage() {
   };
 
   const settle = async (staffId, staffName) => {
-    if (!confirm(`Settle payroll for ${staffName || 'this staff member'} for ${MONTHS[month-1]} ${year}?`)) return;
+    const periodDesc = formatPeriodLabel();
+    if (!confirm(`Settle payroll for ${staffName || 'this staff member'} for ${periodDesc}?`)) return;
     try {
-      await api.post('/staff/settle', { staff_id: staffId, month, year });
+      const payload = dateMode === 'custom'
+        ? { staff_id: staffId, from_date: customFrom, to_date: customTo, month, year }
+        : { staff_id: staffId, month, year };
+      await api.post('/staff/settle', payload);
       loadPayroll();
       loadStaff();
       loadHistory();
@@ -367,9 +466,13 @@ export default function StaffPage() {
   };
 
   const undoSettle = async (staffId, staffName) => {
-    if (!confirm(`Undo settlement for ${staffName || 'this staff member'} for ${MONTHS[month-1]} ${year}? Their work entries and advances will be reverted to unsettled.`)) return;
+    const periodDesc = formatPeriodLabel();
+    if (!confirm(`Undo settlement for ${staffName || 'this staff member'} for ${periodDesc}? Their work entries and advances will be reverted to unsettled.`)) return;
     try {
-      await api.post('/staff/undo-settle', { staff_id: staffId, month, year });
+      const payload = dateMode === 'custom'
+        ? { staff_id: staffId, from_date: customFrom, to_date: customTo, month, year }
+        : { staff_id: staffId, month, year };
+      await api.post('/staff/undo-settle', payload);
       loadPayroll();
       loadStaff();
       loadHistory();
@@ -427,20 +530,66 @@ export default function StaffPage() {
         {isOwner && <div className={`tab${activeTab === 'admins' ? ' active' : ''}`} onClick={() => setActiveTab('admins')}>Staff Admins</div>}
       </div>
 
-      {/* ── Month/Year selector for Payroll & Entries tabs ── */}
-      {(activeTab === 'payroll' || activeTab === 'entries') && (() => {
-        const prevM = month === 1 ? 12 : month - 1;
-        const prevY = month === 1 ? year - 1 : year;
-        const cycleLabel = `21 ${MONTHS[prevM - 1]} ${prevY !== year ? prevY : ''} – 20 ${MONTHS[month - 1]} ${year}`;
+      {/* ── Period / Date selector for Payroll & Entries tabs ── */}
+      {(activeTab === 'payroll' || activeTab === 'entries') && (
+        <div style={{ background: '#ffffff', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 16px', marginBottom: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            {/* Mode Switcher & Active Label */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              <div style={{ display: 'inline-flex', background: '#f1f5f9', borderRadius: 8, padding: 3, border: '1px solid #e2e8f0' }}>
+                <button
+                  type="button"
+                  onClick={() => setDateMode('cycle')}
+                  style={{
+                    padding: '6px 14px',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    border: 'none',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                    background: dateMode === 'cycle' ? '#ffffff' : 'transparent',
+                    color: dateMode === 'cycle' ? 'var(--accent)' : '#64748b',
+                    boxShadow: dateMode === 'cycle' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                    transition: 'all 0.15s'
+                  }}
+                >
+                  📅 Salary Cycle (21st–20th)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDateMode('custom')}
+                  style={{
+                    padding: '6px 14px',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    border: 'none',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                    background: dateMode === 'custom' ? '#ffffff' : 'transparent',
+                    color: dateMode === 'custom' ? 'var(--accent)' : '#64748b',
+                    boxShadow: dateMode === 'custom' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                    transition: 'all 0.15s'
+                  }}
+                >
+                  🗓️ Custom Date Filter
+                </button>
+              </div>
 
-        return (
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: '#f8fafc', border: '1px solid #e2e8f0', padding: '6px 12px', borderRadius: 8 }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>💰 Salary Cycle:</span>
-              <span style={{ fontSize: 13, fontWeight: 800, color: '#334155' }}>{cycleLabel}</span>
-              <span className="badge b-cyan" style={{ fontSize: 10, padding: '2px 8px' }}>Payout: 20th {MONTHS[month - 1]}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 800, color: '#1e293b' }}>
+                  {formatPeriodLabel()}
+                </span>
+                {dateMode === 'cycle' ? (
+                  <span className="badge b-cyan" style={{ fontSize: 10, padding: '2px 8px' }}>Payout: 20th {MONTHS[month - 1]}</span>
+                ) : (
+                  <span className="badge b-accent" style={{ fontSize: 10, padding: '2px 8px' }}>
+                    {customFrom === customTo ? 'Single Day' : 'Custom Range'}
+                  </span>
+                )}
+              </div>
             </div>
 
+            {/* Inputs based on Mode */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               {activeTab === 'entries' && (
                 <select
@@ -452,39 +601,94 @@ export default function StaffPage() {
                   {staff.map(s => <option key={s.id} value={s.id}>{s.name} ({s.role === 'cutting_master' ? 'Cutter' : 'Tailor'})</option>)}
                 </select>
               )}
-              <select value={month} onChange={e => setMonth(+e.target.value)}
-                style={{ fontSize: 13, border: '1.5px solid var(--border)', borderRadius: 8, padding: '6px 12px', background: 'var(--white)', color: 'var(--text)', outline: 'none' }}>
-                {MONTHS.map((m, i) => {
-                  const mNum = i + 1;
-                  const prevMName = MONTHS[mNum === 1 ? 11 : mNum - 2];
-                  return (
-                    <option key={i} value={mNum}>
-                      {m} (21 {prevMName} – 20 {m})
-                    </option>
-                  );
-                })}
-              </select>
-              <select value={year} onChange={e => setYear(+e.target.value)}
-                style={{ fontSize: 13, border: '1.5px solid var(--border)', borderRadius: 8, padding: '6px 12px', background: 'var(--white)', color: 'var(--text)', outline: 'none' }}>
-                {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
-              </select>
+
+              {dateMode === 'cycle' ? (
+                <>
+                  <select value={month} onChange={e => setMonth(+e.target.value)}
+                    style={{ fontSize: 13, border: '1.5px solid var(--border)', borderRadius: 8, padding: '6px 12px', background: 'var(--white)', color: 'var(--text)', outline: 'none' }}>
+                    {MONTHS.map((m, i) => {
+                      const mNum = i + 1;
+                      const prevMName = MONTHS[mNum === 1 ? 11 : mNum - 2];
+                      return (
+                        <option key={i} value={mNum}>
+                          {m} (21 {prevMName} – 20 {m})
+                        </option>
+                      );
+                    })}
+                  </select>
+                  <select value={year} onChange={e => setYear(+e.target.value)}
+                    style={{ fontSize: 13, border: '1.5px solid var(--border)', borderRadius: 8, padding: '6px 12px', background: 'var(--white)', color: 'var(--text)', outline: 'none' }}>
+                    {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+                  </select>
+                </>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  {/* Quick Preset Buttons */}
+                  <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                    {[
+                      ['today', 'Today'],
+                      ['yesterday', 'Yesterday'],
+                      ['this_week', 'This Week'],
+                      ['this_month', 'This Month']
+                    ].map(([key, lbl]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => applyQuickPreset(key)}
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          padding: '5px 9px',
+                          borderRadius: 6,
+                          border: '1px solid #cbd5e1',
+                          background: '#f8fafc',
+                          cursor: 'pointer',
+                          color: '#475569'
+                        }}
+                      >
+                        {lbl}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>From:</span>
+                    <input
+                      type="date"
+                      value={customFrom}
+                      onChange={e => setCustomFrom(e.target.value)}
+                      style={{ fontSize: 13, border: '1.5px solid var(--border)', borderRadius: 8, padding: '5px 10px', background: 'var(--white)', color: 'var(--text)', outline: 'none' }}
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>To:</span>
+                    <input
+                      type="date"
+                      value={customTo}
+                      onChange={e => setCustomTo(e.target.value)}
+                      style={{ fontSize: 13, border: '1.5px solid var(--border)', borderRadius: 8, padding: '5px 10px', background: 'var(--white)', color: 'var(--text)', outline: 'none' }}
+                    />
+                  </div>
+                </div>
+              )}
             </div>
           </div>
-        );
-      })()}
+        </div>
+      )}
 
       {/* ── Payroll tab ── */}
       {activeTab === 'payroll' && (() => {
-        const prevM = month === 1 ? 12 : month - 1;
-        const prevY = month === 1 ? year - 1 : year;
-        const cycleLabel = `21 ${MONTHS[prevM - 1]} – 20 ${MONTHS[month - 1]} ${year}`;
-
         return (
           <div className="card">
             <div className="card-hd" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
               <div>
-                <span style={{ fontSize: 16, fontWeight: 700 }}>{MONTHS[month-1]} {year} Payroll</span>
-                <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginLeft: 10 }}>({cycleLabel} · Payout: 20th {MONTHS[month-1]})</span>
+                <span style={{ fontSize: 16, fontWeight: 700 }}>
+                  {dateMode === 'custom' ? 'Payroll & Settlement' : `${MONTHS[month-1]} ${year} Payroll`}
+                </span>
+                <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginLeft: 10 }}>
+                  ({formatPeriodLabel()}{dateMode === 'cycle' ? ` · Payout: 20th ${MONTHS[month-1]}` : ''})
+                </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 <button className="btn btn-ghost btn-sm" onClick={() => setShowAdvancesList(true)} style={{ border: '1px solid var(--border)', background: 'var(--white)' }}>
@@ -499,6 +703,14 @@ export default function StaffPage() {
             {/* Quick stats summary banner */}
             {payroll.length > 0 && (
               <div style={{ display: 'flex', gap: 10, margin: '10px 0 16px', flexWrap: 'wrap' }}>
+                <div className="chip" style={{ background: '#ede9fe', borderColor: '#ddd6fe', color: '#6d28d9' }}>
+                  Total Pcs: <b>{payroll.reduce((s, p) => s + Number(p.total_pieces || 0), 0)} pcs</b>
+                  {payroll.some(p => Number(p.cut_pieces || 0) > 0 || Number(p.stitch_pieces || 0) > 0) && (
+                    <span style={{ fontSize: 11, marginLeft: 4, opacity: 0.85 }}>
+                      ({payroll.reduce((s, p) => s + Number(p.cut_pieces || 0), 0)} cut · {payroll.reduce((s, p) => s + Number(p.stitch_pieces || 0), 0)} stitch)
+                    </span>
+                  )}
+                </div>
                 <div className="chip">
                   Gross Earned: <b>{fmt(payroll.reduce((s, p) => s + Number(p.total_due || 0), 0))}</b>
                 </div>
@@ -517,13 +729,14 @@ export default function StaffPage() {
             )}
 
             {payroll.length === 0
-              ? <div className="empty-state">No payroll records for {MONTHS[month-1]} {year} ({cycleLabel}).</div>
+              ? <div className="empty-state">No payroll records for {formatPeriodLabel()}.</div>
               : (
               <table>
                 <thead>
                   <tr>
-                    <th>Name</th>
-                    <th>Breakdown</th>
+                    <th>Staff Name</th>
+                    <th style={{ textAlign: 'center' }}>Pieces Worked</th>
+                    <th>Breakdown &amp; Rates</th>
                     <th style={{ textAlign: 'right' }}>Earned</th>
                     <th style={{ textAlign: 'right' }}>Advance Paid</th>
                     <th style={{ textAlign: 'right' }}>Settled</th>
@@ -533,6 +746,7 @@ export default function StaffPage() {
                 </thead>
                 <tbody>
                   {payroll.map(p => {
+                    const totalPcs    = Number(p.total_pieces  || 0);
                     const cutPcs      = Number(p.cut_pieces    || 0);
                     const stitchPcs   = Number(p.stitch_pieces || 0);
                     const cutDue      = Number(p.cut_due       || 0);
@@ -553,6 +767,18 @@ export default function StaffPage() {
                             {p.role === 'cutting_master' ? '✂️ Cutting' : '🧵 Tailor'}
                           </span>
                           {!!p.can_stitch && <span className="badge b-green" style={{ fontSize: 10, marginLeft: 4 }}>+Stitch</span>}
+                        </td>
+                        <td style={{ textAlign: 'center' }}>
+                          <div style={{ fontWeight: 800, fontSize: 15, color: totalPcs > 0 ? 'var(--text)' : 'var(--muted)' }}>
+                            {totalPcs} <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>pcs</span>
+                          </div>
+                          {(cutPcs > 0 || stitchPcs > 0) && (
+                            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                              {cutPcs > 0 && <span>✂️ {cutPcs}</span>}
+                              {cutPcs > 0 && stitchPcs > 0 && <span> · </span>}
+                              {stitchPcs > 0 && <span>🧵 {stitchPcs}</span>}
+                            </div>
+                          )}
                         </td>
                         <td>
                           {!hasCut && !hasStitch
