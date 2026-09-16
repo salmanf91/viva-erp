@@ -359,6 +359,49 @@ export async function ensureTenantSchema(pool: mysql.Pool, _dbName?: string): Pr
     `);
   } catch {}
 
+  // 5. Ensure Salwar Batches 007 & 008 exist and link August work entries
+  try {
+    const [b7] = await pool.query<any[]>("SELECT id FROM production_batches WHERE batch_number = 'BATCH-007' LIMIT 1");
+    let b7Id = b7 && b7.length > 0 ? b7[0].id : null;
+    if (!b7Id) {
+      const [res7] = await pool.query<any[]>(`
+        INSERT INTO production_batches (tenant_id, batch_number, category, raw_material_name, raw_quantity_used, quantity, cut_rate, stitch_rate, status, batch_date, notes)
+        VALUES (1, 'BATCH-007', 'salwar_suit', 'Mixed Fabric (Salwar)', 96, 96, 28.00, 22.00, 'finished', '2026-08-10', 'Fabric purchase 10th August 2026 (96 pcs)')
+      `);
+      b7Id = (res7 as any).insertId;
+      await pool.query(`
+        INSERT INTO production_batch_items (tenant_id, batch_id, category, size, quantity, cut_rate, stitch_rate)
+        VALUES (1, ?, 'salwar_suit', 'Free Size', 96, 28.00, 22.00)
+      `, [b7Id]);
+    }
+
+    const [b8] = await pool.query<any[]>("SELECT id FROM production_batches WHERE batch_number = 'BATCH-008' LIMIT 1");
+    let b8Id = b8 && b8.length > 0 ? b8[0].id : null;
+    if (!b8Id) {
+      const [res8] = await pool.query<any[]>(`
+        INSERT INTO production_batches (tenant_id, batch_number, category, raw_material_name, raw_quantity_used, quantity, cut_rate, stitch_rate, status, batch_date, notes)
+        VALUES (1, 'BATCH-008', 'salwar_suit', 'Mixed Fabric (Salwar)', 50, 50, 28.00, 22.00, 'finished', '2026-08-24', 'Fabric purchase 24th August 2026 (50 pcs)')
+      `);
+      b8Id = (res8 as any).insertId;
+      await pool.query(`
+        INSERT INTO production_batch_items (tenant_id, batch_id, category, size, quantity, cut_rate, stitch_rate)
+        VALUES (1, ?, 'salwar_suit', 'Free Size', 50, 28.00, 22.00)
+      `, [b8Id]);
+    }
+
+    // Auto-link 18th-21st August entries to BATCH-007
+    if (b7Id) {
+      await pool.query(`
+        UPDATE staff_work_entries
+        SET batch_id = ?
+        WHERE id IN (97, 98, 99, 100, 104, 109, 116, 102, 110, 118, 105, 111, 114, 119)
+          AND (batch_id IS NULL OR batch_id = 0)
+      `, [b7Id]);
+    }
+  } catch (e) {
+    console.error('Error ensuring batches 7 & 8:', e);
+  }
+
   // Tenant database schema migrations complete
 }
 
