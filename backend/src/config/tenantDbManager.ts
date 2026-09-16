@@ -403,24 +403,36 @@ export async function ensureTenantSchema(pool: mysql.Pool, _dbName?: string): Pr
       `, [b0Id]);
     }
 
-    const salwarPurchases = [
-      { date: '2026-08-01', qty: 169, rate: 250, total: 42250, note: 'Salwar bulk fabric purchase - 169 pcs (settled Aug 15)' },
-      { date: '2026-08-29', qty: 80, rate: 250, total: 20000, note: 'Salwar fabric purchase - 80 pcs (Batch 3 & 4)' },
-      { date: '2026-09-05', qty: 49, rate: 250, total: 12250, note: 'Salwar fabric purchase - 49 pcs (Batch 5 & sample)' },
-      { date: '2026-09-08', qty: 48, rate: 250, total: 12000, note: 'Salwar fabric purchase - 48 pcs (Batch 6)' }
+    // 6. Ensure Salwar fabric stock movements exist (inward stock without affecting cash-in-hand)
+    // Clean up any artificial purchase records that drained cash-in-hand by 86,500
+    try {
+      const [oldPurch] = await pool.query<any[]>(`
+        SELECT id FROM purchases
+        WHERE note LIKE 'Salwar bulk fabric purchase - 169 pcs%'
+           OR note LIKE 'Salwar fabric purchase - 80 pcs%'
+           OR note LIKE 'Salwar fabric purchase - 49 pcs%'
+           OR note LIKE 'Salwar fabric purchase - 48 pcs%'
+      `);
+      if (oldPurch && oldPurch.length > 0) {
+        const ids = oldPurch.map((p: any) => p.id);
+        await pool.query(`DELETE FROM purchase_items WHERE purchase_id IN (?)`, [ids]);
+        await pool.query(`DELETE FROM purchases WHERE id IN (?)`, [ids]);
+      }
+    } catch {}
+
+    const salwarMovements = [
+      { date: '2026-08-01', qty: 169, ref: 'SALWAR-STOCK-169' },
+      { date: '2026-08-29', qty: 80,  ref: 'SALWAR-STOCK-80' },
+      { date: '2026-09-05', qty: 49,  ref: 'SALWAR-STOCK-49' },
+      { date: '2026-09-08', qty: 48,  ref: 'SALWAR-STOCK-48' }
     ];
-    for (const sp of salwarPurchases) {
-      const [existing] = await pool.query<any[]>('SELECT id FROM purchases WHERE note = ? LIMIT 1', [sp.note]);
-      if (!existing || existing.length === 0) {
-        const [resP] = await pool.query<any[]>(`
-          INSERT INTO purchases (tenant_id, vendor_id, invoice_date, subtotal, discount, tax_rate, tax_amount, tax_inclusive, total, status, note, advance_paid, payment_mode)
-          VALUES (1, 5, ?, ?, 0.00, 0.00, 0.00, 0, ?, 'paid', ?, ?, 'cash')
-        `, [sp.date, sp.total, sp.total, sp.note, sp.total]);
-        const pId = (resP as any).insertId;
+    for (const sm of salwarMovements) {
+      const [exist] = await pool.query<any[]>('SELECT id FROM stock_movements WHERE reference = ? LIMIT 1', [sm.ref]);
+      if (!exist || exist.length === 0) {
         await pool.query(`
-          INSERT INTO purchase_items (purchase_id, category, quantity, rate_per_pc, amount)
-          VALUES (?, 'Mixed Fabric (Salwar)', ?, ?, ?)
-        `, [pId, sp.qty, sp.rate, sp.total]);
+          INSERT INTO stock_movements (tenant_id, category, vendor_id, type, quantity, reference, movement_date)
+          VALUES (1, 'Mixed Fabric (Salwar)', 5, 'in', ?, ?, ?)
+        `, [sm.qty, sm.ref, sm.date]);
       }
     }
 
