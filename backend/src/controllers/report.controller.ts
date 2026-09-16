@@ -785,11 +785,20 @@ export async function getInventoryReport(req: AuthRequest, res: Response): Promi
       // Purchased Fabric stock movements
       query<any[]>(
         `SELECT category, COALESCE(SUM(quantity), 0) AS total_purchased
-         FROM purchase_items pi
-         JOIN purchases p ON p.id = pi.purchase_id
-         WHERE (p.tenant_id=? OR p.tenant_id IS NULL)
+         FROM (
+           SELECT pi.category, pi.quantity
+           FROM purchase_items pi
+           JOIN purchases p ON p.id = pi.purchase_id
+           WHERE (p.tenant_id=? OR p.tenant_id IS NULL)
+           UNION ALL
+           SELECT sm.category, sm.quantity
+           FROM stock_movements sm
+           WHERE (sm.tenant_id=? OR sm.tenant_id IS NULL)
+             AND sm.type='in'
+             AND (sm.reference IS NULL OR sm.reference NOT LIKE 'PUR-%')
+         ) t
          GROUP BY category`,
-        [tenantId]
+        [tenantId, tenantId]
       ),
       // Production finished & active
       query<any[]>(
