@@ -787,18 +787,18 @@ export async function getInventoryReport(req: AuthRequest, res: Response): Promi
         `SELECT category, COALESCE(SUM(quantity), 0) AS total_purchased
          FROM purchase_items pi
          JOIN purchases p ON p.id = pi.purchase_id
-         WHERE p.tenant_id=?
+         WHERE (p.tenant_id=? OR p.tenant_id IS NULL)
          GROUP BY category`,
         [tenantId]
       ),
       // Production finished & active
       query<any[]>(
         `SELECT category,
-                COALESCE(SUM(quantity), 0) AS total_allocated,
-                COALESCE(SUM(CASE WHEN status='finished' THEN quantity ELSE 0 END), 0) AS total_finished,
-                COALESCE(SUM(CASE WHEN status!='finished' THEN quantity ELSE 0 END), 0) AS total_in_progress
+                COALESCE(SUM(COALESCE(NULLIF(raw_quantity_used, 0), quantity, 0)), 0) AS total_allocated,
+                COALESCE(SUM(CASE WHEN LOWER(COALESCE(status, '')) IN ('finished', 'completed', 'delivered') THEN quantity ELSE 0 END), 0) AS total_finished,
+                COALESCE(SUM(CASE WHEN LOWER(COALESCE(status, 'active')) NOT IN ('finished', 'completed', 'delivered') THEN quantity ELSE 0 END), 0) AS total_in_progress
          FROM production_batches
-         WHERE tenant_id=?
+         WHERE (tenant_id=? OR tenant_id IS NULL)
          GROUP BY category`,
         [tenantId]
       ),
@@ -807,34 +807,57 @@ export async function getInventoryReport(req: AuthRequest, res: Response): Promi
         `SELECT i.category, COALESCE(SUM(i.quantity), 0) AS total_sold
          FROM sales_order_items i
          JOIN sales_orders o ON o.id = i.order_id
-         WHERE o.tenant_id=?
+         WHERE (o.tenant_id=? OR o.tenant_id IS NULL)
          GROUP BY i.category`,
         [tenantId]
       ),
       // Product configs for valuation
       query<any[]>(
-        'SELECT * FROM product_config WHERE tenant_id=?',
+        'SELECT * FROM product_config WHERE (tenant_id=? OR tenant_id IS NULL)',
         [tenantId]
       ),
     ]);
 
+    const normalizeProductCat = (cat: string): string => {
+      const c = (cat || '').toLowerCase().trim();
+      if (c.includes('salwar')) return 'salwar_suit';
+      if (c === 'shawl_nighty_lace') return 'shawl_nighty_lace';
+      if (c.includes('shawl')) return 'shawl_nighty';
+      if (c.includes('ordinary')) return 'ordinary_nighty';
+      return cat;
+    };
+
     const configMap: Record<string, any> = {};
     for (const c of configs) configMap[c.category] = c;
 
-    const categories = ['shawl_nighty', 'ordinary_nighty', 'shawl_nighty_lace'];
-    const stockReport = categories.map(cat => {
-      const purchased = num(fabricIn.find(f => f.category === cat)?.total_purchased);
-      const prod = batchesProduced.find(b => b.category === cat) || {};
-      const allocated = num(prod.total_allocated);
-      const finished = num(prod.total_finished);
-      const inProgress = num(prod.total_in_progress);
-      const sold = num(itemsSold.find(s => s.category === cat)?.total_sold);
-      
+    // Collect all active product categories
+    const categorySet = new Set<string>(['salwar_suit', 'shawl_nighty', 'shawl_nighty_lace', 'ordinary_nighty']);
+    configs.forEach((c: any) => c.category && categorySet.add(c.category));
+    batchesProduced.forEach((b: any) => b.category && categorySet.add(b.category));
+    itemsSold.forEach((s: any) => s.category && categorySet.add(s.category));
+
+    const stockReport = Array.from(categorySet).map(cat => {
+      // Sum fabric purchased matching this product category
+      const purchased = fabricIn
+        .filter(f => normalizeProductCat(f.category) === cat || f.category === cat)
+        .reduce((sum, f) => sum + num(f.total_purchased), 0);
+
+      // Sum batches produced matching this product category
+      const matchingBatches = batchesProduced.filter(b => normalizeProductCat(b.category) === cat || b.category === cat);
+      const allocated = matchingBatches.reduce((sum, b) => sum + num(b.total_allocated), 0);
+      const finished = matchingBatches.reduce((sum, b) => sum + num(b.total_finished), 0);
+      const inProgress = matchingBatches.reduce((sum, b) => sum + num(b.total_in_progress), 0);
+
+      // Sum items sold matching this product category
+      const sold = itemsSold
+        .filter(s => normalizeProductCat(s.category) === cat || s.category === cat)
+        .reduce((sum, s) => sum + num(s.total_sold), 0);
+
       const finishedStockOnHand = Math.max(0, finished - sold);
       const fabricRemaining = Math.max(0, purchased - allocated);
       const cfg = configMap[cat] || {};
       const unitSellingRate = num(cfg.selling_rate);
-      const unitCostRate = num(cfg.fabric_cost) + num(cfg.cut_rate) + num(cfg.stitch_rate) + num(cfg.lace_cost) + num(cfg.zip_cost) + num(cfg.thread_cost);
+      const unitCostRate = num(cfg.fabric_cost) + num(cfg.cut_rate) + num(cfg.stitch_rate) + num(cfg.lace_cost) + num(cfg.zip_cost) + num(cfg.thread_cost) + num(cfg.plastic_cost) + num(cfg.logistics_cost);
 
       return {
         category: cat,
@@ -850,7 +873,7 @@ export async function getInventoryReport(req: AuthRequest, res: Response): Promi
         stock_cost_valuation: finishedStockOnHand * unitCostRate,
         stock_sales_valuation: finishedStockOnHand * unitSellingRate,
       };
-    });
+    }).filter(r => r.fabric_purchased > 0 || r.fabric_allocated > 0 || r.finished_pieces > 0 || r.sold_pieces > 0);
 
     const totalStockOnHand = stockReport.reduce((s, r) => s + r.stock_on_hand, 0);
     const totalCostValuation = stockReport.reduce((s, r) => s + r.stock_cost_valuation, 0);

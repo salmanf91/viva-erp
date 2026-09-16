@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import api from '../api/client';
 
 const DEFAULT_CAT_LABEL = {
+  salwar_suit: 'Salwar Suit',
   shawl_nighty: 'Shawl Nighty',
   ordinary_nighty: 'Ordinary Nighty',
   shawl_nighty_lace: 'Shawl Nighty + Lace'
@@ -395,7 +396,11 @@ function NewOrderModal({ order, onClose, onSaved }) {
   const [gstPct, setGstPct]     = useState(order ? String(Number(order.gst_percent)) : '5');
   const [amountReceived, setAmountReceived] = useState(order ? String(order.amount_paid || '') : '');
   const [paymentMode, setPaymentMode] = useState('upi');
-  const [items, setItems]       = useState(order && order.items ? order.items.map(it => ({ ...it, size: it.size || '' })) : [{ category: 'shawl_nighty', size: '', quantity: '', rate_per_pc: '' }]);
+  const [items, setItems]       = useState(
+    order && order.items
+      ? order.items.map(it => ({ ...it, size: it.size || '', item_name: it.item_name || '' }))
+      : [{ category: 'salwar_suit', item_name: 'Salwar Suit', size: '', quantity: '', rate_per_pc: '450.00' }]
+  );
   const [saving, setSaving]     = useState(false);
 
   useEffect(() => {
@@ -406,8 +411,9 @@ function NewOrderModal({ order, onClose, onSaved }) {
   }, []);
 
   const addItem  = () => {
-    const firstProduct = products[0]?.category || 'shawl_nighty';
-    setItems(prev => [...prev, { category: firstProduct, size: '', quantity: '', rate_per_pc: '' }]);
+    const defaultProd = products.find(p => p.category === 'salwar_suit') || products[0];
+    const cat = defaultProd?.category || 'salwar_suit';
+    setItems(prev => [...prev, { category: cat, item_name: getProductLabel(cat), size: '', quantity: '', rate_per_pc: defaultProd?.selling_rate || '' }]);
   };
   const removeItem = i => setItems(prev => prev.filter((_, idx) => idx !== i));
   const setItem  = (i, field, val) => setItems(prev => prev.map((it, idx) => idx === i ? { ...it, [field]: val } : it));
@@ -460,7 +466,7 @@ function NewOrderModal({ order, onClose, onSaved }) {
         discount: discountAmt,
         amount_paid: parseFloat(amountReceived) || 0,
         payment_mode: paymentMode,
-        items: validItems.map(it => ({ category: it.category, size: it.size || null, quantity: +it.quantity, rate_per_pc: +it.rate_per_pc })),
+        items: validItems.map(it => ({ category: it.category, item_name: it.item_name || getProductLabel(it.category), size: it.size || null, quantity: +it.quantity, rate_per_pc: +it.rate_per_pc })),
       };
       if (order) {
         await api.put(`/sales/${order.id}`, payload);

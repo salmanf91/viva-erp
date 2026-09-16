@@ -104,23 +104,34 @@ export default function DashboardPage() {
         {/* Quick cards */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div className="card">
-            <div className="card-hd">Stock Summary</div>
+            <div className="card-hd" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Stock Summary</span>
+              <a href="#/stock" style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>View Stock →</a>
+            </div>
             <div className="info-list">
               <div className="il-row">
-                <span className="il-label">Total Received</span>
+                <span className="il-label">Total Fabric Received</span>
                 <span className="il-val">{stats?.stock_in ?? 0} pcs</span>
               </div>
               <div className="il-row">
-                <span className="il-label">In Production</span>
-                <span className="badge b-accent">{stats?.stock_allocated ?? 0} pcs</span>
+                <span className="il-label">In Production (Active)</span>
+                <span className="badge b-yellow">{stats?.stock_allocated ?? 0} pcs</span>
               </div>
               <div className="il-row">
-                <span className="il-label">Available Fabric</span>
-                <span className="badge b-green">{stats?.stock_available ?? 0} pcs</span>
+                <span className="il-label">Finished (Produced)</span>
+                <span className="il-val" style={{ fontWeight: 700, color: 'var(--cyan, #0891b2)' }}>{stats?.stock_finished ?? 0} pcs</span>
               </div>
               <div className="il-row">
-                <span className="il-label">Finished (On Hand)</span>
-                <span className="badge b-cyan">{stats?.stock_remaining ?? 0} pcs</span>
+                <span className="il-label">Sold / Dispatched</span>
+                <span className="badge" style={{ background: '#fef3c7', color: '#b45309', fontWeight: 700 }}>{stats?.stock_sold ?? 0} pcs</span>
+              </div>
+              <div className="il-row">
+                <span className="il-label">Finished Goods (On Hand)</span>
+                <span className="badge b-green">{stats?.stock_remaining ?? 0} pcs</span>
+              </div>
+              <div className="il-row">
+                <span className="il-label">Available Raw Fabric</span>
+                <span className="badge b-cyan">{stats?.stock_available ?? 0} pcs</span>
               </div>
             </div>
           </div>
