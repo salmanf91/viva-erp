@@ -234,8 +234,8 @@ export async function createOrder(req: AuthRequest, res: Response): Promise<void
 
     for (const item of items) {
       await query(
-        'INSERT INTO sales_order_items (order_id, category, size, quantity, rate_per_pc) VALUES (?,?,?,?,?)',
-        [orderId, item.category, item.size || null, item.quantity, item.rate_per_pc]
+        'INSERT INTO sales_order_items (order_id, category, item_name, size, quantity, rate_per_pc) VALUES (?,?,?,?,?,?)',
+        [orderId, item.category || 'salwar_suit', item.item_name || item.name || item.category || null, item.size || null, item.quantity, item.rate_per_pc]
       );
     }
 
@@ -331,8 +331,8 @@ export async function updateOrder(req: AuthRequest, res: Response): Promise<void
 
     for (const item of items) {
       await query(
-        'INSERT INTO sales_order_items (order_id, category, size, quantity, rate_per_pc) VALUES (?,?,?,?,?)',
-        [id, item.category, item.size || null, item.quantity, item.rate_per_pc]
+        'INSERT INTO sales_order_items (order_id, category, item_name, size, quantity, rate_per_pc) VALUES (?,?,?,?,?,?)',
+        [id, item.category || 'salwar_suit', item.item_name || item.name || item.category || null, item.size || null, item.quantity, item.rate_per_pc]
       );
     }
 

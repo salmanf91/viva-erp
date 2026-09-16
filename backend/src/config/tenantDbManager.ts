@@ -389,17 +389,77 @@ export async function ensureTenantSchema(pool: mysql.Pool, _dbName?: string): Pr
       `, [b8Id]);
     }
 
-    // Auto-link 18th-21st August entries to BATCH-007
-    if (b7Id) {
+    // 6. Ensure Salwar Initial Batch BATCH-000 (170 pcs) and all 492 pcs Salwar fabric purchases exist
+    const [b0] = await pool.query<any[]>("SELECT id FROM production_batches WHERE batch_number = 'BATCH-000' OR batch_number = 'BATCH-SALWAR-INIT' LIMIT 1");
+    if (!b0 || b0.length === 0) {
+      const [res0] = await pool.query<any[]>(`
+        INSERT INTO production_batches (tenant_id, batch_number, category, raw_material_name, raw_quantity_used, quantity, cut_rate, stitch_rate, status, batch_date, notes)
+        VALUES (1, 'BATCH-000', 'salwar_suit', 'Mixed Fabric (Salwar)', 170, 170, 28.00, 22.00, 'finished', '2026-08-15', 'Initial bulk salwar batch - settled 15th Aug (170 pcs)')
+      `);
+      const b0Id = (res0 as any).insertId;
       await pool.query(`
-        UPDATE staff_work_entries
-        SET batch_id = ?
-        WHERE id IN (97, 98, 99, 100, 104, 109, 116, 102, 110, 118, 105, 111, 114, 119)
-          AND (batch_id IS NULL OR batch_id = 0)
-      `, [b7Id]);
+        INSERT INTO production_batch_items (tenant_id, batch_id, category, size, quantity, cut_rate, stitch_rate)
+        VALUES (1, ?, 'salwar_suit', 'Free Size', 170, 28.00, 22.00)
+      `, [b0Id]);
     }
+
+    const salwarPurchases = [
+      { date: '2026-08-01', qty: 169, rate: 250, total: 42250, note: 'Salwar bulk fabric purchase - 169 pcs (settled Aug 15)' },
+      { date: '2026-08-29', qty: 80, rate: 250, total: 20000, note: 'Salwar fabric purchase - 80 pcs (Batch 3 & 4)' },
+      { date: '2026-09-05', qty: 49, rate: 250, total: 12250, note: 'Salwar fabric purchase - 49 pcs (Batch 5 & sample)' },
+      { date: '2026-09-08', qty: 48, rate: 250, total: 12000, note: 'Salwar fabric purchase - 48 pcs (Batch 6)' }
+    ];
+    for (const sp of salwarPurchases) {
+      const [existing] = await pool.query<any[]>('SELECT id FROM purchases WHERE note = ? LIMIT 1', [sp.note]);
+      if (!existing || existing.length === 0) {
+        const [resP] = await pool.query<any[]>(`
+          INSERT INTO purchases (tenant_id, vendor_id, invoice_date, subtotal, discount, tax_rate, tax_amount, tax_inclusive, total, status, note, advance_paid, payment_mode)
+          VALUES (1, 5, ?, ?, 0.00, 0.00, 0.00, 0, ?, 'paid', ?, ?, 'cash')
+        `, [sp.date, sp.total, sp.total, sp.note, sp.total]);
+        const pId = (resP as any).insertId;
+        await pool.query(`
+          INSERT INTO purchase_items (purchase_id, category, quantity, rate_per_pc, amount)
+          VALUES (?, 'Mixed Fabric (Salwar)', ?, ?, ?)
+        `, [pId, sp.qty, sp.rate, sp.total]);
+      }
+    }
+
+    // 7. Close out legacy nighty and generic mixed fabric batches (marking them finished so available = 0)
+    const [bNighty] = await pool.query<any[]>("SELECT id FROM production_batches WHERE batch_number = 'BATCH-LEGACY-NIGHTY' LIMIT 1");
+    if (!bNighty || bNighty.length === 0) {
+      const [resN] = await pool.query<any[]>(`
+        INSERT INTO production_batches (tenant_id, batch_number, category, raw_material_name, raw_quantity_used, quantity, cut_rate, stitch_rate, status, batch_date, notes)
+        VALUES (1, 'BATCH-LEGACY-NIGHTY', 'shawl_nighty', 'Mixed Fabric (Nighty)', 382, 382, 0.00, 0.00, 'finished', '2026-07-31', 'Closed legacy nighty fabric (382 pcs)')
+      `);
+      const bId = (resN as any).insertId;
+      await pool.query(`
+        INSERT INTO production_batch_items (tenant_id, batch_id, category, size, quantity, cut_rate, stitch_rate)
+        VALUES (1, ?, 'shawl_nighty', 'Free Size', 382, 0.00, 0.00)
+      `, [bId]);
+    }
+
+    const [bMixed] = await pool.query<any[]>("SELECT id FROM production_batches WHERE batch_number = 'BATCH-LEGACY-MIXED' LIMIT 1");
+    if (!bMixed || bMixed.length === 0) {
+      const [resM] = await pool.query<any[]>(`
+        INSERT INTO production_batches (tenant_id, batch_number, category, raw_material_name, raw_quantity_used, quantity, cut_rate, stitch_rate, status, batch_date, notes)
+        VALUES (1, 'BATCH-LEGACY-MIXED', 'mixed', 'Mixed Fabric', 620, 620, 0.00, 0.00, 'finished', '2026-07-31', 'Closed legacy mixed fabric (620 pcs)')
+      `);
+      const bId = (resM as any).insertId;
+      await pool.query(`
+        INSERT INTO production_batch_items (tenant_id, batch_id, category, size, quantity, cut_rate, stitch_rate)
+        VALUES (1, ?, 'mixed', 'Free Size', 620, 0.00, 0.00)
+      `, [bId]);
+    }
+
+    // 8. Ensure item_name column exists in sales_order_items
+    try {
+      await pool.query("ALTER TABLE sales_order_items ADD COLUMN item_name VARCHAR(255) NULL AFTER category");
+    } catch {}
+    try {
+      await pool.query("UPDATE sales_order_items SET item_name = category WHERE item_name IS NULL OR item_name = ''");
+    } catch {}
   } catch (e) {
-    console.error('Error ensuring batches 7 & 8:', e);
+    console.error('Error ensuring batches & salwar stock:', e);
   }
 
   // Tenant database schema migrations complete

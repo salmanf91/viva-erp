@@ -152,6 +152,12 @@ function DailyLogTab() {
       await api.put(`/staff/work-entries/${carryItem.id}`, {
         completed_pcs: newCompleted,
         completion_date: completionDate || date,
+        entry_date: carryItem.entry_date,
+        batch_id: carryItem.batch_id || null,
+        category: carryItem.category,
+        work_type: carryItem.work_type,
+        size: carryItem.size || null,
+        allocated_pcs: carryItem.allocated_pcs,
       });
       load();
       setCarryoverForm(p => { const n = { ...p }; delete n[carryItem.id]; return n; });

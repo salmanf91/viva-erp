@@ -320,18 +320,30 @@ export async function updateWorkEntry(req: AuthRequest, res: Response): Promise<
   const { batch_id, entry_date, completion_date, work_type, category, size, allocated_pcs, completed_pcs } = req.body;
 
   try {
-    const allocated = parseInt(allocated_pcs) || 0;
-    const completed = parseInt(completed_pcs) || 0;
-    const itemSize = size ? String(size).trim() : null;
-    const batchId = batch_id ? Number(batch_id) : null;
-    const date = entry_date;
-    const compDate = completion_date || (completed > 0 ? date : null);
+    const existing = await query<any[]>(
+      'SELECT * FROM staff_work_entries WHERE id=? AND tenant_id=? LIMIT 1',
+      [id, tenantId]
+    );
+    if (!existing || existing.length === 0) {
+      res.status(404).json({ message: 'Work entry not found' });
+      return;
+    }
+
+    const row = existing[0];
+    const newBatchId = batch_id !== undefined ? (batch_id ? Number(batch_id) : null) : row.batch_id;
+    const newDate = entry_date !== undefined ? entry_date : row.entry_date;
+    const newWorkType = work_type !== undefined ? work_type : row.work_type;
+    const newCategory = category !== undefined ? category : row.category;
+    const newSize = size !== undefined ? (size ? String(size).trim() : null) : row.size;
+    const newAllocated = allocated_pcs !== undefined ? (parseInt(allocated_pcs) || 0) : row.allocated_pcs;
+    const newCompleted = completed_pcs !== undefined ? (parseInt(completed_pcs) || 0) : row.completed_pcs;
+    const newCompDate = completion_date !== undefined ? completion_date : (newCompleted > 0 ? (row.completion_date || newDate) : null);
 
     await query(
       `UPDATE staff_work_entries
        SET batch_id=?, entry_date=?, completion_date=?, work_type=?, category=?, size=?, allocated_pcs=?, completed_pcs=?
        WHERE id=? AND tenant_id=?`,
-      [batchId, date, compDate, work_type, category, itemSize, allocated, completed, id, tenantId]
+      [newBatchId, newDate, newCompDate, newWorkType, newCategory, newSize, newAllocated, newCompleted, id, tenantId]
     );
 
     res.json({ message: 'Work entry updated successfully' });

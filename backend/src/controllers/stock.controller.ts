@@ -125,19 +125,24 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
     // 3. Finished goods produced per raw material category
     const finished = await safe(query<any[]>(
       `SELECT
-         (CASE 
-           WHEN pb.raw_material_name IS NOT NULL AND TRIM(pb.raw_material_name) != '' THEN TRIM(pb.raw_material_name)
-           WHEN LOWER(pb.category) LIKE '%salwar%' THEN 'Mixed Fabric (Salwar)'
-           WHEN LOWER(pb.category) LIKE '%nighty%' THEN 'Mixed Fabric (Nighty)'
-           WHEN pb.category = 'shawl_nighty_lace' THEN 'Mixed Fabric (Nighty)'
-           WHEN pb.category = '' OR pb.category IS NULL OR LOWER(pb.category) = 'mixed' THEN 'Mixed Fabric'
-           ELSE TRIM(pb.category)
-         END) COLLATE utf8mb4_unicode_ci AS category,
-         SUM(COALESCE(pb.quantity, 0)) AS qty
-       FROM production_batches pb
-       WHERE (pb.tenant_id = ? OR pb.tenant_id IS NULL)
-         AND (LOWER(COALESCE(pb.status, '')) IN ('finished', 'completed', 'delivered'))
-       GROUP BY category`,
+         t.category,
+         SUM(t.qty) AS qty
+       FROM (
+         SELECT
+           (CASE 
+             WHEN pb.raw_material_name IS NOT NULL AND TRIM(pb.raw_material_name) != '' THEN TRIM(pb.raw_material_name)
+             WHEN LOWER(pb.category) LIKE '%salwar%' THEN 'Mixed Fabric (Salwar)'
+             WHEN LOWER(pb.category) LIKE '%nighty%' THEN 'Mixed Fabric (Nighty)'
+             WHEN pb.category = 'shawl_nighty_lace' THEN 'Mixed Fabric (Nighty)'
+             WHEN pb.category = '' OR pb.category IS NULL OR LOWER(pb.category) = 'mixed' THEN 'Mixed Fabric'
+             ELSE TRIM(pb.category)
+           END) COLLATE utf8mb4_unicode_ci AS category,
+           COALESCE(pb.quantity, 0) AS qty
+         FROM production_batches pb
+         WHERE (pb.tenant_id = ? OR pb.tenant_id IS NULL)
+           AND (LOWER(COALESCE(pb.status, '')) IN ('finished', 'completed', 'delivered'))
+       ) t
+       GROUP BY t.category`,
       [tenantId]
     ));
 
@@ -154,45 +159,125 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
       [tenantId]
     ));
 
-    // 5. Finished goods breakdown by product and size
-    const finishedBreakdown = await safe(query<any[]>(
-      `SELECT
-         COALESCE(NULLIF(pbi.category, ''), pb.category) AS category,
-         pbi.size,
-         SUM(COALESCE(NULLIF(pbi.quantity, 0), pb.quantity, 0)) AS qty
-       FROM production_batches pb
-       LEFT JOIN production_batch_items pbi ON pbi.batch_id = pb.id
-       WHERE (pb.tenant_id = ? OR pb.tenant_id IS NULL)
-         AND (LOWER(COALESCE(pb.status, '')) IN ('finished', 'completed', 'delivered'))
-       GROUP BY COALESCE(NULLIF(pbi.category, ''), pb.category), pbi.size`,
-      [tenantId]
-    ), []);
+    // 5. Finished goods breakdown by product and size (with produced, sold, and on-hand quantities)
+    const [producedBreakdown, soldBreakdown] = await Promise.all([
+      safe(query<any[]>(
+        `SELECT
+           COALESCE(NULLIF(pbi.category, ''), pb.category) AS category,
+           COALESCE(NULLIF(TRIM(pbi.size), ''), 'Free Size') AS size,
+           SUM(COALESCE(NULLIF(pbi.quantity, 0), pb.quantity, 0)) AS produced_qty
+         FROM production_batches pb
+         LEFT JOIN production_batch_items pbi ON pbi.batch_id = pb.id
+         WHERE (pb.tenant_id = ? OR pb.tenant_id IS NULL)
+           AND (LOWER(COALESCE(pb.status, '')) IN ('finished', 'completed', 'delivered'))
+         GROUP BY COALESCE(NULLIF(pbi.category, ''), pb.category), COALESCE(NULLIF(TRIM(pbi.size), ''), 'Free Size')`,
+        [tenantId]
+      ), []),
+      safe(query<any[]>(
+        `SELECT
+           (CASE
+             WHEN LOWER(COALESCE(i.category, '')) LIKE '%salwar%' OR LOWER(COALESCE(i.item_name, '')) LIKE '%salwar%' THEN 'salwar_suit'
+             ELSE i.category
+           END) AS category,
+           COALESCE(NULLIF(TRIM(i.size), ''), 'Free Size') AS size,
+           SUM(i.quantity) AS sold_qty
+         FROM sales_order_items i
+         JOIN sales_orders o ON o.id = i.order_id
+         WHERE (o.tenant_id = ? OR o.tenant_id IS NULL)
+         GROUP BY (CASE WHEN LOWER(COALESCE(i.category, '')) LIKE '%salwar%' OR LOWER(COALESCE(i.item_name, '')) LIKE '%salwar%' THEN 'salwar_suit' ELSE i.category END), COALESCE(NULLIF(TRIM(i.size), ''), 'Free Size')`,
+        [tenantId]
+      ), [])
+    ]);
 
-    // 6. Sold goods mapped to raw material category
+    const breakdownMap = new Map<string, any>();
+    for (const r of producedBreakdown) {
+      const key = `${r.category}_${r.size}`;
+      breakdownMap.set(key, {
+        category: r.category,
+        size: r.size,
+        produced_qty: Number(r.produced_qty || 0),
+        sold_qty: 0,
+        on_hand_qty: Number(r.produced_qty || 0),
+        qty: Number(r.produced_qty || 0)
+      });
+    }
+
+    for (const s of soldBreakdown) {
+      const key = `${s.category}_${s.size}`;
+      const soldAmt = Number(s.sold_qty || 0);
+      if (breakdownMap.has(key)) {
+        const item = breakdownMap.get(key);
+        item.sold_qty = soldAmt;
+        item.on_hand_qty = Math.max(0, item.produced_qty - soldAmt);
+        item.qty = item.on_hand_qty;
+      } else {
+        breakdownMap.set(key, {
+          category: s.category,
+          size: s.size,
+          produced_qty: 0,
+          sold_qty: soldAmt,
+          on_hand_qty: 0,
+          qty: 0
+        });
+      }
+    }
+    const finishedBreakdown = Array.from(breakdownMap.values());
+
+    // 6. Sold goods mapped to raw material category (checking both category & item_name)
     const sold = await safe(query<any[]>(
       `SELECT
-         (CASE 
-           WHEN LOWER(i.category) LIKE '%salwar%' THEN 'Mixed Fabric (Salwar)'
-           WHEN LOWER(i.category) LIKE '%nighty%' THEN 'Mixed Fabric (Nighty)'
-           WHEN i.category = 'shawl_nighty_lace' THEN 'Mixed Fabric (Nighty)'
-           WHEN i.category = '' OR i.category IS NULL OR LOWER(i.category) = 'mixed' THEN 'Mixed Fabric'
-           ELSE TRIM(i.category)
-         END) COLLATE utf8mb4_unicode_ci AS category,
-         SUM(i.quantity) AS qty
-       FROM sales_order_items i
-       JOIN sales_orders o ON o.id = i.order_id
-       WHERE (o.tenant_id = ? OR o.tenant_id IS NULL)
-       GROUP BY category`,
+         t.category,
+         SUM(t.qty) AS qty
+       FROM (
+         SELECT
+           (CASE 
+             WHEN LOWER(COALESCE(i.category, '')) LIKE '%salwar%' OR LOWER(COALESCE(i.item_name, '')) LIKE '%salwar%' THEN 'Mixed Fabric (Salwar)'
+             WHEN LOWER(COALESCE(i.category, '')) LIKE '%nighty%' OR LOWER(COALESCE(i.item_name, '')) LIKE '%nighty%' THEN 'Mixed Fabric (Nighty)'
+             WHEN i.category = 'shawl_nighty_lace' THEN 'Mixed Fabric (Nighty)'
+             WHEN i.category = '' OR i.category IS NULL OR LOWER(i.category) = 'mixed' THEN 'Mixed Fabric'
+             ELSE TRIM(COALESCE(i.category, ''))
+           END) COLLATE utf8mb4_unicode_ci AS category,
+           i.quantity AS qty
+         FROM sales_order_items i
+         JOIN sales_orders o ON o.id = i.order_id
+         WHERE (o.tenant_id = ? OR o.tenant_id IS NULL)
+       ) t
+       GROUP BY t.category`,
       [tenantId]
     ));
 
-    // 7. Active raw materials master list
+    // 7. Itemized sales dispatches log (so user can clearly see sold fabrics by order & customer)
+    const soldDetails = await safe(query<any[]>(
+      `SELECT 
+         o.id AS order_id,
+         o.invoice_number,
+         o.order_date,
+         COALESCE(c.name, 'Direct Client') AS client_name,
+         COALESCE(NULLIF(i.item_name, ''), i.category) AS item_name,
+         i.category,
+         (CASE
+           WHEN LOWER(COALESCE(i.category, '')) LIKE '%salwar%' OR LOWER(COALESCE(i.item_name, '')) LIKE '%salwar%' THEN 'Mixed Fabric (Salwar)'
+           WHEN LOWER(COALESCE(i.category, '')) LIKE '%nighty%' OR LOWER(COALESCE(i.item_name, '')) LIKE '%nighty%' THEN 'Mixed Fabric (Nighty)'
+           ELSE 'Mixed Fabric'
+         END) AS raw_material_name,
+         i.quantity,
+         i.rate_per_pc,
+         o.status
+       FROM sales_order_items i
+       JOIN sales_orders o ON o.id = i.order_id
+       LEFT JOIN clients c ON c.id = o.client_id
+       WHERE (o.tenant_id = ? OR o.tenant_id IS NULL)
+       ORDER BY o.order_date DESC, o.id DESC`,
+      [tenantId]
+    ), []);
+
+    // 8. Active raw materials master list
     const rawMaterials = await safe(query<any[]>(
       `SELECT id, name, code, uom, default_rate FROM raw_materials WHERE (tenant_id = ? OR tenant_id IS NULL) AND is_active=1 ORDER BY id ASC`,
       [tenantId]
     ), []);
 
-    res.json({ received, allocated, finished, shawlBreakdown, finishedBreakdown, sold, rawMaterials });
+    res.json({ received, allocated, finished, shawlBreakdown, finishedBreakdown, sold, soldDetails, rawMaterials });
   } catch (error) {
     console.error('getStockSummary error:', error);
     res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
