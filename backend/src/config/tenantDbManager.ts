@@ -421,11 +421,16 @@ export async function ensureTenantSchema(pool: mysql.Pool, _dbName?: string): Pr
     } catch {}
 
     const salwarMovements = [
-      { date: '2026-08-01', qty: 169, ref: 'SALWAR-STOCK-169' },
+      { date: '2026-08-01', qty: 171, ref: 'SALWAR-STOCK-171' },
       { date: '2026-08-29', qty: 80,  ref: 'SALWAR-STOCK-80' },
       { date: '2026-09-05', qty: 49,  ref: 'SALWAR-STOCK-49' },
       { date: '2026-09-08', qty: 48,  ref: 'SALWAR-STOCK-48' }
     ];
+    // Clean up old 169-ref if present
+    try {
+      await pool.query("UPDATE stock_movements SET reference='SALWAR-STOCK-171', quantity=171 WHERE reference='SALWAR-STOCK-169'");
+    } catch {}
+
     for (const sm of salwarMovements) {
       const [exist] = await pool.query<any[]>('SELECT id FROM stock_movements WHERE reference = ? LIMIT 1', [sm.ref]);
       if (!exist || exist.length === 0) {
@@ -433,6 +438,8 @@ export async function ensureTenantSchema(pool: mysql.Pool, _dbName?: string): Pr
           INSERT INTO stock_movements (tenant_id, category, vendor_id, type, quantity, reference, movement_date)
           VALUES (1, 'Mixed Fabric (Salwar)', 5, 'in', ?, ?, ?)
         `, [sm.qty, sm.ref, sm.date]);
+      } else {
+        await pool.query('UPDATE stock_movements SET quantity = ? WHERE reference = ?', [sm.qty, sm.ref]);
       }
     }
 
