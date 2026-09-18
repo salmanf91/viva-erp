@@ -687,40 +687,69 @@ export default function ProductionPage() {
     api.get('/staff').then(r => setStaff(r.data)),
     api.get('/stock/summary').then(r => {
       const data = r.data || {};
-      const recMap = new Map();
-      (data.received || []).forEach(row => {
-        const k = (row.category || '').toLowerCase().trim();
-        recMap.set(k, (recMap.get(k) || 0) + Number(row.qty || 0));
-      });
-      const allocMap = new Map();
-      (data.allocated || []).forEach(row => {
-        const k = (row.category || '').toLowerCase().trim();
-        allocMap.set(k, (allocMap.get(k) || 0) + Number(row.qty || 0));
-      });
+      const normalize = s => (s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const mapToRawMaterial = (cat) => {
+        if (!cat) return 'Mixed Fabric';
+        const norm = normalize(cat);
+        const rm = (data.rawMaterials || []).find(r => normalize(r.name) === norm);
+        if (rm) return rm.name;
+        if (norm.includes('salwar')) return 'Mixed Fabric (Salwar)';
+        if (norm.includes('nighty') || norm === 'shawlnighty' || norm === 'ordinarynighty') return 'Mixed Fabric (Nighty)';
+        if (norm === 'mixed' || norm === 'mixedfabric') return 'Mixed Fabric';
+        return cat;
+      };
 
-      const rawList = (data.rawMaterials || []).map(rm => {
-        const k = rm.name.toLowerCase().trim();
-        const rec = recMap.get(k) || 0;
-        const alloc = allocMap.get(k) || 0;
-        const avail = Math.max(0, rec - alloc);
-        return { ...rm, received: rec, allocated: alloc, available: avail };
-      });
+      const getSum = (arr, cat) => {
+        if (!arr || !cat) return 0;
+        const targetNorm = normalize(cat);
+        return (arr || [])
+          .filter(row => {
+            if (!row.category) return targetNorm === 'mixed' || targetNorm === 'mixedfabric';
+            const rNorm = normalize(row.category);
+            if (rNorm === targetNorm) return true;
+            const mapped = mapToRawMaterial(row.category);
+            if (mapped === cat || normalize(mapped) === targetNorm) return true;
+            return false;
+          })
+          .reduce((sum, row) => sum + Number(row.qty || 0), 0);
+      };
 
-      (data.received || []).forEach(row => {
-        const cat = row.category;
-        if (cat && !rawList.some(rm => rm.name.toLowerCase() === cat.toLowerCase())) {
-          const rec = Number(row.qty || 0);
-          const alloc = allocMap.get(cat.toLowerCase()) || 0;
-          rawList.push({ id: cat, name: cat, received: rec, allocated: alloc, available: Math.max(0, rec - alloc) });
-        }
+      const rawSet = new Set();
+      (data.rawMaterials || []).forEach(rm => rm.name && rawSet.add(mapToRawMaterial(rm.name)));
+      ['received', 'allocated', 'finished'].forEach(key => {
+        (data[key] || []).forEach(row => row.category && rawSet.add(mapToRawMaterial(row.category)));
       });
-
-      if (rawList.length === 0) {
-        rawList.push(
-          { id: 1, name: 'Mixed Fabric (Nighty)', received: 0, allocated: 0, available: 0 },
-          { id: 2, name: 'Mixed Fabric (Salwar)', received: 0, allocated: 0, available: 0 }
-        );
+      if (rawSet.size === 0) {
+        rawSet.add('Mixed Fabric (Salwar)');
+        rawSet.add('Mixed Fabric (Nighty)');
       }
+
+      const uniqueCatsMap = new Map();
+      for (const cat of Array.from(rawSet)) {
+        const key = normalize(cat);
+        if (!uniqueCatsMap.has(key)) {
+          uniqueCatsMap.set(key, cat);
+        }
+      }
+      const allRawCats = Array.from(uniqueCatsMap.values());
+
+      const rawList = allRawCats.map((cat, idx) => {
+        const rm = (data.rawMaterials || []).find(r => normalize(r.name) === normalize(cat));
+        const rec = getSum(data.received, cat);
+        const alloc = getSum(data.allocated, cat); // In active production
+        const fin = getSum(data.finished, cat);    // Finished produced batches
+        const used = alloc + fin;                  // Total raw fabric consumed
+        const avail = Math.max(0, rec - used);     // Unallocated raw fabric remaining
+        return {
+          id: rm?.id || idx + 1,
+          name: cat,
+          received: rec,
+          allocated: alloc,
+          finished: fin,
+          used: used,
+          available: avail,
+        };
+      });
 
       setStockRawMaterials(rawList);
       setForm(prev => prev.raw_material_name ? prev : { ...prev, raw_material_name: rawList[0]?.name || '' });
