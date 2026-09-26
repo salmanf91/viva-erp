@@ -53,8 +53,23 @@ export default function StaffPage() {
 
   // Staff Advances state
   const [advances, setAdvances]                 = useState([]);
+  const [allAdvances, setAllAdvances]           = useState([]);
+  const [advancesLoading, setAdvancesLoading]   = useState(false);
+  const [advanceFilterStaff, setAdvanceFilterStaff] = useState('');
+  const [advanceStatusFilter, setAdvanceStatusFilter] = useState(''); // '' | 'pending' | 'deducted'
+  const [advanceSearch, setAdvanceSearch]       = useState('');
+  const [advancesScope, setAdvancesScope]       = useState('all'); // 'all' | 'period'
   const [showAddAdvance, setShowAddAdvance]     = useState(false);
   const [showAdvancesList, setShowAdvancesList] = useState(false);
+  const [editingAdvance, setEditingAdvance]     = useState(null);
+  const [editAdvanceForm, setEditAdvanceForm]   = useState({
+    id: null,
+    staff_id: '',
+    amount: '',
+    advance_date: new Date().toISOString().slice(0, 10),
+    payment_mode: 'cash',
+    notes: '',
+  });
   const [advanceForm, setAdvanceForm]           = useState({
     staff_id: '',
     amount: '',
@@ -171,7 +186,20 @@ export default function StaffPage() {
   ]);
   const loadAdmins   = () => api.get('/staff/admins').then(r => setAdmins(r.data));
   const loadConfigs  = () => api.get('/production/configs').then(r => setConfigs(r.data)).catch(() => []);
-  const loadBatches  = () => api.get('/production?limit=50').then(r => setBatches(r.data?.active || r.data?.data || [])).catch(() => []);
+  const loadBatches  = () => api.get('/production?limit=100').then(r => {
+    const list = [];
+    const seen = new Set();
+    const active = Array.isArray(r.data?.active) ? r.data.active : [];
+    const data = Array.isArray(r.data?.data) ? r.data.data : (Array.isArray(r.data) ? r.data : []);
+    for (const b of [...active, ...data]) {
+      if (b && b.id && !seen.has(b.id)) {
+        seen.add(b.id);
+        list.push(b);
+      }
+    }
+    setBatches(list);
+    return list;
+  }).catch(() => []);
 
   const availableCategories = Array.from(new Set([
     ...CATEGORIES,
@@ -188,12 +216,20 @@ export default function StaffPage() {
   }, [dateMode, customFrom, customTo, month, year, filterProduct, filterWorkType]);
 
   const loadAdvances = useCallback(() => {
+    setAdvancesLoading(true);
     const params = dateMode === 'custom' && customFrom && customTo
       ? { from_date: customFrom, to_date: customTo }
       : { month, year };
-    api.get('/staff/advances', { params })
-      .then(r => setAdvances(r.data || []))
-      .catch(() => {});
+
+    Promise.all([
+      api.get('/staff/advances', { params }).catch(() => ({ data: [] })),
+      api.get('/staff/advances', { params: { all: 1 } }).catch(() => ({ data: [] })),
+    ]).then(([resPeriod, resAll]) => {
+      setAdvances(resPeriod.data || []);
+      setAllAdvances(resAll.data || []);
+    }).finally(() => {
+      setAdvancesLoading(false);
+    });
   }, [dateMode, customFrom, customTo, month, year]);
 
   const loadHistory = useCallback(() => {
@@ -329,6 +365,7 @@ export default function StaffPage() {
   };
 
   const openEditEntry = entry => {
+    loadBatches();
     setEditingEntry(entry);
     setEntryForm({
       staff_id: entry.staff_id,
@@ -529,8 +566,41 @@ export default function StaffPage() {
     }
   };
 
+  const openEditAdvance = (adv) => {
+    setEditingAdvance(adv);
+    setEditAdvanceForm({
+      id: adv.id,
+      staff_id: String(adv.staff_id || ''),
+      amount: String(adv.amount || ''),
+      advance_date: adv.advance_date ? String(adv.advance_date).slice(0, 10) : new Date().toISOString().slice(0, 10),
+      payment_mode: adv.payment_mode || 'cash',
+      notes: adv.notes || '',
+    });
+  };
+
+  const saveEditAdvance = async () => {
+    if (!editAdvanceForm.id || !editAdvanceForm.staff_id || !editAdvanceForm.amount || Number(editAdvanceForm.amount) <= 0) {
+      return alert('Please select a staff member and enter a valid amount');
+    }
+    try {
+      await api.put(`/staff/advances/${editAdvanceForm.id}`, {
+        staff_id: Number(editAdvanceForm.staff_id),
+        amount: Number(editAdvanceForm.amount),
+        advance_date: editAdvanceForm.advance_date,
+        payment_mode: editAdvanceForm.payment_mode,
+        notes: editAdvanceForm.notes,
+      });
+      setEditingAdvance(null);
+      loadPayroll();
+      loadAdvances();
+      loadStaff();
+    } catch (e) {
+      alert(e.response?.data?.message || 'Failed to update advance payment');
+    }
+  };
+
   const deleteAdvance = async (advId) => {
-    if (!confirm('Delete this advance record?')) return;
+    if (!confirm('Are you sure you want to delete / roll back this advance payment record?')) return;
     try {
       await api.delete(`/staff/advances/${advId}`);
       loadPayroll();
@@ -539,6 +609,21 @@ export default function StaffPage() {
     } catch {
       alert('Failed to delete advance');
     }
+  };
+
+  const exportAdvancesCSV = (listToExport) => {
+    const filename = `staff_advances_${new Date().toISOString().slice(0, 10)}`;
+    const headers = ['Date', 'Staff Name', 'Role', 'Amount (₹)', 'Payment Mode', 'Status', 'Notes'];
+    const rows = (listToExport || []).map(a => [
+      a.advance_date ? String(a.advance_date).slice(0, 10) : '',
+      a.staff_name || '',
+      ROLE_LABEL[a.staff_role] || a.staff_role || '',
+      a.amount || 0,
+      a.payment_mode || 'cash',
+      a.is_deducted ? 'Deducted' : 'Pending Deduction',
+      a.notes || ''
+    ]);
+    exportToCSV(filename, headers, rows);
   };
 
   const settle = async (staffId, staffName) => {
@@ -617,14 +702,15 @@ export default function StaffPage() {
 
       <div className="tabs">
         <div className={`tab${activeTab === 'payroll' ? ' active' : ''}`} onClick={() => setActiveTab('payroll')}>Payroll &amp; Settlement</div>
+        <div className={`tab${activeTab === 'advances' ? ' active' : ''}`} onClick={() => setActiveTab('advances')}>💵 Staff Advances</div>
         <div className={`tab${activeTab === 'entries' ? ' active' : ''}`} onClick={() => setActiveTab('entries')}>📋 Work Entries &amp; Edits</div>
         <div className={`tab${activeTab === 'report'  ? ' active' : ''}`} onClick={() => setActiveTab('report')}>📄 Staff Report</div>
         <div className={`tab${activeTab === 'staff'   ? ' active' : ''}`} onClick={() => setActiveTab('staff')}>Staff Directory</div>
         {isOwner && <div className={`tab${activeTab === 'admins' ? ' active' : ''}`} onClick={() => setActiveTab('admins')}>Staff Admins</div>}
       </div>
 
-      {/* ── Period / Date selector for Payroll & Entries tabs ── */}
-      {(activeTab === 'payroll' || activeTab === 'entries') && (
+      {/* ── Period / Date selector for Payroll, Advances & Entries tabs ── */}
+      {(activeTab === 'payroll' || activeTab === 'entries' || (activeTab === 'advances' && advancesScope === 'period')) && (
         <div style={{ background: '#ffffff', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 16px', marginBottom: 16, boxShadow: '0 1px 3px rgba(0,0,0,0.03)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             {/* Mode Switcher & Active Label */}
@@ -1009,6 +1095,227 @@ export default function StaffPage() {
                       </tr>
                     );
                   })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ── Staff Advances Tab (Comprehensive Tracking, Filtering, Editing, & Rollback) ── */}
+      {activeTab === 'advances' && (() => {
+        const sourceAdvances = advancesScope === 'all' ? allAdvances : advances;
+        const filtered = sourceAdvances.filter(a => {
+          if (advanceFilterStaff && String(a.staff_id) !== String(advanceFilterStaff)) return false;
+          if (advanceStatusFilter === 'pending' && a.is_deducted) return false;
+          if (advanceStatusFilter === 'deducted' && !a.is_deducted) return false;
+          if (advanceSearch) {
+            const q = advanceSearch.toLowerCase();
+            const matchName = (a.staff_name || '').toLowerCase().includes(q);
+            const matchNotes = (a.notes || '').toLowerCase().includes(q);
+            const matchMode = (a.payment_mode || '').toLowerCase().includes(q);
+            if (!matchName && !matchNotes && !matchMode) return false;
+          }
+          return true;
+        });
+
+        const totalAmt = filtered.reduce((s, a) => s + Number(a.amount || 0), 0);
+        const pendingAmt = filtered.filter(a => !a.is_deducted).reduce((s, a) => s + Number(a.amount || 0), 0);
+        const deductedAmt = filtered.filter(a => a.is_deducted).reduce((s, a) => s + Number(a.amount || 0), 0);
+
+        return (
+          <div className="card">
+            <div className="card-hd" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+              <div>
+                <span style={{ fontSize: 16, fontWeight: 700 }}>💵 Staff Advances Log</span>
+                <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)', marginLeft: 10 }}>
+                  ({advancesScope === 'all' ? `All Time · ${filtered.length} entries` : `${formatPeriodLabel()} · ${filtered.length} entries`})
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => exportAdvancesCSV(filtered)}
+                  style={{ border: '1px solid var(--border)', background: 'var(--white)', fontWeight: 600 }}
+                  title="Export filtered advances to CSV"
+                >
+                  📥 Export CSV
+                </button>
+                <button className="btn btn-primary btn-sm" onClick={() => openAddAdvanceForStaff('')}>
+                  + Record Advance
+                </button>
+              </div>
+            </div>
+
+            {/* Scope Switcher & Summary Chips */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, margin: '12px 0 16px' }}>
+              <div style={{ display: 'inline-flex', background: '#f1f5f9', borderRadius: 8, padding: 3, border: '1px solid #e2e8f0' }}>
+                <button
+                  type="button"
+                  onClick={() => setAdvancesScope('all')}
+                  style={{
+                    padding: '5px 12px',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    border: 'none',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                    background: advancesScope === 'all' ? '#ffffff' : 'transparent',
+                    color: advancesScope === 'all' ? 'var(--accent)' : '#64748b',
+                    boxShadow: advancesScope === 'all' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                  }}
+                >
+                  🌐 All Advances ({allAdvances.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdvancesScope('period')}
+                  style={{
+                    padding: '5px 12px',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    border: 'none',
+                    borderRadius: 6,
+                    cursor: 'pointer',
+                    background: advancesScope === 'period' ? '#ffffff' : 'transparent',
+                    color: advancesScope === 'period' ? 'var(--accent)' : '#64748b',
+                    boxShadow: advancesScope === 'period' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none',
+                  }}
+                >
+                  📅 Current Cycle / Period ({advances.length})
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <div className="chip">
+                  Total Advances: <b>{fmt(totalAmt)}</b>
+                </div>
+                <div className="chip chip-yellow">
+                  Pending Deduction: <b>{fmt(pendingAmt)}</b>
+                </div>
+                <div className="chip chip-green">
+                  Deducted in Payroll: <b>{fmt(deductedAmt)}</b>
+                </div>
+              </div>
+            </div>
+
+            {/* Filter Bar */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 14, background: '#f8fafc', padding: '10px 12px', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+              <select
+                value={advanceFilterStaff}
+                onChange={e => setAdvanceFilterStaff(e.target.value)}
+                style={{ fontSize: 13, padding: '5px 10px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff' }}
+              >
+                <option value="">All Staff Members</option>
+                {staff.map(s => <option key={s.id} value={s.id}>{s.name} ({s.role === 'cutting_master' ? 'Cutter' : 'Tailor'})</option>)}
+              </select>
+
+              <select
+                value={advanceStatusFilter}
+                onChange={e => setAdvanceStatusFilter(e.target.value)}
+                style={{ fontSize: 13, padding: '5px 10px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff' }}
+              >
+                <option value="">All Statuses</option>
+                <option value="pending">⏳ Pending Deduction</option>
+                <option value="deducted">✓ Deducted in Settlement</option>
+              </select>
+
+              <input
+                type="text"
+                placeholder="🔍 Search notes or payment mode..."
+                value={advanceSearch}
+                onChange={e => setAdvanceSearch(e.target.value)}
+                style={{ fontSize: 13, padding: '5px 10px', borderRadius: 6, border: '1px solid #cbd5e1', background: '#fff', flex: 1, minWidth: 160 }}
+              />
+
+              {(advanceFilterStaff || advanceStatusFilter || advanceSearch) && (
+                <button
+                  className="btn btn-ghost btn-sm"
+                  style={{ fontSize: 12, padding: '4px 8px', color: 'var(--muted)' }}
+                  onClick={() => { setAdvanceFilterStaff(''); setAdvanceStatusFilter(''); setAdvanceSearch(''); }}
+                >
+                  Clear Filters
+                </button>
+              )}
+            </div>
+
+            {advancesLoading ? (
+              <div className="spinner">Loading advances…</div>
+            ) : filtered.length === 0 ? (
+              <div className="empty-state" style={{ padding: 28 }}>
+                <p>No advance payment records match your filters.</p>
+                <button className="btn btn-primary btn-sm" style={{ marginTop: 10 }} onClick={() => openAddAdvanceForStaff('')}>
+                  + Record Advance
+                </button>
+              </div>
+            ) : (
+              <table>
+                <thead>
+                  <tr>
+                    <th>Payment Date</th>
+                    <th>Staff Member</th>
+                    <th>Payment Mode</th>
+                    <th style={{ textAlign: 'right' }}>Amount</th>
+                    <th>Deduction Status</th>
+                    <th>Notes / Reason</th>
+                    <th style={{ textAlign: 'right' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map(a => (
+                    <tr key={a.id}>
+                      <td style={{ fontSize: 13, whiteSpace: 'nowrap', fontWeight: 600 }}>{fmtShort(a.advance_date)}</td>
+                      <td>
+                        <span style={{ fontWeight: 700 }}>{a.staff_name}</span>
+                        <span className={`badge ${a.staff_role === 'cutting_master' ? 'b-accent' : 'b-cyan'}`} style={{ fontSize: 9, marginLeft: 6 }}>
+                          {a.staff_role === 'cutting_master' ? 'Cutter' : 'Tailor'}
+                        </span>
+                      </td>
+                      <td>
+                        <span className="badge" style={{ fontSize: 10, textTransform: 'capitalize' }}>
+                          {a.payment_mode === 'cash' ? '💵 Cash' : a.payment_mode === 'upi' ? '📱 UPI' : a.payment_mode === 'bank_transfer' ? '🏦 Bank' : a.payment_mode}
+                        </span>
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 800, fontSize: 14, color: 'var(--orange)' }}>
+                        {fmt(a.amount)}
+                      </td>
+                      <td>
+                        {a.is_deducted ? (
+                          <span className="badge b-green" style={{ fontSize: 10 }} title={a.deducted_at ? `Deducted on ${fmtShort(a.deducted_at)}` : 'Deducted in settlement'}>
+                            ✓ Deducted
+                          </span>
+                        ) : (
+                          <span className="badge b-yellow" style={{ fontSize: 10 }}>
+                            ⏳ Pending Deduct
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ fontSize: 12, color: 'var(--muted)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {a.notes || '—'}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            style={{ padding: '3px 8px', fontSize: 11 }}
+                            title="Edit advance date, amount, staff or notes"
+                            onClick={() => openEditAdvance(a)}
+                          >
+                            ✏️ Edit
+                          </button>
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            style={{ padding: '3px 8px', fontSize: 11, color: 'var(--red)', borderColor: '#fca5a5' }}
+                            title="Delete / Roll back this advance payment"
+                            onClick={() => deleteAdvance(a.id)}
+                          >
+                            ✕ Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             )}
@@ -1424,11 +1731,16 @@ export default function StaffPage() {
                       onChange={e => setEntryForm(f => ({ ...f, batch_id: e.target.value }))}
                     >
                       <option value="">-- No Batch Linked (Standalone Entry) --</option>
-                      {batches.map(b => (
-                        <option key={b.id} value={b.id}>
-                          📦 {b.batch_number} - {b.category ? getProductLabel(b.category) : b.product_name || 'Batch'} ({b.target_pcs || b.planned_pcs || 0} pcs planned) {b.status === 'in_progress' ? '🟢 Active' : `(${b.status})`}
-                        </option>
-                      ))}
+                      {batches.map(b => {
+                        const qty = b.quantity ?? b.target_pcs ?? b.planned_pcs ?? 0;
+                        const catLabel = b.category ? (getProductLabel(b.category) || b.category) : (b.product_name || 'Batch');
+                        const statusBadge = b.status === 'finished' ? '(Finished)' : (b.status ? `(🟢 ${b.status})` : '(🟢 Active)');
+                        return (
+                          <option key={b.id} value={b.id}>
+                            📦 {b.batch_number} - {catLabel} ({qty} pcs) {statusBadge}
+                          </option>
+                        );
+                      })}
                     </select>
                   </div>
                 </div>
@@ -1787,11 +2099,16 @@ export default function StaffPage() {
                       onChange={e => setAddEntryForm(f => ({ ...f, batch_id: e.target.value }))}
                     >
                       <option value="">-- No Batch Linked (Standalone Entry) --</option>
-                      {batches.map(b => (
-                        <option key={b.id} value={b.id}>
-                          📦 {b.batch_number} - {b.category ? getProductLabel(b.category) : b.product_name || 'Batch'} ({b.target_pcs || b.planned_pcs || 0} pcs planned) {b.status === 'in_progress' ? '🟢 Active' : `(${b.status})`}
-                        </option>
-                      ))}
+                      {batches.map(b => {
+                        const qty = b.quantity ?? b.target_pcs ?? b.planned_pcs ?? 0;
+                        const catLabel = b.category ? (getProductLabel(b.category) || b.category) : (b.product_name || 'Batch');
+                        const statusBadge = b.status === 'finished' ? '(Finished)' : (b.status ? `(🟢 ${b.status})` : '(🟢 Active)');
+                        return (
+                          <option key={b.id} value={b.id}>
+                            📦 {b.batch_number} - {catLabel} ({qty} pcs) {statusBadge}
+                          </option>
+                        );
+                      })}
                     </select>
                   </div>
                 </div>
@@ -2261,18 +2578,106 @@ export default function StaffPage() {
         </div>
       )}
 
+      {/* ── Edit Staff Advance Modal ── */}
+      {editingAdvance && (
+        <div className="modal-overlay" onClick={() => setEditingAdvance(null)}>
+          <div className="modal" style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h2 style={{ margin: 0 }}>✏️ Edit Staff Advance</h2>
+              <button className="btn btn-ghost btn-sm" onClick={() => setEditingAdvance(null)}>✕</button>
+            </div>
+
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
+              Correct the advance payment date, amount, staff attribution, or notes.
+            </div>
+
+            <div className="form-grid">
+              <div className="field form-full">
+                <label>Staff Member *</label>
+                <select
+                  value={editAdvanceForm.staff_id}
+                  onChange={e => setEditAdvanceForm(f => ({ ...f, staff_id: e.target.value }))}
+                >
+                  <option value="">Select Staff Member</option>
+                  {staff.map(s => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.role === 'cutting_master' ? '✂️ Cutting Master' : '🧵 Tailor'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="field">
+                <label>Advance Amount (₹) *</label>
+                <input
+                  type="number"
+                  placeholder="e.g. 5000"
+                  min="1"
+                  autoFocus
+                  value={editAdvanceForm.amount}
+                  onChange={e => setEditAdvanceForm(f => ({ ...f, amount: e.target.value }))}
+                />
+              </div>
+
+              <div className="field">
+                <label>Payment Date *</label>
+                <input
+                  type="date"
+                  value={editAdvanceForm.advance_date}
+                  onChange={e => setEditAdvanceForm(f => ({ ...f, advance_date: e.target.value }))}
+                />
+              </div>
+
+              <div className="field form-full">
+                <label>Payment Mode</label>
+                <select
+                  value={editAdvanceForm.payment_mode}
+                  onChange={e => setEditAdvanceForm(f => ({ ...f, payment_mode: e.target.value }))}
+                >
+                  <option value="cash">💵 Cash in Hand</option>
+                  <option value="upi">📱 UPI / GPay / PhonePe</option>
+                  <option value="bank_transfer">🏦 Bank Transfer / NEFT</option>
+                  <option value="cheque">📝 Cheque</option>
+                </select>
+              </div>
+
+              <div className="field form-full">
+                <label>Notes / Reason (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Festival advance, Emergency, Personal request"
+                  value={editAdvanceForm.notes}
+                  onChange={e => setEditAdvanceForm(f => ({ ...f, notes: e.target.value }))}
+                />
+              </div>
+            </div>
+
+            <div className="modal-actions" style={{ marginTop: 20 }}>
+              <button className="btn btn-ghost" onClick={() => setEditingAdvance(null)}>Cancel</button>
+              <button
+                className="btn btn-primary"
+                onClick={saveEditAdvance}
+                disabled={!editAdvanceForm.staff_id || !editAdvanceForm.amount || Number(editAdvanceForm.amount) <= 0}
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── View & Manage Advances Modal ── */}
       {showAdvancesList && (
         <div className="modal-overlay" onClick={() => setShowAdvancesList(false)}>
-          <div className="modal" style={{ maxWidth: 720, width: '95vw' }} onClick={e => e.stopPropagation()}>
+          <div className="modal" style={{ maxWidth: 760, width: '95vw' }} onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
               <div>
                 <h2 style={{ margin: 0 }}>💵 Staff Advances Log</h2>
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                  {MONTHS[month-1]} {year} cycle · Total Advances: <b>{fmt(totalAdvancesInCycle)}</b>
+                  {advancesScope === 'all' ? `All Time · Total Advances: ${fmt(allAdvances.reduce((s, a) => s + Number(a.amount || 0), 0))}` : `${formatPeriodLabel()} · Total Advances: ${fmt(totalAdvancesInCycle)}`}
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <button className="btn btn-primary btn-sm" onClick={() => { setShowAddAdvance(true); }}>
                   + Record Advance
                 </button>
@@ -2282,34 +2687,74 @@ export default function StaffPage() {
               </div>
             </div>
 
-            {/* Filter by staff if needed */}
-            <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>Filter:</span>
-              <select
-                value={advanceFilterStaff}
-                onChange={e => setAdvanceFilterStaff(e.target.value)}
-                style={{ fontSize: 12, padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border)' }}
-              >
-                <option value="">All Staff</option>
-                {staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
+            {/* Scope switcher & Filters in modal */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12, background: '#f8fafc', padding: '8px 12px', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+              <div style={{ display: 'inline-flex', background: '#e2e8f0', borderRadius: 6, padding: 2 }}>
+                <button
+                  type="button"
+                  onClick={() => setAdvancesScope('all')}
+                  style={{
+                    padding: '4px 10px',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    border: 'none',
+                    borderRadius: 5,
+                    cursor: 'pointer',
+                    background: advancesScope === 'all' ? '#ffffff' : 'transparent',
+                    color: advancesScope === 'all' ? 'var(--accent)' : '#64748b',
+                    boxShadow: advancesScope === 'all' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+                  }}
+                >
+                  🌐 All Advances ({allAdvances.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAdvancesScope('period')}
+                  style={{
+                    padding: '4px 10px',
+                    fontSize: 11,
+                    fontWeight: 700,
+                    border: 'none',
+                    borderRadius: 5,
+                    cursor: 'pointer',
+                    background: advancesScope === 'period' ? '#ffffff' : 'transparent',
+                    color: advancesScope === 'period' ? 'var(--accent)' : '#64748b',
+                    boxShadow: advancesScope === 'period' ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
+                  }}
+                >
+                  📅 Selected Period ({advances.length})
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>Staff:</span>
+                <select
+                  value={advanceFilterStaff}
+                  onChange={e => setAdvanceFilterStaff(e.target.value)}
+                  style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', background: '#fff' }}
+                >
+                  <option value="">All Staff</option>
+                  {staff.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+              </div>
             </div>
 
             {(() => {
+              const baseList = advancesScope === 'all' ? allAdvances : advances;
               const filteredAdvances = advanceFilterStaff
-                ? advances.filter(a => String(a.staff_id) === String(advanceFilterStaff))
-                : advances;
+                ? baseList.filter(a => String(a.staff_id) === String(advanceFilterStaff))
+                : baseList;
 
               if (filteredAdvances.length === 0) {
                 return (
                   <div className="empty-state" style={{ padding: 24 }}>
-                    No advance payments found for this period.
+                    No advance payments found for this filter.
                   </div>
                 );
               }
 
               return (
-                <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+                <div style={{ maxHeight: 380, overflowY: 'auto' }}>
                   <table>
                     <thead>
                       <tr>
@@ -2319,13 +2764,13 @@ export default function StaffPage() {
                         <th style={{ textAlign: 'right' }}>Amount</th>
                         <th>Status</th>
                         <th>Notes</th>
-                        <th></th>
+                        <th style={{ textAlign: 'right' }}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {filteredAdvances.map(a => (
                         <tr key={a.id}>
-                          <td style={{ fontSize: 12, whiteSpace: 'nowrap' }}>{fmtShort(a.advance_date)}</td>
+                          <td style={{ fontSize: 12, whiteSpace: 'nowrap', fontWeight: 600 }}>{fmtShort(a.advance_date)}</td>
                           <td style={{ fontWeight: 600 }}>{a.staff_name}</td>
                           <td>
                             <span className="badge" style={{ fontSize: 10, textTransform: 'capitalize' }}>
@@ -2344,14 +2789,24 @@ export default function StaffPage() {
                             {a.notes || '—'}
                           </td>
                           <td style={{ textAlign: 'right' }}>
-                            <button
-                              className="btn btn-ghost btn-sm"
-                              style={{ padding: '2px 6px', fontSize: 11, color: 'var(--red)', borderColor: '#fca5a5' }}
-                              title="Delete Advance"
-                              onClick={() => deleteAdvance(a.id)}
-                            >
-                              ✕
-                            </button>
+                            <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                              <button
+                                className="btn btn-ghost btn-sm"
+                                style={{ padding: '2px 6px', fontSize: 11 }}
+                                title="Edit Advance Date / Amount"
+                                onClick={() => openEditAdvance(a)}
+                              >
+                                ✏️
+                              </button>
+                              <button
+                                className="btn btn-ghost btn-sm"
+                                style={{ padding: '2px 6px', fontSize: 11, color: 'var(--red)', borderColor: '#fca5a5' }}
+                                title="Delete / Roll back Advance"
+                                onClick={() => deleteAdvance(a.id)}
+                              >
+                                ✕
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}

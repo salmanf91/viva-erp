@@ -22,7 +22,7 @@ export default function StaffLogPage() {
   return (
     <>
       <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: '1.5px solid var(--border)' }}>
-        {[['log','📋 Daily Log'],['history','📆 History'],['staff','👷 Staff Directory']].map(([t, label]) => (
+        {[['log','📋 Daily Log'],['history','📆 History'],['advances','💵 Advances'],['staff','👷 Staff Directory']].map(([t, label]) => (
           <button key={t} onClick={() => setTab(t)}
             style={{
               padding: '8px 18px', fontWeight: 600, fontSize: 13, border: 'none', cursor: 'pointer',
@@ -33,9 +33,10 @@ export default function StaffLogPage() {
           </button>
         ))}
       </div>
-      {tab === 'log'     && <DailyLogTab />}
-      {tab === 'history' && <HistoryTab />}
-      {tab === 'staff'   && <StaffTab />}
+      {tab === 'log'      && <DailyLogTab />}
+      {tab === 'history'  && <HistoryTab />}
+      {tab === 'advances' && <AdvancesTab />}
+      {tab === 'staff'    && <StaffTab />}
     </>
   );
 }
@@ -60,7 +61,19 @@ function DailyLogTab() {
     setLoading(true);
     Promise.all([
       api.get('/staff/work-entries', { params: { date } }).then(r => setStaff(r.data)),
-      api.get('/production?limit=50').then(r => setBatches(r.data?.active || r.data?.data || [])).catch(() => []),
+      api.get('/production?limit=100').then(r => {
+        const list = [];
+        const seen = new Set();
+        const active = Array.isArray(r.data?.active) ? r.data.active : [];
+        const data = Array.isArray(r.data?.data) ? r.data.data : (Array.isArray(r.data) ? r.data : []);
+        for (const b of [...active, ...data]) {
+          if (b && b.id && !seen.has(b.id)) {
+            seen.add(b.id);
+            list.push(b);
+          }
+        }
+        setBatches(list);
+      }).catch(() => []),
     ]).finally(() => setLoading(false));
   }, [date]);
 
@@ -331,7 +344,19 @@ function HistoryTab() {
   useEffect(() => {
     Promise.all([
       api.get('/staff').then(r => setStaffList(r.data)).catch(() => {}),
-      api.get('/production?limit=50').then(r => setBatches(r.data?.active || r.data?.data || [])).catch(() => []),
+      api.get('/production?limit=100').then(r => {
+        const list = [];
+        const seen = new Set();
+        const active = Array.isArray(r.data?.active) ? r.data.active : [];
+        const data = Array.isArray(r.data?.data) ? r.data.data : (Array.isArray(r.data) ? r.data : []);
+        for (const b of [...active, ...data]) {
+          if (b && b.id && !seen.has(b.id)) {
+            seen.add(b.id);
+            list.push(b);
+          }
+        }
+        setBatches(list);
+      }).catch(() => []),
     ]);
   }, []);
 
@@ -853,6 +878,274 @@ function StaffTab() {
               <button className="btn btn-primary" onClick={saveEdit} disabled={!editForm.name.trim() || saving}>
                 {saving ? 'Saving…' : 'Save Changes'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ── Advances Tab ─────────────────────────────────────────────────────────────
+
+function AdvancesTab() {
+  const [advances, setAdvances] = useState([]);
+  const [staffList, setStaffList] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [staffFilter, setStaffFilter] = useState('');
+  const [showAdd, setShowAdd] = useState(false);
+  const [editingAdvance, setEditingAdvance] = useState(null);
+  const [form, setForm] = useState({
+    staff_id: '',
+    amount: '',
+    advance_date: new Date().toISOString().slice(0, 10),
+    payment_mode: 'cash',
+    notes: '',
+  });
+  const [editForm, setEditForm] = useState({
+    id: null,
+    staff_id: '',
+    amount: '',
+    advance_date: '',
+    payment_mode: 'cash',
+    notes: '',
+  });
+
+  const loadData = useCallback(() => {
+    setLoading(true);
+    Promise.all([
+      api.get('/staff').then(r => setStaffList(r.data || [])).catch(() => []),
+      api.get('/staff/advances', { params: { all: 1 } }).then(r => setAdvances(r.data || [])).catch(() => []),
+    ]).finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  const saveAdd = async () => {
+    if (!form.staff_id || !form.amount || Number(form.amount) <= 0) {
+      return alert('Please select a staff member and enter a valid amount');
+    }
+    try {
+      await api.post('/staff/advances', form);
+      setShowAdd(false);
+      setForm({
+        staff_id: '',
+        amount: '',
+        advance_date: new Date().toISOString().slice(0, 10),
+        payment_mode: 'cash',
+        notes: '',
+      });
+      loadData();
+    } catch (e) {
+      alert(e.response?.data?.message || 'Failed to record advance');
+    }
+  };
+
+  const openEdit = (adv) => {
+    setEditingAdvance(adv);
+    setEditForm({
+      id: adv.id,
+      staff_id: String(adv.staff_id || ''),
+      amount: String(adv.amount || ''),
+      advance_date: adv.advance_date ? String(adv.advance_date).slice(0, 10) : new Date().toISOString().slice(0, 10),
+      payment_mode: adv.payment_mode || 'cash',
+      notes: adv.notes || '',
+    });
+  };
+
+  const saveEdit = async () => {
+    if (!editForm.id || !editForm.staff_id || !editForm.amount || Number(editForm.amount) <= 0) {
+      return alert('Please select a staff member and enter a valid amount');
+    }
+    try {
+      await api.put(`/staff/advances/${editForm.id}`, {
+        staff_id: Number(editForm.staff_id),
+        amount: Number(editForm.amount),
+        advance_date: editForm.advance_date,
+        payment_mode: editForm.payment_mode,
+        notes: editForm.notes,
+      });
+      setEditingAdvance(null);
+      loadData();
+    } catch (e) {
+      alert(e.response?.data?.message || 'Failed to update advance');
+    }
+  };
+
+  const deleteAdvance = async (id) => {
+    if (!confirm('Are you sure you want to delete / roll back this advance record?')) return;
+    try {
+      await api.delete(`/staff/advances/${id}`);
+      loadData();
+    } catch {
+      alert('Failed to delete advance');
+    }
+  };
+
+  const filtered = staffFilter ? advances.filter(a => String(a.staff_id) === String(staffFilter)) : advances;
+  const totalAmt = filtered.reduce((s, a) => s + Number(a.amount || 0), 0);
+  const pendingAmt = filtered.filter(a => !a.is_deducted).reduce((s, a) => s + Number(a.amount || 0), 0);
+
+  return (
+    <>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <select
+            value={staffFilter}
+            onChange={e => setStaffFilter(e.target.value)}
+            style={{ fontSize: 13, padding: '6px 12px', borderRadius: 8, border: '1.5px solid var(--border)', background: '#fff' }}
+          >
+            <option value="">All Staff Members ({advances.length})</option>
+            {staffList.map(s => <option key={s.id} value={s.id}>{s.name} ({s.role === 'cutting_master' ? 'Cutter' : 'Tailor'})</option>)}
+          </select>
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted)' }}>Total: ₹{totalAmt.toLocaleString('en-IN')} (₹{pendingAmt.toLocaleString('en-IN')} pending)</span>
+        </div>
+        <button className="btn btn-primary btn-sm" onClick={() => { setForm(f => ({ ...f, staff_id: staffFilter || (staffList[0]?.id ? String(staffList[0].id) : '') })); setShowAdd(true); }}>
+          + Record Advance
+        </button>
+      </div>
+
+      {loading ? <div className="spinner">Loading advances…</div> : filtered.length === 0 ? (
+        <div className="empty-state">No advance records found.</div>
+      ) : (
+        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Staff Name</th>
+                <th>Payment Mode</th>
+                <th style={{ textAlign: 'right' }}>Amount</th>
+                <th>Status</th>
+                <th>Notes</th>
+                <th style={{ textAlign: 'right' }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map(a => (
+                <tr key={a.id}>
+                  <td style={{ fontSize: 12, fontWeight: 600 }}>{fmtShort(a.advance_date)}</td>
+                  <td style={{ fontWeight: 700 }}>
+                    {a.staff_name}
+                    <span className={`badge ${a.staff_role === 'cutting_master' ? 'b-accent' : 'b-cyan'}`} style={{ fontSize: 9, marginLeft: 6 }}>
+                      {a.staff_role === 'cutting_master' ? 'Cutter' : 'Tailor'}
+                    </span>
+                  </td>
+                  <td>
+                    <span className="badge" style={{ fontSize: 10, textTransform: 'capitalize' }}>
+                      {a.payment_mode === 'cash' ? '💵 Cash' : a.payment_mode === 'upi' ? '📱 UPI' : a.payment_mode}
+                    </span>
+                  </td>
+                  <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--orange)' }}>
+                    ₹{Number(a.amount || 0).toLocaleString('en-IN')}
+                  </td>
+                  <td>
+                    {a.is_deducted ? (
+                      <span className="badge b-green" style={{ fontSize: 10 }}>✓ Deducted</span>
+                    ) : (
+                      <span className="badge b-yellow" style={{ fontSize: 10 }}>⏳ Pending Deduct</span>
+                    )}
+                  </td>
+                  <td style={{ fontSize: 12, color: 'var(--muted)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {a.notes || '—'}
+                  </td>
+                  <td>
+                    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                      <button className="btn btn-ghost btn-sm" style={{ padding: '2px 6px', fontSize: 11 }} title="Edit Advance" onClick={() => openEdit(a)}>
+                        ✏️ Edit
+                      </button>
+                      <button className="btn btn-ghost btn-sm" style={{ padding: '2px 6px', fontSize: 11, color: 'var(--red)', borderColor: '#fca5a5' }} title="Delete Advance" onClick={() => deleteAdvance(a.id)}>
+                        ✕ Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Record Advance Modal */}
+      {showAdd && (
+        <div className="modal-overlay" onClick={() => setShowAdd(false)}>
+          <div className="modal" style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+            <h2>💵 Record Staff Advance</h2>
+            <div className="form-grid">
+              <div className="field form-full">
+                <label>Staff Member *</label>
+                <select value={form.staff_id} onChange={e => setForm(f => ({ ...f, staff_id: e.target.value }))}>
+                  <option value="">Select Staff</option>
+                  {staffList.filter(s => s.is_active).map(s => <option key={s.id} value={s.id}>{s.name} ({s.role === 'cutting_master' ? 'Cutter' : 'Tailor'})</option>)}
+                </select>
+              </div>
+              <div className="field">
+                <label>Amount (₹) *</label>
+                <input type="number" min="1" autoFocus placeholder="e.g. 5000" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} />
+              </div>
+              <div className="field">
+                <label>Date</label>
+                <input type="date" value={form.advance_date} onChange={e => setForm(f => ({ ...f, advance_date: e.target.value }))} />
+              </div>
+              <div className="field form-full">
+                <label>Payment Mode</label>
+                <select value={form.payment_mode} onChange={e => setForm(f => ({ ...f, payment_mode: e.target.value }))}>
+                  <option value="cash">💵 Cash</option>
+                  <option value="upi">📱 UPI</option>
+                  <option value="bank_transfer">🏦 Bank Transfer</option>
+                  <option value="cheque">📝 Cheque</option>
+                </select>
+              </div>
+              <div className="field form-full">
+                <label>Notes / Reason</label>
+                <input type="text" placeholder="e.g. Personal request" value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={() => setShowAdd(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={saveAdd} disabled={!form.staff_id || !form.amount || Number(form.amount) <= 0}>Save Advance</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Advance Modal */}
+      {editingAdvance && (
+        <div className="modal-overlay" onClick={() => setEditingAdvance(null)}>
+          <div className="modal" style={{ maxWidth: 460 }} onClick={e => e.stopPropagation()}>
+            <h2>✏️ Edit Staff Advance</h2>
+            <div className="form-grid">
+              <div className="field form-full">
+                <label>Staff Member *</label>
+                <select value={editForm.staff_id} onChange={e => setEditForm(f => ({ ...f, staff_id: e.target.value }))}>
+                  {staffList.map(s => <option key={s.id} value={s.id}>{s.name} ({s.role === 'cutting_master' ? 'Cutter' : 'Tailor'})</option>)}
+                </select>
+              </div>
+              <div className="field">
+                <label>Amount (₹) *</label>
+                <input type="number" min="1" autoFocus placeholder="e.g. 5000" value={editForm.amount} onChange={e => setEditForm(f => ({ ...f, amount: e.target.value }))} />
+              </div>
+              <div className="field">
+                <label>Date *</label>
+                <input type="date" value={editForm.advance_date} onChange={e => setEditForm(f => ({ ...f, advance_date: e.target.value }))} />
+              </div>
+              <div className="field form-full">
+                <label>Payment Mode</label>
+                <select value={editForm.payment_mode} onChange={e => setEditForm(f => ({ ...f, payment_mode: e.target.value }))}>
+                  <option value="cash">💵 Cash</option>
+                  <option value="upi">📱 UPI</option>
+                  <option value="bank_transfer">🏦 Bank Transfer</option>
+                  <option value="cheque">📝 Cheque</option>
+                </select>
+              </div>
+              <div className="field form-full">
+                <label>Notes / Reason</label>
+                <input type="text" placeholder="e.g. Personal request" value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} />
+              </div>
+            </div>
+            <div className="modal-actions">
+              <button className="btn btn-ghost" onClick={() => setEditingAdvance(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={saveEdit} disabled={!editForm.staff_id || !editForm.amount || Number(editForm.amount) <= 0}>Save Changes</button>
             </div>
           </div>
         </div>

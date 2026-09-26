@@ -566,7 +566,7 @@ export async function undoSettleStaff(req: AuthRequest, res: Response): Promise<
 
 export async function getStaffAdvances(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
-  const { staff_id, month, year, from_date, to_date } = req.query;
+  const { staff_id, month, year, from_date, to_date, all } = req.query;
 
   try {
     let whereClause = 'WHERE a.tenant_id=?';
@@ -577,15 +577,17 @@ export async function getStaffAdvances(req: AuthRequest, res: Response): Promise
       params.push(staff_id);
     }
 
-    if (from_date && to_date) {
-      const d1 = String(from_date);
-      const d2 = String(to_date);
-      whereClause += ' AND a.advance_date BETWEEN ? AND ?';
-      params.push(d1 <= d2 ? d1 : d2, d1 <= d2 ? d2 : d1);
-    } else if (month && year) {
-      const cycle = getSalaryCycleDates(Number(month), Number(year));
-      whereClause += ' AND a.advance_date BETWEEN ? AND ?';
-      params.push(cycle.startDate, cycle.endDate);
+    if (all !== '1' && all !== 'true') {
+      if (from_date && to_date) {
+        const d1 = String(from_date);
+        const d2 = String(to_date);
+        whereClause += ' AND a.advance_date BETWEEN ? AND ?';
+        params.push(d1 <= d2 ? d1 : d2, d1 <= d2 ? d2 : d1);
+      } else if (month && year) {
+        const cycle = getSalaryCycleDates(Number(month), Number(year));
+        whereClause += ' AND a.advance_date BETWEEN ? AND ?';
+        params.push(cycle.startDate, cycle.endDate);
+      }
     }
 
     const rows = await query(
@@ -631,12 +633,13 @@ export async function addStaffAdvance(req: AuthRequest, res: Response): Promise<
 export async function updateStaffAdvance(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
   const { id } = req.params;
-  const { amount, advance_date, payment_mode, notes } = req.body;
+  const { staff_id, amount, advance_date, payment_mode, notes } = req.body;
 
   try {
     const sets: string[] = [];
     const vals: any[] = [];
 
+    if (staff_id !== undefined)     { sets.push('staff_id=?');     vals.push(staff_id); }
     if (amount !== undefined)       { sets.push('amount=?');       vals.push(Number(amount)); }
     if (advance_date !== undefined) { sets.push('advance_date=?'); vals.push(advance_date); }
     if (payment_mode !== undefined) { sets.push('payment_mode=?'); vals.push(payment_mode); }
