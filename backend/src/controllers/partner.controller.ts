@@ -33,17 +33,110 @@ export async function addCapitalPayment(req: AuthRequest, res: Response): Promis
       'INSERT INTO capital_payments (tenant_id,partner_id,amount,type,source,payment_date,mode,note) VALUES (?,?,?,?,?,?,?,?)',
       [tenantId, partner_id, amount, txType, source || null, date, mode || 'cash', note || null]
     );
-    // Keep paid_capital in sync for backward compat (investment only)
-    if (txType === 'investment') {
-      await query(
-        'UPDATE partners SET paid_capital = paid_capital + ? WHERE id = ? AND tenant_id = ?',
-        [amount, partner_id, tenantId]
-      );
-    }
+    // Keep paid_capital in sync (investment only)
+    await query(
+      `UPDATE partners p
+       SET paid_capital = (
+         SELECT COALESCE(SUM(cp.amount), 0)
+         FROM capital_payments cp
+         WHERE cp.partner_id = p.id AND cp.tenant_id = p.tenant_id AND cp.type = 'investment'
+       )
+       WHERE p.id = ? AND p.tenant_id = ?`,
+      [partner_id, tenantId]
+    );
     res.status(201).json({ id: result.insertId });
   } catch (err) {
     console.error('addCapitalPayment error:', err);
     res.status(500).json({ message: 'Server error' });
+  }
+}
+
+export async function updateCapitalPayment(req: AuthRequest, res: Response): Promise<void> {
+  const { tenantId } = req.user!;
+  const { id } = req.params;
+  const { partner_id, amount, type, source, payment_date, mode, note } = req.body;
+
+  if (!partner_id || !amount || Number(amount) <= 0) {
+    res.status(400).json({ message: 'Partner and valid amount are required' });
+    return;
+  }
+
+  const date = payment_date || new Date().toISOString().slice(0, 10);
+  const txType = type || 'investment';
+
+  try {
+    const existing = await query<any[]>(
+      'SELECT * FROM capital_payments WHERE id = ? AND tenant_id = ?',
+      [id, tenantId]
+    );
+    if (!existing.length) {
+      res.status(404).json({ message: 'Capital transaction not found' });
+      return;
+    }
+    const oldPartnerId = existing[0].partner_id;
+
+    await query(
+      `UPDATE capital_payments 
+       SET partner_id = ?, amount = ?, type = ?, source = ?, payment_date = ?, mode = ?, note = ?
+       WHERE id = ? AND tenant_id = ?`,
+      [partner_id, Number(amount), txType, source || null, date, mode || 'cash', note || null, id, tenantId]
+    );
+
+    // Keep paid_capital in sync for both old and new partner
+    const affectedPartnerIds = Array.from(new Set([oldPartnerId, Number(partner_id)]));
+    for (const pid of affectedPartnerIds) {
+      await query(
+        `UPDATE partners p
+         SET paid_capital = (
+           SELECT COALESCE(SUM(cp.amount), 0)
+           FROM capital_payments cp
+           WHERE cp.partner_id = p.id AND cp.tenant_id = p.tenant_id AND cp.type = 'investment'
+         )
+         WHERE p.id = ? AND p.tenant_id = ?`,
+        [pid, tenantId]
+      );
+    }
+
+    res.json({ message: 'Capital transaction updated successfully' });
+  } catch (error) {
+    console.error('updateCapitalPayment error:', error);
+    res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+export async function deleteCapitalPayment(req: AuthRequest, res: Response): Promise<void> {
+  const { tenantId } = req.user!;
+  const { id } = req.params;
+
+  try {
+    const existing = await query<any[]>(
+      'SELECT * FROM capital_payments WHERE id = ? AND tenant_id = ?',
+      [id, tenantId]
+    );
+    if (!existing.length) {
+      res.status(404).json({ message: 'Capital transaction not found' });
+      return;
+    }
+    const partnerId = existing[0].partner_id;
+
+    await query('DELETE FROM capital_payments WHERE id = ? AND tenant_id = ?', [id, tenantId]);
+
+    // Keep paid_capital in sync
+    await query(
+      `UPDATE partners p
+       SET paid_capital = (
+         SELECT COALESCE(SUM(cp.amount), 0)
+         FROM capital_payments cp
+         WHERE cp.partner_id = p.id AND cp.tenant_id = p.tenant_id AND cp.type = 'investment'
+       )
+       WHERE p.id = ? AND p.tenant_id = ?`,
+      [partnerId, tenantId]
+    );
+
+    res.json({ message: 'Capital transaction deleted successfully' });
+  } catch (error) {
+    console.error('deleteCapitalPayment error:', error);
+    res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
   }
 }
 

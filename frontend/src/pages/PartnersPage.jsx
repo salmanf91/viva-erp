@@ -35,6 +35,7 @@ export default function PartnersPage() {
   const [loading, setLoading]     = useState(true);
   const [showRem, setShowRem]     = useState(false);
   const [remForm, setRemForm]     = useState({ note: '', type: 'warning' });
+  const [editTx, setEditTx]       = useState(null);
 
   // ── Capital form state ──
   const emptyForm = () => ({
@@ -77,6 +78,38 @@ export default function PartnersPage() {
     if (activePid) {
       const r = await api.get(`/partners/${activePid}/ledger`);
       setLedger(prev => ({ ...prev, [activePid]: r.data }));
+    }
+  };
+
+  const updateTransaction = async (updatedData) => {
+    try {
+      await api.put(`/partners/payments/${updatedData.id}`, updatedData);
+      setEditTx(null);
+      await load();
+      if (activePid) {
+        const r = await api.get(`/partners/${activePid}/ledger`);
+        setLedger(prev => ({ ...prev, [activePid]: r.data }));
+      }
+      if (updatedData.partner_id !== activePid) {
+        const r2 = await api.get(`/partners/${updatedData.partner_id}/ledger`);
+        setLedger(prev => ({ ...prev, [updatedData.partner_id]: r2.data }));
+      }
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to update transaction');
+    }
+  };
+
+  const deleteTransaction = async (id) => {
+    if (!confirm('Are you sure you want to delete this capital transaction?')) return;
+    try {
+      await api.delete(`/partners/payments/${id}`);
+      await load();
+      if (activePid) {
+        const r = await api.get(`/partners/${activePid}/ledger`);
+        setLedger(prev => ({ ...prev, [activePid]: r.data }));
+      }
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to delete transaction');
     }
   };
 
@@ -321,6 +354,7 @@ export default function PartnersPage() {
                           <th style={{ textAlign: 'right', color: 'var(--green)' }}>Invested (+)</th>
                           <th style={{ textAlign: 'right', color: 'var(--red)' }}>Drawn (−)</th>
                           <th style={{ textAlign: 'right' }}>Balance</th>
+                          <th style={{ textAlign: 'center', width: 90 }}>Actions</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -345,6 +379,26 @@ export default function PartnersPage() {
                             <td style={{ textAlign: 'right', fontWeight: 800, fontSize: 13, color }}>
                               {fmt(r.balance)}
                             </td>
+                            <td style={{ textAlign: 'center' }}>
+                              <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
+                                <button
+                                  className="btn btn-ghost btn-sm"
+                                  style={{ padding: '2px 6px', fontSize: 11, color: 'var(--accent)' }}
+                                  onClick={() => setEditTx(r)}
+                                  title="Edit transaction"
+                                >
+                                  ✏️
+                                </button>
+                                <button
+                                  className="btn btn-ghost btn-sm"
+                                  style={{ padding: '2px 6px', fontSize: 11, color: 'var(--red)' }}
+                                  onClick={() => deleteTransaction(r.id)}
+                                  title="Delete transaction"
+                                >
+                                  🗑️
+                                </button>
+                              </div>
+                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -354,6 +408,7 @@ export default function PartnersPage() {
                           <td style={{ textAlign: 'right', color: 'var(--green)', fontSize: 13 }}>{fmt(p.total_invested)}</td>
                           <td style={{ textAlign: 'right', color: 'var(--red)', fontSize: 13 }}>−{fmt(p.total_drawn)}</td>
                           <td style={{ textAlign: 'right', color, fontSize: 14 }}>{fmt(p.net_capital)}</td>
+                          <td></td>
                         </tr>
                       </tfoot>
                     </table>
@@ -426,6 +481,145 @@ export default function PartnersPage() {
           </div>
         </div>
       )}
+
+      {/* Edit capital transaction modal */}
+      {editTx && (
+        <EditCapitalTransactionModal
+          tx={editTx}
+          partners={partners}
+          onClose={() => setEditTx(null)}
+          onSave={updateTransaction}
+        />
+      )}
     </>
+  );
+}
+
+function EditCapitalTransactionModal({ tx, partners, onClose, onSave }) {
+  const [form, setForm] = useState({
+    id: tx.id,
+    partner_id: tx.partner_id,
+    type: tx.type || 'investment',
+    source: tx.source || (tx.type === 'investment' ? 'own' : 'personal'),
+    amount: tx.amount,
+    mode: tx.mode || 'cash',
+    note: tx.note || '',
+    date: tx.payment_date ? tx.payment_date.slice(0, 10) : new Date().toISOString().slice(0, 10),
+  });
+  const [saving, setSaving] = useState(false);
+
+  const sources = form.type === 'investment' ? INV_SOURCES : DRW_SOURCES;
+
+  const handleSubmit = async (e) => {
+    e?.preventDefault();
+    if (!form.partner_id || !form.amount || Number(form.amount) <= 0) return;
+    setSaving(true);
+    await onSave({
+      id: form.id,
+      partner_id: +form.partner_id,
+      amount: +form.amount,
+      type: form.type,
+      source: form.source,
+      payment_date: form.date,
+      mode: form.mode,
+      note: form.note || null,
+    });
+    setSaving(false);
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 520 }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <h2 style={{ margin: 0 }}>✏️ Edit Capital Transaction</h2>
+          <button className="btn btn-ghost btn-sm" onClick={onClose} style={{ fontSize: 16, cursor: 'pointer' }}>✕</button>
+        </div>
+
+        {/* Type toggle */}
+        <div style={{ display: 'flex', gap: 0, marginBottom: 16, border: '1.5px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+          {[
+            { val: 'investment', label: '↑ Investment', color: 'var(--green)' },
+            { val: 'drawing',    label: '↓ Drawing',    color: 'var(--red)' },
+          ].map(t => (
+            <button
+              key={t.val}
+              type="button"
+              onClick={() => setForm(f => ({ ...f, type: t.val, source: t.val === 'investment' ? 'own' : 'personal' }))}
+              style={{
+                flex: 1, padding: '9px 0', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700,
+                background: form.type === t.val ? t.color : 'var(--white)',
+                color: form.type === t.val ? '#fff' : 'var(--muted)',
+                transition: 'all .15s',
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="field">
+              <label>Partner</label>
+              <select value={form.partner_id} onChange={e => setForm(f => ({ ...f, partner_id: e.target.value }))}>
+                {partners.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
+            <div className="field">
+              <label>Date</label>
+              <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
+            </div>
+            <div className="field">
+              <label>Amount (₹)</label>
+              <input type="number" step="any" placeholder="e.g. 15000" value={form.amount} onChange={e => setForm(f => ({ ...f, amount: e.target.value }))} required />
+            </div>
+            <div className="field">
+              <label>{form.type === 'investment' ? 'Source' : 'Reason'}</label>
+              <select value={form.source} onChange={e => setForm(f => ({ ...f, source: e.target.value }))}>
+                {sources.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
+            </div>
+            <div className="field">
+              <label>Mode</label>
+              <select value={form.mode} onChange={e => setForm(f => ({ ...f, mode: e.target.value }))}>
+                <option value="cash">Cash</option>
+                <option value="upi">UPI / NEFT</option>
+                <option value="cheque">Cheque</option>
+                <option value="bank_transfer">Bank Transfer</option>
+              </select>
+            </div>
+            <div className="field">
+              <label>Note <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(optional)</span></label>
+              <input placeholder="e.g. Adjusted note" value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} />
+            </div>
+          </div>
+
+          {form.partner_id && form.amount && (
+            <div className="calc-box mt12" style={{
+              borderColor: form.type === 'investment' ? '#86efac' : '#fca5a5',
+              background:  form.type === 'investment' ? '#f0fdf4'  : '#fef2f2',
+            }}>
+              <div className="calc-row">
+                <span className="cl">{partners.find(p => p.id === +form.partner_id)?.name}</span>
+                <span className="cv">{form.type === 'investment' ? '↑ Investment' : '↓ Drawing'}</span>
+              </div>
+              <div className="calc-row">
+                <span className="cl">{SOURCE_LABEL[form.source] || form.source}</span>
+                <span className="cv" style={{ color: form.type === 'investment' ? 'var(--green)' : 'var(--red)', fontWeight: 800 }}>
+                  {form.type === 'investment' ? '+' : '−'}{fmt(+form.amount)}
+                </span>
+              </div>
+            </div>
+          )}
+
+          <div className="modal-actions" style={{ marginTop: 16 }}>
+            <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancel</button>
+            <button type="submit" className="btn btn-primary" disabled={saving || !form.amount || Number(form.amount) <= 0}>
+              {saving ? 'Updating…' : 'Update Transaction'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }
