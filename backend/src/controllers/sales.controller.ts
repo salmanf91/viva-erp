@@ -613,10 +613,21 @@ export async function recordMultiInvoicePayment(req: AuthRequest, res: Response)
 export async function getReceiptDetails(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
   const { receiptNo } = req.params;
+  const isOrderType = req.query.type === 'order';
 
   try {
     let payments: any[] = [];
     const cleanKey = String(receiptNo || '').trim();
+    const isNumeric = /^\d+$/.test(cleanKey);
+
+    const paymentSelectQuery = `
+      SELECT p.*, o.invoice_number, o.order_date, o.amount_paid AS order_amount_paid, o.status AS order_status,
+             c.id AS client_id, c.name AS client_name, c.city AS client_city, c.phone AS client_phone, c.address AS client_address,
+             ((GREATEST(0, (SELECT COALESCE(SUM(i.quantity * i.rate_per_pc), 0) FROM sales_order_items i WHERE i.order_id = o.id) - o.discount)) * (1 + o.gst_percent / 100)) AS order_total
+      FROM sales_payments p
+      JOIN sales_orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
+      JOIN clients c ON c.id = o.client_id
+    `;
 
     // 0. Match composite key (client_date_receiptNo)
     if (cleanKey.includes('_')) {
@@ -626,12 +637,7 @@ export async function getReceiptDetails(req: AuthRequest, res: Response): Promis
         const pDate = parts[1];
         const rNo = parts.slice(2).join('_');
         payments = await query<any[]>(
-          `SELECT p.*, o.invoice_number, o.order_date, o.amount_paid AS order_amount_paid, o.status AS order_status,
-                  c.id AS client_id, c.name AS client_name, c.city AS client_city, c.phone AS client_phone, c.address AS client_address,
-                  ((GREATEST(0, (SELECT COALESCE(SUM(i.quantity * i.rate_per_pc), 0) FROM sales_order_items i WHERE i.order_id = o.id) - o.discount)) * (1 + o.gst_percent / 100)) AS order_total
-           FROM sales_payments p
-           JOIN sales_orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
-           JOIN clients c ON c.id = o.client_id
+          `${paymentSelectQuery}
            WHERE p.receipt_no = ? AND o.client_id = ? AND DATE(p.payment_date) = ? AND p.tenant_id = ?
            ORDER BY p.id ASC`,
           [rNo, cId, pDate, tenantId]
@@ -639,15 +645,21 @@ export async function getReceiptDetails(req: AuthRequest, res: Response): Promis
       }
     }
 
-    // 1. Direct match on receipt_no
-    if (!payments.length) {
+    // 1. Explicit payment ID: PAY-123 or PAY_123
+    if (!payments.length && /^PAY[-_](\d+)$/i.test(cleanKey)) {
+      const pId = Number(cleanKey.match(/^PAY[-_](\d+)$/i)![1]);
       payments = await query<any[]>(
-        `SELECT p.*, o.invoice_number, o.order_date, o.amount_paid AS order_amount_paid, o.status AS order_status,
-                c.id AS client_id, c.name AS client_name, c.city AS client_city, c.phone AS client_phone, c.address AS client_address,
-                ((GREATEST(0, (SELECT COALESCE(SUM(i.quantity * i.rate_per_pc), 0) FROM sales_order_items i WHERE i.order_id = o.id) - o.discount)) * (1 + o.gst_percent / 100)) AS order_total
-         FROM sales_payments p
-         JOIN sales_orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
-         JOIN clients c ON c.id = o.client_id
+        `${paymentSelectQuery}
+         WHERE p.id = ? AND p.tenant_id = ?
+         ORDER BY p.id ASC`,
+        [pId, tenantId]
+      );
+    }
+
+    // 2. Direct match on receipt_no (e.g. RCP-2026-0001, RCP-12, or custom receipt_no)
+    if (!payments.length && !isOrderType) {
+      payments = await query<any[]>(
+        `${paymentSelectQuery}
          WHERE p.receipt_no = ? AND p.tenant_id = ?
          ORDER BY p.id ASC`,
         [cleanKey, tenantId]
@@ -661,59 +673,65 @@ export async function getReceiptDetails(req: AuthRequest, res: Response): Promis
       }
     }
 
-    // 2. Direct match by payment ID (e.g. PAY-12, RCP-12, or pure number 12)
-    if (!payments.length) {
-      const numMatch = cleanKey.match(/^(?:PAY-|RCP-)?(\d+)$/i);
-      if (numMatch) {
-        payments = await query<any[]>(
-          `SELECT p.*, o.invoice_number, o.order_date, o.amount_paid AS order_amount_paid, o.status AS order_status,
-                  c.id AS client_id, c.name AS client_name, c.city AS client_city, c.phone AS client_phone, c.address AS client_address,
-                  ((GREATEST(0, (SELECT COALESCE(SUM(i.quantity * i.rate_per_pc), 0) FROM sales_order_items i WHERE i.order_id = o.id) - o.discount)) * (1 + o.gst_percent / 100)) AS order_total
-           FROM sales_payments p
-           JOIN sales_orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
-           JOIN clients c ON c.id = o.client_id
-           WHERE p.id = ? AND p.tenant_id = ?`,
-          [Number(numMatch[1]), tenantId]
+    // 3. Match by Order ID (numeric string or explicit ?type=order)
+    if (!payments.length && (isNumeric || isOrderType)) {
+      const orderId = Number(cleanKey);
+      if (!isNaN(orderId)) {
+        const orderPayments = await query<any[]>(
+          `${paymentSelectQuery}
+           WHERE p.order_id = ? AND p.tenant_id = ?
+           ORDER BY p.id ASC`,
+          [orderId, tenantId]
         );
+
+        if (orderPayments.length > 0) {
+          const firstPay = orderPayments[0];
+          // If this payment was part of a receipt with a receipt_no, expand to all payments in that receipt for this client
+          if (firstPay.receipt_no && String(firstPay.receipt_no).trim()) {
+            payments = await query<any[]>(
+              `${paymentSelectQuery}
+               WHERE p.receipt_no = ? AND o.client_id = ? AND p.tenant_id = ?
+               ORDER BY p.id ASC`,
+              [firstPay.receipt_no, firstPay.client_id, tenantId]
+            );
+          }
+          if (!payments.length) {
+            payments = orderPayments;
+          }
+        }
       }
     }
 
-    // 3. Fallback: match by invoice number
+    // 4. Fallback: match by invoice number
     if (!payments.length) {
       const possibleInv = cleanKey.replace(/^RCP-/, '');
-      payments = await query<any[]>(
-        `SELECT p.*, o.invoice_number, o.order_date, o.amount_paid AS order_amount_paid, o.status AS order_status,
-                c.id AS client_id, c.name AS client_name, c.city AS client_city, c.phone AS client_phone, c.address AS client_address,
-                ((GREATEST(0, (SELECT COALESCE(SUM(i.quantity * i.rate_per_pc), 0) FROM sales_order_items i WHERE i.order_id = o.id) - o.discount)) * (1 + o.gst_percent / 100)) AS order_total
-         FROM sales_payments p
-         JOIN sales_orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
-         JOIN clients c ON c.id = o.client_id
+      const invPayments = await query<any[]>(
+        `${paymentSelectQuery}
          WHERE (o.invoice_number = ? OR o.invoice_number = ?) AND p.tenant_id = ?
          ORDER BY p.id ASC`,
         [cleanKey, possibleInv, tenantId]
       );
+
+      if (invPayments.length > 0) {
+        const firstPay = invPayments[0];
+        if (firstPay.receipt_no && String(firstPay.receipt_no).trim()) {
+          payments = await query<any[]>(
+            `${paymentSelectQuery}
+             WHERE p.receipt_no = ? AND o.client_id = ? AND p.tenant_id = ?
+             ORDER BY p.id ASC`,
+            [firstPay.receipt_no, firstPay.client_id, tenantId]
+          );
+        }
+        if (!payments.length) {
+          payments = invPayments;
+        }
+      }
     }
 
-    // 3. If still not found and cleanKey is a numeric order ID
-    if (!payments.length && /^\d+$/.test(cleanKey)) {
-      const numId = Number(cleanKey);
-      payments = await query<any[]>(
-        `SELECT p.*, o.invoice_number, o.order_date, o.amount_paid AS order_amount_paid, o.status AS order_status,
-                c.id AS client_id, c.name AS client_name, c.city AS client_city, c.phone AS client_phone, c.address AS client_address,
-                ((GREATEST(0, (SELECT COALESCE(SUM(i.quantity * i.rate_per_pc), 0) FROM sales_order_items i WHERE i.order_id = o.id) - o.discount)) * (1 + o.gst_percent / 100)) AS order_total
-         FROM sales_payments p
-         JOIN sales_orders o ON o.id = p.order_id AND o.tenant_id = p.tenant_id
-         JOIN clients c ON c.id = o.client_id
-         WHERE p.order_id = ? AND p.tenant_id = ?
-         ORDER BY p.id ASC`,
-        [numId, tenantId]
-      );
-    }
-
-    // 4. If still no payments found, check if it's an existing sales_order (e.g. legacy order with amount_paid)
+    // 5. If still no payments found, check if it's an existing sales_order (e.g. legacy order with amount_paid)
     if (!payments.length) {
       let orderRows: any[] = [];
-      if (/^\d+$/.test(cleanKey)) {
+      if (isNumeric) {
         orderRows = await query<any[]>(
           `SELECT o.*, c.id AS client_id, c.name AS client_name, c.city AS client_city, c.phone AS client_phone, c.address AS client_address,
                   ((GREATEST(0, (SELECT COALESCE(SUM(i.quantity * i.rate_per_pc), 0) FROM sales_order_items i WHERE i.order_id = o.id) - o.discount)) * (1 + o.gst_percent / 100)) AS order_total
@@ -734,61 +752,73 @@ export async function getReceiptDetails(req: AuthRequest, res: Response): Promis
         );
       }
 
-      if (!orderRows.length) {
-        res.status(404).json({ message: 'Receipt not found' });
+      if (orderRows.length > 0) {
+        const ord = orderRows[0];
+        const ordTotal = Number(ord.order_total || 0);
+        const ordPaid = Number(ord.amount_paid || 0);
+
+        // Other outstanding invoices for this client
+        const otherOutstanding = await query<any[]>(
+          `SELECT o.id, o.invoice_number, o.order_date, o.status, o.amount_paid,
+                  ((GREATEST(0, (SELECT COALESCE(SUM(i.quantity * i.rate_per_pc), 0) FROM sales_order_items i WHERE i.order_id = o.id) - o.discount)) * (1 + o.gst_percent / 100)) AS total
+           FROM sales_orders o
+           WHERE o.tenant_id = ? AND o.client_id = ? AND o.id != ? AND o.status IN ('pending', 'partial')
+           ORDER BY o.order_date ASC`,
+          [tenantId, ord.client_id, ord.id]
+        );
+
+        const clientTotalOutstanding = otherOutstanding.reduce(
+          (s, o) => s + Math.max(0, Number(o.total || 0) - Number(o.amount_paid || 0)),
+          Math.max(0, ordTotal - ordPaid)
+        );
+
+        res.json({
+          receipt_no: `RCP-${ord.invoice_number || ord.id}`,
+          payment_date: ord.order_date,
+          payment_mode: 'cash',
+          notes: ord.notes || '',
+          client: {
+            id: ord.client_id,
+            name: ord.client_name,
+            city: ord.client_city,
+            phone: ord.client_phone,
+            address: ord.client_address,
+          },
+          total_amount: ordPaid,
+          allocations: [{
+            order_id: ord.id,
+            invoice_number: ord.invoice_number,
+            order_date: ord.order_date,
+            amount_paid_in_receipt: ordPaid,
+            order_total: ordTotal,
+            order_amount_paid: ordPaid,
+            balance_remaining: Math.max(0, ordTotal - ordPaid),
+            status: ord.status,
+          }],
+          client_total_outstanding: clientTotalOutstanding,
+          other_outstanding: otherOutstanding.map(o => ({
+            ...o,
+            total: Number(o.total || 0),
+            amount_paid: Number(o.amount_paid || 0),
+            balance: Math.max(0, Number(o.total || 0) - Number(o.amount_paid || 0)),
+          })),
+        });
         return;
       }
+    }
 
-      const ord = orderRows[0];
-      const ordTotal = Number(ord.order_total || 0);
-      const ordPaid = Number(ord.amount_paid || 0);
-
-      // Other outstanding invoices for this client
-      const otherOutstanding = await query<any[]>(
-        `SELECT o.id, o.invoice_number, o.order_date, o.status, o.amount_paid,
-                ((GREATEST(0, (SELECT COALESCE(SUM(i.quantity * i.rate_per_pc), 0) FROM sales_order_items i WHERE i.order_id = o.id) - o.discount)) * (1 + o.gst_percent / 100)) AS total
-         FROM sales_orders o
-         WHERE o.tenant_id = ? AND o.client_id = ? AND o.id != ? AND o.status IN ('pending', 'partial')
-         ORDER BY o.order_date ASC`,
-        [tenantId, ord.client_id, ord.id]
+    // 6. Last-resort fallback for pure numeric payment ID if no order or receipt matched
+    if (!payments.length && isNumeric) {
+      payments = await query<any[]>(
+        `${paymentSelectQuery}
+         WHERE p.id = ? AND p.tenant_id = ?
+         ORDER BY p.id ASC`,
+        [Number(cleanKey), tenantId]
       );
+    }
 
-      const clientTotalOutstanding = otherOutstanding.reduce(
-        (s, o) => s + Math.max(0, Number(o.total || 0) - Number(o.amount_paid || 0)),
-        Math.max(0, ordTotal - ordPaid)
-      );
-
-      res.json({
-        receipt_no: `RCP-${ord.invoice_number || ord.id}`,
-        payment_date: ord.order_date,
-        payment_mode: 'cash',
-        notes: ord.notes || '',
-        client: {
-          id: ord.client_id,
-          name: ord.client_name,
-          city: ord.client_city,
-          phone: ord.client_phone,
-          address: ord.client_address,
-        },
-        total_amount: ordPaid,
-        allocations: [{
-          order_id: ord.id,
-          invoice_number: ord.invoice_number,
-          order_date: ord.order_date,
-          amount_paid_in_receipt: ordPaid,
-          order_total: ordTotal,
-          order_amount_paid: ordPaid,
-          balance_remaining: Math.max(0, ordTotal - ordPaid),
-          status: ord.status,
-        }],
-        client_total_outstanding: clientTotalOutstanding,
-        other_outstanding: otherOutstanding.map(o => ({
-          ...o,
-          total: Number(o.total || 0),
-          amount_paid: Number(o.amount_paid || 0),
-          balance: Math.max(0, Number(o.total || 0) - Number(o.amount_paid || 0)),
-        })),
-      });
+    if (!payments.length) {
+      res.status(404).json({ message: 'Receipt not found' });
       return;
     }
 
