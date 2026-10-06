@@ -931,7 +931,8 @@ function PaymentReceiptModal({ receiptKey, orderId, onClose }) {
 
   useEffect(() => {
     if (!targetKey) return;
-    api.get(`/sales/receipts/${targetKey}`)
+    const url = (orderId && !receiptKey) ? `/sales/receipts/${orderId}?type=order` : `/sales/receipts/${targetKey}`;
+    api.get(url)
       .then(r => setReceipt(r.data))
       .catch(async () => {
         // Fallback for legacy order

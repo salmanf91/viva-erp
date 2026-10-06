@@ -112,7 +112,7 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
                WHEN pb.category = '' OR pb.category IS NULL OR LOWER(pb.category) = 'mixed' THEN 'Mixed Fabric'
                ELSE TRIM(pb.category)
              END) COLLATE utf8mb4_unicode_ci AS category,
-             COALESCE(pb.quantity, 0) AS qty
+             COALESCE(NULLIF(pb.raw_quantity_used, 0), pb.quantity, 0) AS qty
            FROM production_batches pb
            WHERE (pb.tenant_id = ? OR pb.tenant_id IS NULL)
              AND (LOWER(COALESCE(pb.status, 'active')) NOT IN ('finished', 'completed', 'delivered'))
