@@ -255,6 +255,25 @@ export async function ensureTenantSchema(pool: mysql.Pool, _dbName?: string): Pr
       INDEX idx_tenant_staff_adv (tenant_id, staff_id),
       INDEX idx_tenant_adv_date (tenant_id, advance_date)
     )`,
+    `CREATE TABLE IF NOT EXISTS product_showcase (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      tenant_id INT NOT NULL DEFAULT 1,
+      name VARCHAR(255) NOT NULL,
+      item_code VARCHAR(100) NULL,
+      category VARCHAR(100) NULL,
+      description TEXT NULL,
+      image_url LONGTEXT NULL,
+      product_cost DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      expense DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      wholesale_rate DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      retail_vendor_rate DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      retail_customer_rate DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      uom VARCHAR(50) DEFAULT 'pcs',
+      is_active BOOLEAN DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_tenant_showcase (tenant_id, is_active)
+    )`,
   ];
 
   for (const sql of coreTables) {
@@ -272,6 +291,7 @@ export async function ensureTenantSchema(pool: mysql.Pool, _dbName?: string): Pr
     { table: 'vendors', column: 'is_active', def: 'BOOLEAN DEFAULT TRUE' },
     { table: 'vendors', column: 'vat_number', def: 'VARCHAR(50) DEFAULT NULL' },
     { table: 'sales_orders', column: 'tenant_id', def: 'INT NOT NULL DEFAULT 1' },
+    { table: 'sales_orders', column: 'terms_conditions', def: 'TEXT NULL' },
     { table: 'sales_order_items', column: 'tenant_id', def: 'INT NOT NULL DEFAULT 1' },
     { table: 'sales_payments', column: 'tenant_id', def: 'INT NOT NULL DEFAULT 1' },
     { table: 'sales_payments', column: 'payment_mode', def: "VARCHAR(50) NOT NULL DEFAULT 'cash'" },

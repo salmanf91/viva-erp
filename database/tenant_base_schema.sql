@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS sales_orders (
   gst_percent DECIMAL(5,2) DEFAULT 0.00,
   discount_percent DECIMAL(5,2) DEFAULT 0.00,
   discount DECIMAL(10,2) DEFAULT 0.00,
+  terms_conditions TEXT,
   status ENUM('paid','pending','partial') DEFAULT 'pending',
   amount_paid DECIMAL(12,2) DEFAULT 0.00,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -259,3 +260,24 @@ CREATE TABLE IF NOT EXISTS stock_movements (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (vendor_id) REFERENCES vendors(id) ON DELETE SET NULL
 );
+
+CREATE TABLE IF NOT EXISTS product_showcase (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id INT NOT NULL DEFAULT 1,
+  name VARCHAR(255) NOT NULL,
+  item_code VARCHAR(100) NULL,
+  category VARCHAR(100) NULL,
+  description TEXT NULL,
+  image_url LONGTEXT NULL,
+  product_cost DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  expense DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  wholesale_rate DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  retail_vendor_rate DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  retail_customer_rate DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+  uom VARCHAR(50) DEFAULT 'pcs',
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_tenant_showcase (tenant_id, is_active)
+);
+

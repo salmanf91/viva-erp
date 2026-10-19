@@ -21,6 +21,7 @@ import itemRoutes       from './routes/item.routes';
 import rawMaterialRoutes from './routes/rawMaterial.routes';
 import quotationRoutes  from './routes/quotation.routes';
 import deliveryNoteRoutes from './routes/deliveryNote.routes';
+import catalogRoutes     from './routes/catalog.routes';
 
 dotenv.config();
 
@@ -35,6 +36,7 @@ app.use('/api', apiLimiter);
 
 app.use('/api/auth',           authRoutes);
 app.use('/api/tenants',        tenantRoutes);
+app.use('/api/catalog',        catalogRoutes);
 app.use('/api/items',          itemRoutes);
 app.use('/api/raw-materials',  rawMaterialRoutes);
 app.use('/api/quotations',     quotationRoutes);

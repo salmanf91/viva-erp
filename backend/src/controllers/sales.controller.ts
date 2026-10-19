@@ -2,6 +2,12 @@ import { Response } from 'express';
 import { query } from '../config/db';
 import { AuthRequest } from '../middleware/auth';
 
+export const DEFAULT_INVOICE_TERMS = `1. Payment Terms: Payment must be cleared within 15 days from the date of invoice.
+2. Delayed Interest: Interest @ 18% per annum will be charged on overdue payments after 15 days.
+3. Goods & Returns: Goods once sold will not be accepted back or exchanged, except in case of genuine manufacturing defects reported within 48 hours of receipt.
+4. Inspection: The buyer must inspect the goods upon delivery. Any transit damage or piece shortage must be notified within 2 days with proper photographic proof.
+5. Jurisdiction: All disputes, claims, or legal matters are subject to local jurisdiction only.`;
+
 // ── Clients ──────────────────────────────────────────────────────────────────
 
 export async function getClients(req: AuthRequest, res: Response): Promise<void> {
@@ -224,10 +230,14 @@ export async function createOrder(req: AuthRequest, res: Response): Promise<void
     const initialStatus = initialPaid >= total && total > 0 ? 'paid' : (initialPaid > 0 ? 'partial' : 'pending');
     const paymentMode = (req.body.payment_mode || 'cash').trim();
 
+    const termsConditions = (req.body.terms_conditions !== undefined && req.body.terms_conditions !== null && String(req.body.terms_conditions).trim() !== '')
+      ? String(req.body.terms_conditions).trim()
+      : DEFAULT_INVOICE_TERMS;
+
     const r = await query<any>(
-      `INSERT INTO sales_orders (tenant_id, client_id, invoice_number, order_date, notes, include_gst, gst_percent, discount_percent, discount, amount_paid, status, paid_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-      [tenantId, client_id, invoiceNumber, order_date, notes || null,
+      `INSERT INTO sales_orders (tenant_id, client_id, invoice_number, order_date, notes, terms_conditions, include_gst, gst_percent, discount_percent, discount, amount_paid, status, paid_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [tenantId, client_id, invoiceNumber, order_date, notes || null, termsConditions,
        include_gst ? 1 : 0, include_gst ? (gst_percent || 0) : 0, discountPct, discountAmt, initialPaid, initialStatus, initialStatus === 'paid' ? new Date() : null]
     );
     const orderId = r.insertId;
@@ -272,7 +282,7 @@ export async function createOrder(req: AuthRequest, res: Response): Promise<void
 export async function updateOrder(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
   const { id } = req.params;
-  const { client_id, order_date, items, notes, include_gst, gst_percent, discount, discount_percent } = req.body;
+  const { client_id, order_date, items, notes, terms_conditions, include_gst, gst_percent, discount, discount_percent } = req.body;
 
   if (!client_id || !order_date || !Array.isArray(items) || items.length === 0) {
     res.status(400).json({ message: 'client_id, order_date and items required' }); return;
@@ -288,6 +298,15 @@ export async function updateOrder(req: AuthRequest, res: Response): Promise<void
 
     const taxable = Math.max(0, subtotal - discountAmt);
     const total = taxable * (1 + (include_gst ? (Number(gst_percent) || 0) / 100 : 0));
+    
+    // Preserve existing terms_conditions if not explicitly sent in req.body
+    let finalTerms: string | null = null;
+    if (terms_conditions !== undefined) {
+      finalTerms = terms_conditions;
+    } else {
+      const existingRows = await query<any[]>('SELECT terms_conditions FROM sales_orders WHERE id=? AND tenant_id=?', [id, tenantId]);
+      finalTerms = existingRows?.[0]?.terms_conditions || null;
+    }
 
     // Handle amount_paid if supplied
     if (req.body.amount_paid !== undefined) {
@@ -297,9 +316,9 @@ export async function updateOrder(req: AuthRequest, res: Response): Promise<void
 
       await query(
         `UPDATE sales_orders 
-         SET client_id=?, order_date=?, notes=?, include_gst=?, gst_percent=?, discount_percent=?, discount=?, amount_paid=?, status=?, paid_at=?
+         SET client_id=?, order_date=?, notes=?, terms_conditions=?, include_gst=?, gst_percent=?, discount_percent=?, discount=?, amount_paid=?, status=?, paid_at=?
          WHERE id=? AND tenant_id=?`,
-        [client_id, order_date, notes || null, include_gst ? 1 : 0, include_gst ? (gst_percent || 0) : 0, discountPct, discountAmt, newAmountPaid, newStatus, paidAt, id, tenantId]
+        [client_id, order_date, notes || null, finalTerms, include_gst ? 1 : 0, include_gst ? (gst_percent || 0) : 0, discountPct, discountAmt, newAmountPaid, newStatus, paidAt, id, tenantId]
       );
 
       // Sync sales_payments table
@@ -321,9 +340,9 @@ export async function updateOrder(req: AuthRequest, res: Response): Promise<void
     } else {
       await query(
         `UPDATE sales_orders 
-         SET client_id=?, order_date=?, notes=?, include_gst=?, gst_percent=?, discount_percent=?, discount=?
+         SET client_id=?, order_date=?, notes=?, terms_conditions=?, include_gst=?, gst_percent=?, discount_percent=?, discount=?
          WHERE id=? AND tenant_id=?`,
-        [client_id, order_date, notes || null, include_gst ? 1 : 0, include_gst ? (gst_percent || 0) : 0, discountPct, discountAmt, id, tenantId]
+        [client_id, order_date, notes || null, finalTerms, include_gst ? 1 : 0, include_gst ? (gst_percent || 0) : 0, discountPct, discountAmt, id, tenantId]
       );
     }
 

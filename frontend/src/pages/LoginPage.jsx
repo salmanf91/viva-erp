@@ -134,6 +134,73 @@ export default function LoginPage() {
         </form>
 
         <div className="divider" style={{ marginTop: 20 }} />
+
+        {/* Public Catalogs & Rate Lists for Vendors & Customers */}
+        <div style={{ marginTop: 14, marginBottom: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--muted)', marginBottom: 8, textAlign: 'center' }}>
+            🌟 Explore Product Catalogs &amp; Rates
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <Link
+              to={`/catalog/wholesale${tenantId ? `?tenant=${tenantId}` : ''}`}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '8px 12px', borderRadius: 8, background: '#f0f9ff',
+                border: '1.5px solid #bae6fd', color: '#0369a1', textDecoration: 'none',
+                transition: 'all 0.15s'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                <span style={{ fontSize: 16 }}>🏢</span>
+                <div style={{ textAlign: 'left' }}>
+                  <div style={{ fontWeight: 700, fontSize: 12, color: '#0369a1' }}>Wholesale Vendor Catalog</div>
+                  <div style={{ fontSize: 10, color: '#0284c7' }}>Exclusive bulk supply rates</div>
+                </div>
+              </div>
+              <span style={{ fontSize: 13, color: '#0284c7' }}>➔</span>
+            </Link>
+
+            <Link
+              to={`/catalog/retail-vendor${tenantId ? `?tenant=${tenantId}` : ''}`}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '8px 12px', borderRadius: 8, background: '#f5f3ff',
+                border: '1.5px solid #ddd6fe', color: '#4338ca', textDecoration: 'none',
+                transition: 'all 0.15s'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                <span style={{ fontSize: 16 }}>🏪</span>
+                <div style={{ textAlign: 'left' }}>
+                  <div style={{ fontWeight: 700, fontSize: 12, color: '#4338ca' }}>Retail Vendor Catalog</div>
+                  <div style={{ fontSize: 10, color: '#6366f1' }}>Commercial dealer &amp; shop rates</div>
+                </div>
+              </div>
+              <span style={{ fontSize: 13, color: '#6366f1' }}>➔</span>
+            </Link>
+
+            <Link
+              to={`/catalog/retail-customer${tenantId ? `?tenant=${tenantId}` : ''}`}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '8px 12px', borderRadius: 8, background: '#fffbeb',
+                border: '1.5px solid #fde68a', color: '#b45309', textDecoration: 'none',
+                transition: 'all 0.15s'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
+                <span style={{ fontSize: 16 }}>🛍️</span>
+                <div style={{ textAlign: 'left' }}>
+                  <div style={{ fontWeight: 700, fontSize: 12, color: '#b45309' }}>Retail Customer / Online</div>
+                  <div style={{ fontSize: 10, color: '#d97706' }}>Seasonal designs &amp; consumer pricing</div>
+                </div>
+              </div>
+              <span style={{ fontSize: 13, color: '#d97706' }}>➔</span>
+            </Link>
+          </div>
+        </div>
+
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: 'var(--muted)' }}>
           <Link to="/super-admin/login" style={{ color: 'var(--muted)', textDecoration: 'none' }}>
             🛡️ Platform Super Admin
