@@ -298,7 +298,15 @@ export async function updateOrder(req: AuthRequest, res: Response): Promise<void
 
     const taxable = Math.max(0, subtotal - discountAmt);
     const total = taxable * (1 + (include_gst ? (Number(gst_percent) || 0) / 100 : 0));
-    const finalTerms = terms_conditions !== undefined ? terms_conditions : null;
+    
+    // Preserve existing terms_conditions if not explicitly sent in req.body
+    let finalTerms: string | null = null;
+    if (terms_conditions !== undefined) {
+      finalTerms = terms_conditions;
+    } else {
+      const existingRows = await query<any[]>('SELECT terms_conditions FROM sales_orders WHERE id=? AND tenant_id=?', [id, tenantId]);
+      finalTerms = existingRows?.[0]?.terms_conditions || null;
+    }
 
     // Handle amount_paid if supplied
     if (req.body.amount_paid !== undefined) {
