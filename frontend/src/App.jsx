@@ -23,9 +23,12 @@ import PlatformTenantsPage from './pages/PlatformTenantsPage';
 import ItemsPage      from './pages/ItemsPage';
 import QuotationsPage  from './pages/QuotationsPage';
 import DeliveryNotesPage from './pages/DeliveryNotesPage';
+import CatalogAdminPage from './pages/CatalogAdminPage';
+import PublicCatalogPage from './pages/PublicCatalogPage';
 
 const TITLES = {
   '/':           'Dashboard',
+  '/catalog-pricing': 'Product Catalog & Rates',
   '/items':      'Products & Services Master',
   '/reports':    'Reports & Analytics',
   '/personal-accounts': 'Partner Personal Accounts',
@@ -77,8 +80,13 @@ export default function App() {
           <Route path="/onboard" element={<OnboardPage />} />
           <Route path="/register" element={<OnboardPage />} />
 
+          {/* Public Product Catalog Showcase (no login required) */}
+          <Route path="/catalog/:type" element={<PublicCatalogPage />} />
+          <Route path="/catalog/:tenantSlug/:type" element={<PublicCatalogPage />} />
+
           {/* Owner / partner / manager / admin routes */}
           <Route path="/"           element={<Guard path="/"><DashboardPage /></Guard>} />
+          <Route path="/catalog-pricing" element={<Guard path="/catalog-pricing"><CatalogAdminPage /></Guard>} />
           <Route path="/items"      element={<Guard path="/items"><ItemsPage /></Guard>} />
           <Route path="/products"   element={<Guard path="/items"><ItemsPage /></Guard>} />
           <Route path="/reports"    element={<Guard path="/reports"><ReportsPage /></Guard>} />

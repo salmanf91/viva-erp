@@ -54,6 +54,7 @@ function getNavItems(user) {
 
   // Catalog & Inventory
   const inventoryItems = [];
+  inventoryItems.push({ to: '/catalog-pricing', label: 'Catalog & Rates', icon: '🏷️' });
   inventoryItems.push({ to: '/items', label: 'Items & Products', icon: '📦' });
   if (m.feature_purchases) inventoryItems.push({ to: '/purchases', label: 'Purchases', icon: '🛒' });
   if (m.feature_inventory_stock) inventoryItems.push({ to: '/stock', label: 'Stock', icon: '🏭' });

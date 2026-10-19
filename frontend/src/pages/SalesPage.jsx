@@ -14,6 +14,12 @@ const fmt   = n => '₹' + Number(n || 0).toLocaleString('en-IN', { minimumFract
 const fmtD  = s => new Date(s + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 const today = () => new Date().toISOString().slice(0, 10);
 
+export const DEFAULT_INVOICE_TERMS = `1. Payment Terms: Payment must be cleared within 15 days from the date of invoice.
+2. Delayed Interest: Interest @ 18% per annum will be charged on overdue payments after 15 days.
+3. Goods & Returns: Goods once sold will not be accepted back or exchanged, except in case of genuine manufacturing defects reported within 48 hours of receipt.
+4. Inspection: The buyer must inspect the goods upon delivery. Any transit damage or piece shortage must be notified within 2 days with proper photographic proof.
+5. Jurisdiction: All disputes, claims, or legal matters are subject to local jurisdiction only.`;
+
 export default function SalesPage() {
   const [tab, setTab] = useState('orders');
   const [refresh, setRefresh] = useState(0);
@@ -391,6 +397,10 @@ function NewOrderModal({ order, onClose, onSaved }) {
 
   const [date, setDate]         = useState(order ? order.order_date : today());
   const [notes, setNotes]       = useState(order ? (order.notes || '') : '');
+  const [termsConditions, setTermsConditions] = useState(
+    order ? (order.terms_conditions !== undefined && order.terms_conditions !== null ? order.terms_conditions : DEFAULT_INVOICE_TERMS) : DEFAULT_INVOICE_TERMS
+  );
+  const [showTerms, setShowTerms] = useState(false);
   const [discountAmount, setDiscountAmount] = useState(order ? String(Number(order.discount || 0) || '') : '');
   const [includeGst, setIncludeGst] = useState(order ? !!order.include_gst : false);
   const [gstPct, setGstPct]     = useState(order ? String(Number(order.gst_percent)) : '5');
@@ -462,6 +472,7 @@ function NewOrderModal({ order, onClose, onSaved }) {
     try {
       const payload = {
         client_id: +clientId, order_date: date, notes,
+        terms_conditions: termsConditions,
         include_gst: includeGst, gst_percent: includeGst ? +gstPct : 0,
         discount: discountAmt,
         amount_paid: parseFloat(amountReceived) || 0,
@@ -529,6 +540,44 @@ function NewOrderModal({ order, onClose, onSaved }) {
             <label>Notes (optional)</label>
             <input placeholder="e.g. via courier, partial delivery…" value={notes} onChange={e => setNotes(e.target.value)} />
           </div>
+        </div>
+
+        {/* Terms & Conditions Box */}
+        <div style={{ marginTop: 10, border: '1px solid var(--border)', borderRadius: 8, padding: '9px 12px', background: 'var(--surface)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div
+              style={{ fontSize: 12, fontWeight: 700, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}
+              onClick={() => setShowTerms(s => !s)}
+            >
+              <span>📜 Terms &amp; Conditions (Printed on Invoice)</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent)' }}>
+                {showTerms ? '▲ Hide' : '▼ Customize (15-day gap & standard terms)'}
+              </span>
+            </div>
+            {showTerms && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                style={{ fontSize: 10, padding: '2px 6px' }}
+                onClick={() => setTermsConditions(DEFAULT_INVOICE_TERMS)}
+              >
+                ↺ Reset Default
+              </button>
+            )}
+          </div>
+          {showTerms && (
+            <textarea
+              rows={4}
+              value={termsConditions}
+              onChange={e => setTermsConditions(e.target.value)}
+              placeholder="Enter invoice terms & conditions..."
+              style={{
+                width: '100%', marginTop: 8, padding: '8px 10px', borderRadius: 6,
+                border: '1.5px solid var(--border)', fontSize: 12, fontFamily: 'inherit',
+                resize: 'vertical', lineHeight: 1.5
+              }}
+            />
+          )}
         </div>
 
         {/* Items */}
@@ -1256,6 +1305,11 @@ function InvoiceModal({ order, onClose }) {
         .notes { margin: 16px 40px 0; padding: 12px 16px; background: #fdfaf4; border-left: 3px solid #C8860A; border-radius: 0 6px 6px 0; font-size: 12px; color: #555; }
         .notes b { color: #1a1a1a; }
 
+        /* Terms & Conditions */
+        .inv-terms { margin: 16px 40px 0; padding: 12px 16px; background: #fdfaf4; border: 1px solid #f0e8d0; border-left: 3px solid #C8860A; border-radius: 0 4px 4px 0; font-size: 11px; color: #444; }
+        .inv-terms-title { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: #C8860A; margin-bottom: 5px; }
+        .inv-terms-body { line-height: 1.55; white-space: pre-line; color: #333; }
+
         /* Footer */
         .inv-footer { margin: 28px 40px 0; padding: 16px 0 32px; border-top: 1px solid #f0e8d0; display: flex; justify-content: space-between; align-items: center; }
         .footer-msg { font-size: 12px; color: #aaa; font-style: italic; }
@@ -1397,6 +1451,16 @@ function InvoiceModal({ order, onClose }) {
               <b style={{ color: '#1a1a1a' }}>Notes:</b> {order.notes}
             </div>
           )}
+
+          {/* Terms & Conditions */}
+          <div className="inv-terms" style={{ margin: '18px 36px 0', padding: '12px 16px', background: '#fdfaf4', border: '1px solid #f0e8d0', borderLeft: '3px solid #C8860A', borderRadius: '0 6px 6px 0' }}>
+            <div className="inv-terms-title" style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.08em', color: '#C8860A', marginBottom: 5 }}>
+              Terms &amp; Conditions:
+            </div>
+            <div className="inv-terms-body" style={{ fontSize: 11, color: '#444', lineHeight: 1.55, whiteSpace: 'pre-line' }}>
+              {order.terms_conditions || DEFAULT_INVOICE_TERMS}
+            </div>
+          </div>
 
           {/* Footer */}
           <div style={{ margin: '24px 36px 0', padding: '14px 0 28px', borderTop: '1px solid #f0e8d0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

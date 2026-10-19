@@ -63,6 +63,19 @@ export async function initDb(): Promise<void> {
       console.log('Added column discount to sales_orders');
     }
 
+    // Check & add terms_conditions column in sales_orders
+    try {
+      const [tcCols] = await defaultPool.query<any[]>(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'sales_orders' AND COLUMN_NAME = 'terms_conditions'`,
+        [dbName]
+      );
+      if (!tcCols || tcCols.length === 0) {
+        await defaultPool.query('ALTER TABLE sales_orders ADD COLUMN terms_conditions TEXT NULL AFTER notes');
+        console.log('Added column terms_conditions to sales_orders');
+      }
+    } catch {}
+
     // 2. Ensure staff_work_entries has size, completion_date, and batch_id columns
     const [sweCols] = await defaultPool.query<any[]>(
       `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
@@ -278,6 +291,33 @@ export async function initDb(): Promise<void> {
       await defaultPool.query('ALTER TABLE stock_movements CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
       await defaultPool.query('ALTER TABLE production_batches CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
     } catch {}
+
+    // Ensure product_showcase table exists for multi-tier pricing and digital catalog
+    try {
+      await defaultPool.query(`
+        CREATE TABLE IF NOT EXISTS product_showcase (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          tenant_id INT NOT NULL DEFAULT 1,
+          name VARCHAR(255) NOT NULL,
+          item_code VARCHAR(100) NULL,
+          category VARCHAR(100) NULL,
+          description TEXT NULL,
+          image_url LONGTEXT NULL,
+          product_cost DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+          expense DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+          wholesale_rate DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+          retail_vendor_rate DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+          retail_customer_rate DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+          uom VARCHAR(50) DEFAULT 'pcs',
+          is_active BOOLEAN DEFAULT TRUE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          INDEX idx_tenant_showcase (tenant_id, is_active)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+      `);
+    } catch (e) {
+      console.warn('Notice: product_showcase table check:', e instanceof Error ? e.message : String(e));
+    }
 
   } catch (err) {
     console.warn('initDb warning (schema check):', err instanceof Error ? err.message : String(err));

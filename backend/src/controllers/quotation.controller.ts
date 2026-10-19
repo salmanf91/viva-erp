@@ -400,14 +400,21 @@ export async function convertToSalesOrder(req: AuthRequest, res: Response): Prom
     const invoiceNumber = `INV-${year}-${String(nextSeq).padStart(4, '0')}`;
     const today = new Date().toISOString().slice(0, 10);
 
+    const defaultTerms = `1. Payment Terms: Payment must be cleared within 15 days from the date of invoice.
+2. Delayed Interest: Interest @ 18% per annum will be charged on overdue payments after 15 days.
+3. Goods & Returns: Goods once sold will not be accepted back or exchanged, except in case of genuine manufacturing defects reported within 48 hours of receipt.
+4. Inspection: The buyer must inspect the goods upon delivery. Any transit damage or piece shortage must be notified within 2 days with proper photographic proof.
+5. Jurisdiction: All disputes, claims, or legal matters are subject to local jurisdiction only.`;
+
     const [orderRes] = await conn.execute(
       `INSERT INTO sales_orders (
-        tenant_id, client_id, invoice_number, order_date, notes,
+        tenant_id, client_id, invoice_number, order_date, notes, terms_conditions,
         include_gst, gst_percent, discount_percent, discount, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'unpaid')`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'unpaid')`,
       [
         tenantId, quote.client_id, invoiceNumber, today,
         `Converted from Quote #${quote.quotation_number}. ${quote.notes || ''}`.trim(),
+        quote.terms_conditions || defaultTerms,
         Number(quote.gst_percent) > 0 ? 1 : 0,
         quote.gst_percent || 0,
         quote.discount_percent || 0,
