@@ -8,8 +8,8 @@ import { User, TenantModules } from '../types';
 
 export async function login(req: Request, res: Response): Promise<void> {
   const { email, password, tenant_id } = req.body;
-  if (!email || !password || !tenant_id) {
-    res.status(400).json({ message: 'email, password and tenant_id are required' });
+  if (!email || !password) {
+    res.status(400).json({ message: 'Email and password are required' });
     return;
   }
   try {
@@ -34,19 +34,26 @@ export async function login(req: Request, res: Response): Promise<void> {
     };
 
     try {
-      const masterUsers = await masterQuery<any[]>(
-        `SELECT u.*, t.name AS tenant_name, t.slug AS tenant_slug, t.db_name, t.country, t.currency, t.business_domain, t.logo_url, t.status AS tenant_status,
-                m.feature_accounting, m.feature_expenses, m.feature_party_ledger,
-                m.feature_sales_invoicing, m.feature_purchases, m.feature_inventory_stock,
-                m.feature_garment_production, m.feature_staff_piece_log, m.feature_payroll,
-                m.feature_zatca_einvoicing, m.feature_quotations, m.feature_delivery_notes
-         FROM master_users u
-         JOIN master_tenants t ON t.id = u.tenant_id
-         LEFT JOIN master_tenant_modules m ON m.tenant_id = t.id
-         WHERE (u.email = ? OR u.email = ?) AND (u.tenant_id = ? OR t.slug = ?)
-         LIMIT 1`,
-        [cleanEmail, email, tenant_id, tenant_id]
-      );
+      let masterQueryStr = `SELECT u.*, t.name AS tenant_name, t.slug AS tenant_slug, t.db_name, t.country, t.currency, t.business_domain, t.logo_url, t.status AS tenant_status,
+              m.feature_accounting, m.feature_expenses, m.feature_party_ledger,
+              m.feature_sales_invoicing, m.feature_purchases, m.feature_inventory_stock,
+              m.feature_garment_production, m.feature_staff_piece_log, m.feature_payroll,
+              m.feature_zatca_einvoicing, m.feature_quotations, m.feature_delivery_notes
+       FROM master_users u
+       JOIN master_tenants t ON t.id = u.tenant_id
+       LEFT JOIN master_tenant_modules m ON m.tenant_id = t.id `;
+
+      let masterParams: any[] = [];
+      if (tenant_id) {
+        masterQueryStr += `WHERE (u.email = ? OR u.email = ?) AND (u.tenant_id = ? OR t.slug = ?) LIMIT 1`;
+        masterParams = [cleanEmail, email, tenant_id, tenant_id];
+      } else {
+        // Auto-detect tenant by user email, defaulting/prioritizing Viva Studio
+        masterQueryStr += `WHERE (u.email = ? OR u.email = ?) ORDER BY (CASE WHEN t.slug = 'viva_studio' OR t.id = 1 THEN 0 ELSE 1 END), u.id ASC LIMIT 1`;
+        masterParams = [cleanEmail, email];
+      }
+
+      const masterUsers = await masterQuery<any[]>(masterQueryStr, masterParams);
 
       if (masterUsers && masterUsers.length > 0) {
         userRow = masterUsers[0];
@@ -86,12 +93,19 @@ export async function login(req: Request, res: Response): Promise<void> {
 
     // 2. Fallback to legacy database if not found in master_users
     if (!userRow) {
-      const rows = await query<any[]>(
-        `SELECT u.*, t.name AS tenant_name
-         FROM users u JOIN tenants t ON t.id = u.tenant_id
-         WHERE u.email = ? AND u.tenant_id = ? LIMIT 1`,
-        [cleanEmail, tenant_id]
-      );
+      let legacyQuery = `SELECT u.*, t.name AS tenant_name
+       FROM users u JOIN tenants t ON t.id = u.tenant_id
+       WHERE u.email = ? `;
+      let legacyParams: any[] = [cleanEmail];
+
+      if (tenant_id) {
+        legacyQuery += `AND u.tenant_id = ? LIMIT 1`;
+        legacyParams.push(tenant_id);
+      } else {
+        legacyQuery += `ORDER BY (CASE WHEN u.tenant_id = 1 THEN 0 ELSE 1 END) LIMIT 1`;
+      }
+
+      const rows = await query<any[]>(legacyQuery, legacyParams);
       if (!rows.length) {
         res.status(401).json({ message: 'Invalid credentials' });
         return;
@@ -100,7 +114,7 @@ export async function login(req: Request, res: Response): Promise<void> {
       tenantRow = {
         id: userRow.tenant_id,
         name: userRow.tenant_name,
-        slug: 'viva_studio',
+        slug: userRow.tenant_id === 1 ? 'viva_studio' : `tenant_${userRow.tenant_id}`,
         db_name: process.env.DB_NAME || 'viva_erp',
         country: 'IN',
         currency: 'INR',
@@ -210,7 +224,8 @@ export async function getTenants(_req: Request, res: Response): Promise<void> {
       const masterTenants = await masterQuery<any[]>(
         `SELECT id, slug, name, country, currency, business_domain, logo_url 
          FROM master_tenants 
-         WHERE status = 'active' ORDER BY name ASC`
+         WHERE status = 'active' 
+         ORDER BY (CASE WHEN slug = 'viva_studio' OR id = 1 THEN 0 ELSE 1 END), name ASC`
       );
       if (masterTenants && masterTenants.length > 0) {
         res.json(masterTenants);
@@ -220,7 +235,9 @@ export async function getTenants(_req: Request, res: Response): Promise<void> {
       // fallback
     }
 
-    const tenants = await query<{ id: number; name: string }[]>('SELECT id, name FROM tenants ORDER BY name');
+    const tenants = await query<{ id: number; name: string }[]>(
+      `SELECT id, name FROM tenants ORDER BY (CASE WHEN id = 1 THEN 0 ELSE 1 END), name ASC`
+    );
     res.json(tenants);
   } catch (error) {
     console.error(error);
