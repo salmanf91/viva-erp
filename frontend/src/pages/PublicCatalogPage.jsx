@@ -142,11 +142,11 @@ export default function PublicCatalogPage() {
             </span>
             {user ? (
               <Link
-                to="/"
+                to="/catalogs"
                 className="btn btn-ghost btn-sm"
                 style={{ fontSize: 12, color: 'var(--accent)', textDecoration: 'none', fontWeight: 700 }}
               >
-                📊 Dashboard
+                ← All Catalogs
               </Link>
             ) : (
               <Link

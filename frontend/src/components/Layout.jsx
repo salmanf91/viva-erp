@@ -284,6 +284,29 @@ export default function Layout({ children, title }) {
             <div className="page-title">{activeSectionMenu ? activeSectionMenu : title}</div>
           </div>
           <div className="topbar-actions">
+            <button
+              onClick={() => {
+                sessionStorage.setItem('active_screen_mode', 'catalogs');
+                navigate('/catalogs');
+              }}
+              className="btn btn-sm"
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 5,
+                background: 'rgba(99, 102, 241, 0.1)',
+                color: 'var(--accent)',
+                border: '1px solid rgba(99, 102, 241, 0.25)',
+                padding: '4px 10px',
+                borderRadius: 6,
+                cursor: 'pointer'
+              }}
+              title="Switch to Client-Safe Product Catalogs & Rate Lists"
+            >
+              🏷️ Catalogs Portal
+            </button>
             {reminderCount > 0 && (
               <div className="chip chip-yellow" onClick={() => navigate('/partners')} style={{ cursor: 'pointer' }}>
                 ⏰ {reminderCount}

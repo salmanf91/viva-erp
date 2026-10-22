@@ -25,6 +25,7 @@ import QuotationsPage  from './pages/QuotationsPage';
 import DeliveryNotesPage from './pages/DeliveryNotesPage';
 import CatalogAdminPage from './pages/CatalogAdminPage';
 import PublicCatalogPage from './pages/PublicCatalogPage';
+import CatalogsPortalPage from './pages/CatalogsPortalPage';
 
 const TITLES = {
   '/':           'Dashboard',
@@ -66,6 +67,13 @@ function Guard({ children, path, staffAdminOnly, superAdminOnly }) {
   // Staff admin trying to reach an owner/manager page → back to their log
   if (isStaffAdmin && path !== '/staff-log') return <Navigate to="/staff-log" replace />;
 
+  // Client Privacy Protection:
+  // If user selected "Product Catalogs & Rate Lists" screen mode, prevent access to ERP dashboard, accounts & operations!
+  const screenMode = sessionStorage.getItem('active_screen_mode');
+  if (screenMode === 'catalogs') {
+    return <Navigate to="/catalogs" replace />;
+  }
+
   return <Layout title={TITLES[path] || ''}>{children}</Layout>;
 }
 
@@ -80,12 +88,16 @@ export default function App() {
           <Route path="/onboard" element={<OnboardPage />} />
           <Route path="/register" element={<OnboardPage />} />
 
-          {/* Public Product Catalog Showcase (no login required) */}
+          {/* Client-Safe Dedicated Screen: 4 Catalog Links Only (No Dashboard / No Accounts) */}
+          <Route path="/catalogs" element={<CatalogsPortalPage />} />
+
+          {/* Public Product Catalog Showcase (no login required for UAE, auth for others) */}
           <Route path="/catalog/:type" element={<PublicCatalogPage />} />
           <Route path="/catalog/:tenantSlug/:type" element={<PublicCatalogPage />} />
 
           {/* Owner / partner / manager / admin routes */}
           <Route path="/"           element={<Guard path="/"><DashboardPage /></Guard>} />
+          <Route path="/catalog"    element={<Navigate to="/catalogs" replace />} />
           <Route path="/catalog-pricing" element={<Guard path="/catalog-pricing"><CatalogAdminPage /></Guard>} />
           <Route path="/items"      element={<Guard path="/items"><ItemsPage /></Guard>} />
           <Route path="/products"   element={<Guard path="/items"><ItemsPage /></Guard>} />
