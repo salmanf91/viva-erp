@@ -308,6 +308,7 @@ export async function initDb(): Promise<void> {
           wholesale_rate DECIMAL(12,2) NOT NULL DEFAULT 0.00,
           retail_vendor_rate DECIMAL(12,2) NOT NULL DEFAULT 0.00,
           retail_customer_rate DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+          uae_vendor_rate DECIMAL(12,2) NOT NULL DEFAULT 0.00,
           uom VARCHAR(50) DEFAULT 'pcs',
           is_active BOOLEAN DEFAULT TRUE,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -315,6 +316,11 @@ export async function initDb(): Promise<void> {
           INDEX idx_tenant_showcase (tenant_id, is_active)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
       `);
+
+      // Ensure uae_vendor_rate exists on existing tables
+      try {
+        await defaultPool.query(`ALTER TABLE product_showcase ADD COLUMN uae_vendor_rate DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER retail_customer_rate`);
+      } catch {}
     } catch (e) {
       console.warn('Notice: product_showcase table check:', e instanceof Error ? e.message : String(e));
     }

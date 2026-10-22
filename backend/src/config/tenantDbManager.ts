@@ -268,6 +268,7 @@ export async function ensureTenantSchema(pool: mysql.Pool, _dbName?: string): Pr
       wholesale_rate DECIMAL(12,2) NOT NULL DEFAULT 0.00,
       retail_vendor_rate DECIMAL(12,2) NOT NULL DEFAULT 0.00,
       retail_customer_rate DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      uae_vendor_rate DECIMAL(12,2) NOT NULL DEFAULT 0.00,
       uom VARCHAR(50) DEFAULT 'pcs',
       is_active BOOLEAN DEFAULT TRUE,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -346,6 +347,7 @@ export async function ensureTenantSchema(pool: mysql.Pool, _dbName?: string): Pr
     { table: 'purchase_items', column: 'uom', def: "VARCHAR(20) DEFAULT 'pcs'" },
     { table: 'quotation_items', column: 'uom', def: "VARCHAR(20) DEFAULT 'pcs'" },
     { table: 'delivery_note_items', column: 'uom', def: "VARCHAR(20) DEFAULT 'pcs'" },
+    { table: 'product_showcase', column: 'uae_vendor_rate', def: 'DECIMAL(12,2) NOT NULL DEFAULT 0.00' },
   ];
 
   for (const item of tableColumns) {

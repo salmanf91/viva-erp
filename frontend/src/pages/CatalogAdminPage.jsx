@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
 import { useDebounce } from '../hooks/useDebounce';
 import Pagination from '../components/Pagination';
@@ -8,6 +9,9 @@ const fmt = n => '₹' + Number(n || 0).toLocaleString('en-IN', { minimumFractio
 const pct = n => (Number(n) > 0 ? '+' : '') + Number(n || 0).toFixed(1) + '%';
 
 export default function CatalogAdminPage() {
+  const { user } = useAuth();
+  const isVivaStudio = !user?.tenant_id || user?.tenant_id === 1 || user?.tenant_slug === 'viva_studio' || (user?.tenant_name || '').toLowerCase().includes('viva');
+
   const [data, setData] = useState([]);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(20);
@@ -75,6 +79,7 @@ export default function CatalogAdminPage() {
       'Retail Vendor Margin (₹)',
       'Retail Customer Rate',
       'Retail Customer Margin (₹)',
+      ...(isVivaStudio ? ['UAE Vendor Rate (AED)', 'UAE Vendor Margin (AED)'] : []),
       'Status'
     ];
     const rows = data.map(item => [
@@ -90,6 +95,7 @@ export default function CatalogAdminPage() {
       item.retail_vendor_margin,
       item.retail_customer_rate,
       item.retail_customer_margin,
+      ...(isVivaStudio ? [item.uae_vendor_rate || 0, item.uae_vendor_margin || 0] : []),
       item.is_active ? 'Active' : 'Hidden'
     ]);
     exportToCSV(filename, headers, rows);
@@ -168,6 +174,20 @@ export default function CatalogAdminPage() {
               {copiedTier === 'retail-customer' ? '✓ Link Copied!' : '📋 Retail / E-Com Link'}
             </button>
 
+            {isVivaStudio && (
+              <button
+                onClick={() => copyPublicLink('uae-vendor')}
+                className="btn btn-sm"
+                style={{
+                  background: copiedTier === 'uae-vendor' ? '#10b981' : '#059669',
+                  color: '#fff', border: '1px solid #10b981', fontWeight: 700
+                }}
+                title="Copy UAE Vendor Catalog Link (Dirhams / AED)"
+              >
+                {copiedTier === 'uae-vendor' ? '✓ Link Copied!' : '🇦🇪 UAE Vendor Link'}
+              </button>
+            )}
+
             <button
               onClick={() => { setEditItem(null); setShowModal(true); }}
               className="btn btn-sm"
@@ -238,6 +258,11 @@ export default function CatalogAdminPage() {
                 <th style={{ textAlign: 'right', padding: '10px 12px' }}>Wholesale</th>
                 <th style={{ textAlign: 'right', padding: '10px 12px' }}>Retail Vendor</th>
                 <th style={{ textAlign: 'right', padding: '10px 12px' }}>Retail / E-Com</th>
+                {isVivaStudio && (
+                  <th style={{ textAlign: 'right', padding: '10px 12px', background: '#ecfdf5', color: '#065f46' }}>
+                    🇦🇪 UAE Vendor (AED)
+                  </th>
+                )}
                 <th style={{ textAlign: 'center', padding: '10px 8px' }}>Status</th>
                 <th style={{ textAlign: 'center', padding: '10px 8px', width: 100 }}>Actions</th>
               </tr>
@@ -245,13 +270,13 @@ export default function CatalogAdminPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={11} style={{ textAlign: 'center', padding: 36, color: 'var(--muted)' }}>
+                  <td colSpan={isVivaStudio ? 12 : 11} style={{ textAlign: 'center', padding: 36, color: 'var(--muted)' }}>
                     Loading catalog products…
                   </td>
                 </tr>
               ) : data.length === 0 ? (
                 <tr>
-                  <td colSpan={11} style={{ textAlign: 'center', padding: 48, color: 'var(--muted)' }}>
+                  <td colSpan={isVivaStudio ? 12 : 11} style={{ textAlign: 'center', padding: 48, color: 'var(--muted)' }}>
                     <div style={{ fontSize: 32, marginBottom: 8 }}>🏷️</div>
                     <div style={{ fontWeight: 600 }}>No products found</div>
                     <div style={{ fontSize: 12, marginTop: 4 }}>
@@ -356,6 +381,20 @@ export default function CatalogAdminPage() {
                         </div>
                       </td>
 
+                      {/* UAE Vendor Rate */}
+                      {isVivaStudio && (
+                        <td style={{ textAlign: 'right', padding: '10px 12px', background: '#f0fdf4' }}>
+                          <div style={{ fontWeight: 800, color: '#047857' }}>
+                            {Number(item.uae_vendor_rate) > 0 ? `AED ${Number(item.uae_vendor_rate).toFixed(2)}` : '—'}
+                          </div>
+                          {Number(item.uae_vendor_rate) > 0 && (
+                            <div style={{ fontSize: 10, color: '#059669', fontWeight: 600 }}>
+                              Margin: AED {Number(item.uae_vendor_margin || 0).toFixed(2)}
+                            </div>
+                          )}
+                        </td>
+                      )}
+
                       {/* Status */}
                       <td style={{ textAlign: 'center', padding: '10px 8px' }}>
                         <span style={{
@@ -408,10 +447,12 @@ export default function CatalogAdminPage() {
       </div>
 
       {/* Product Form Modal (Add / Edit) */}
+      {/* Product Form Modal (Add / Edit) */}
       {showModal && (
         <ProductFormModal
           item={editItem}
           categories={categories}
+          isVivaStudio={isVivaStudio}
           onClose={() => { setShowModal(false); setEditItem(null); }}
           onSaved={() => { setShowModal(false); setEditItem(null); loadData(page, limit); }}
         />
@@ -442,10 +483,28 @@ export default function CatalogAdminPage() {
   );
 }
 
+const POPULAR_GARMENT_CATEGORIES = [
+  'Salwar Suit',
+  'Shawl Nighty',
+  'Ordinary Nighty',
+  'Kurti',
+  'Western Wear',
+  'Abaya / Burqa',
+  'Gown / Frock',
+  'Cotton Fabric',
+  'Saree',
+  'Dupatta',
+  'Nightwear',
+  'Kids Wear',
+  'Bottom Wear',
+  'Co-ord Set',
+  'Kaftan'
+];
+
 /**
  * Add / Edit Modal for Showcase Product
  */
-function ProductFormModal({ item, categories, onClose, onSaved }) {
+function ProductFormModal({ item, categories, isVivaStudio, onClose, onSaved }) {
   const [name, setName] = useState(item?.name || '');
   const [itemCode, setItemCode] = useState(item?.item_code || '');
   const [category, setCategory] = useState(item?.category || '');
@@ -459,11 +518,14 @@ function ProductFormModal({ item, categories, onClose, onSaved }) {
   const [wholesaleRate, setWholesaleRate] = useState(item ? String(item.wholesale_rate || '') : '');
   const [retailVendorRate, setRetailVendorRate] = useState(item ? String(item.retail_vendor_rate || '') : '');
   const [retailCustomerRate, setRetailCustomerRate] = useState(item ? String(item.retail_customer_rate || '') : '');
+  const [uaeVendorRate, setUaeVendorRate] = useState(item ? String(item.uae_vendor_rate || '') : '');
 
   const [isActive, setIsActive] = useState(item ? !!item.is_active : true);
   const [saving, setSaving] = useState(false);
   const [imageError, setImageError] = useState('');
   const fileInputRef = useRef(null);
+
+  const allCategories = Array.from(new Set([...(categories || []), ...POPULAR_GARMENT_CATEGORIES])).filter(Boolean);
 
   // Computed Financials for Live Preview
   const costVal = parseFloat(productCost) || 0;
@@ -481,6 +543,10 @@ function ProductFormModal({ item, categories, onClose, onSaved }) {
   const rcRate = parseFloat(retailCustomerRate) || 0;
   const rcMargin = rcRate - totalCost;
   const rcPct = totalCost > 0 ? (rcMargin / totalCost) * 100 : 0;
+
+  const uaeRate = parseFloat(uaeVendorRate) || 0;
+  const uaeMargin = uaeRate - totalCost;
+  const uaePct = totalCost > 0 ? (uaeMargin / totalCost) * 100 : 0;
 
   // Handle client-side image compression via Canvas
   const handleImageFile = (e) => {
@@ -548,6 +614,7 @@ function ProductFormModal({ item, categories, onClose, onSaved }) {
         wholesale_rate: wsRate,
         retail_vendor_rate: rvRate,
         retail_customer_rate: rcRate,
+        uae_vendor_rate: isVivaStudio ? (parseFloat(uaeVendorRate) || 0) : 0,
         is_active: isActive ? 1 : 0
       };
 
@@ -605,22 +672,40 @@ function ProductFormModal({ item, categories, onClose, onSaved }) {
 
             <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
               <div className="field">
-                <label>Category</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <label style={{ margin: 0 }}>Category</label>
+                  <span style={{ fontSize: 11, color: 'var(--muted)' }}>Pick or type any new category</span>
+                </div>
                 <input
                   type="text"
                   list="category-suggestions"
-                  placeholder="e.g. Salwar Suit, Shawl Nighty, Fabric..."
+                  placeholder="e.g. Salwar Suit, Shawl Nighty, Kurti, Abaya..."
                   value={category}
                   onChange={e => setCategory(e.target.value)}
                 />
                 <datalist id="category-suggestions">
-                  {categories.map(c => <option key={c} value={c} />)}
-                  <option value="Salwar Suit" />
-                  <option value="Shawl Nighty" />
-                  <option value="Ordinary Nighty" />
-                  <option value="Kurti" />
-                  <option value="Cotton Fabric" />
+                  {allCategories.map(c => <option key={c} value={c} />)}
                 </datalist>
+
+                {/* Quick Category Selection Badges */}
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                  {allCategories.slice(0, 10).map(catName => (
+                    <button
+                      key={catName}
+                      type="button"
+                      onClick={() => setCategory(catName)}
+                      style={{
+                        border: category.toLowerCase() === catName.toLowerCase() ? '1.5px solid var(--accent)' : '1px solid var(--border)',
+                        background: category.toLowerCase() === catName.toLowerCase() ? 'rgba(79, 70, 229, 0.1)' : 'var(--surface)',
+                        color: category.toLowerCase() === catName.toLowerCase() ? 'var(--accent)' : 'var(--text)',
+                        borderRadius: 12, padding: '2px 8px', fontSize: 11, cursor: 'pointer',
+                        fontWeight: category.toLowerCase() === catName.toLowerCase() ? 700 : 500
+                      }}
+                    >
+                      {catName}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="field">
@@ -738,12 +823,12 @@ function ProductFormModal({ item, categories, onClose, onSaved }) {
               </div>
             </div>
 
-            {/* Selling Rates for the 3 Customer / Vendor Types */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+            {/* Selling Rates for the Customer / Vendor Types */}
+            <div style={{ display: 'grid', gridTemplateColumns: isVivaStudio ? 'repeat(auto-fit, minmax(130px, 1fr))' : '1fr 1fr 1fr', gap: 10 }}>
               {/* Wholesale Vendor Rate */}
               <div style={{ background: '#f0f9ff', padding: 10, borderRadius: 8, border: '1px solid #bae6fd' }}>
                 <label style={{ fontSize: 11, fontWeight: 700, color: '#0369a1', display: 'block', marginBottom: 4 }}>
-                  🏢 Wholesale Vendor Rate (₹)
+                  🏢 Wholesale Rate (₹)
                 </label>
                 <input
                   type="number"
@@ -796,6 +881,27 @@ function ProductFormModal({ item, categories, onClose, onSaved }) {
                   Margin: {fmt(rcMargin)} ({pct(rcPct)})
                 </div>
               </div>
+
+              {/* UAE Vendor Rate (Exclusive to Viva Studio) */}
+              {isVivaStudio && (
+                <div style={{ background: '#ecfdf5', padding: 10, borderRadius: 8, border: '1.5px solid #a7f3d0' }}>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: '#065f46', display: 'block', marginBottom: 4 }}>
+                    🇦🇪 UAE Vendor Rate (AED)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="0.00"
+                    value={uaeVendorRate}
+                    onChange={e => setUaeVendorRate(e.target.value)}
+                    style={{ width: '100%', padding: '6px 8px', borderRadius: 6, border: '1.5px solid #6ee7b7', fontWeight: 800, color: '#065f46' }}
+                  />
+                  <div style={{ fontSize: 10, marginTop: 4, color: '#047857', fontWeight: 600 }}>
+                    Export rate in Dirhams (AED)
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

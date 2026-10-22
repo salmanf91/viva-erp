@@ -1,10 +1,20 @@
 import { useState, useEffect } from 'react';
-import { useParams, useSearchParams, Link } from 'react-router-dom';
+import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
 
 const fmt = (n, symbol = '₹') => symbol + Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 });
 
 const TIER_META = {
+  'uae-vendor': {
+    title: 'UAE Wholesale & Export Catalog',
+    subtitle: 'Exclusive export collection and pricing for UAE merchants and partners.',
+    badge: '🇦🇪 UAE Vendor Pricing',
+    bgHeader: 'linear-gradient(135deg, #064e3b 0%, #0f766e 100%)',
+    accentColor: '#059669',
+    currency: 'AED',
+    currencySymbol: 'AED '
+  },
   'wholesale': {
     title: 'Wholesale Partner Catalog',
     subtitle: 'Exclusive bulk rates for distributors, wholesalers, and retail merchants.',
@@ -32,6 +42,8 @@ export default function PublicCatalogPage() {
   const { type = 'wholesale', tenantSlug } = useParams();
   const [searchParams] = useSearchParams();
   const tenantParam = tenantSlug || searchParams.get('tenant') || searchParams.get('tenant_id') || '1';
+  const { user } = useAuth();
+  const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -81,7 +93,7 @@ export default function PublicCatalogPage() {
   });
 
   const tenant = catalogData.tenant || {};
-  const symbol = tenant.currency_symbol || '₹';
+  const symbol = type === 'uae-vendor' ? 'AED ' : (tenant.currency_symbol || '₹');
 
   const sendWhatsApp = (product) => {
     const phone = tenant.phone || '919876543210';
@@ -128,13 +140,23 @@ export default function PublicCatalogPage() {
             }}>
               {meta.badge}
             </span>
-            <Link
-              to="/login"
-              className="btn btn-ghost btn-sm"
-              style={{ fontSize: 12, color: 'var(--muted)', textDecoration: 'none' }}
-            >
-              🔐 Staff Sign In
-            </Link>
+            {user ? (
+              <Link
+                to="/"
+                className="btn btn-ghost btn-sm"
+                style={{ fontSize: 12, color: 'var(--accent)', textDecoration: 'none', fontWeight: 700 }}
+              >
+                📊 Dashboard
+              </Link>
+            ) : (
+              <Link
+                to="/login"
+                className="btn btn-ghost btn-sm"
+                style={{ fontSize: 12, color: 'var(--muted)', textDecoration: 'none' }}
+              >
+                🔐 Staff Sign In
+              </Link>
+            )}
           </div>
         </div>
       </header>
@@ -156,42 +178,44 @@ export default function PublicCatalogPage() {
             {catalogData.tier?.subtitle || meta.subtitle}
           </p>
 
-          {/* Quick Tier Switching Links for User Convenience */}
-          <div style={{ display: 'flex', gap: 8, marginTop: 18, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 12, color: '#94a3b8', alignSelf: 'center', marginRight: 4 }}>
-              Switch catalog tier:
-            </span>
-            <Link
-              to={`/catalog/wholesale${tenantParam !== '1' ? `?tenant=${tenantParam}` : ''}`}
-              style={{
-                padding: '4px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600,
-                background: type === 'wholesale' ? '#fff' : 'rgba(255,255,255,0.1)',
-                color: type === 'wholesale' ? '#0f172a' : '#fff', textDecoration: 'none'
-              }}
-            >
-              🏢 Wholesale
-            </Link>
-            <Link
-              to={`/catalog/retail-vendor${tenantParam !== '1' ? `?tenant=${tenantParam}` : ''}`}
-              style={{
-                padding: '4px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600,
-                background: type === 'retail-vendor' ? '#fff' : 'rgba(255,255,255,0.1)',
-                color: type === 'retail-vendor' ? '#0f172a' : '#fff', textDecoration: 'none'
-              }}
-            >
-              🏪 Retail Vendor
-            </Link>
-            <Link
-              to={`/catalog/retail-customer${tenantParam !== '1' ? `?tenant=${tenantParam}` : ''}`}
-              style={{
-                padding: '4px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600,
-                background: type === 'retail-customer' ? '#fff' : 'rgba(255,255,255,0.1)',
-                color: type === 'retail-customer' ? '#0f172a' : '#fff', textDecoration: 'none'
-              }}
-            >
-              🛍️ Retail / Online
-            </Link>
-          </div>
+          {/* Quick Tier Switching Links: NEVER show for UAE vendor; only show for authenticated users */}
+          {type !== 'uae-vendor' && user && (
+            <div style={{ display: 'flex', gap: 8, marginTop: 18, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 12, color: '#94a3b8', alignSelf: 'center', marginRight: 4 }}>
+                Switch catalog tier:
+              </span>
+              <Link
+                to={`/catalog/wholesale${tenantParam !== '1' ? `?tenant=${tenantParam}` : ''}`}
+                style={{
+                  padding: '4px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                  background: type === 'wholesale' ? '#fff' : 'rgba(255,255,255,0.1)',
+                  color: type === 'wholesale' ? '#0f172a' : '#fff', textDecoration: 'none'
+                }}
+              >
+                🏢 Wholesale
+              </Link>
+              <Link
+                to={`/catalog/retail-vendor${tenantParam !== '1' ? `?tenant=${tenantParam}` : ''}`}
+                style={{
+                  padding: '4px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                  background: type === 'retail-vendor' ? '#fff' : 'rgba(255,255,255,0.1)',
+                  color: type === 'retail-vendor' ? '#0f172a' : '#fff', textDecoration: 'none'
+                }}
+              >
+                🏪 Retail Vendor
+              </Link>
+              <Link
+                to={`/catalog/retail-customer${tenantParam !== '1' ? `?tenant=${tenantParam}` : ''}`}
+                style={{
+                  padding: '4px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600,
+                  background: type === 'retail-customer' ? '#fff' : 'rgba(255,255,255,0.1)',
+                  color: type === 'retail-customer' ? '#0f172a' : '#fff', textDecoration: 'none'
+                }}
+              >
+                🛍️ Retail / Online
+              </Link>
+            </div>
+          )}
         </div>
       </section>
 
@@ -271,14 +295,30 @@ export default function PublicCatalogPage() {
           </div>
         ) : error ? (
           <div style={{
-            background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 10,
-            padding: 24, textAlign: 'center', color: '#991b1b', maxWidth: 500, margin: '40px auto'
+            background: '#ffffff', border: '1.5px solid #fed7aa', borderRadius: 12,
+            padding: 32, textAlign: 'center', color: '#1e293b', maxWidth: 460, margin: '40px auto',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.04)'
           }}>
-            <div style={{ fontSize: 32, marginBottom: 8 }}>⚠️</div>
-            <div style={{ fontWeight: 700, fontSize: 16 }}>{error}</div>
-            <div style={{ fontSize: 12, marginTop: 8, color: '#b91c1c' }}>
-              Please contact the company administrator for an updated catalog link.
+            <div style={{ fontSize: 36, marginBottom: 10 }}>🔒</div>
+            <div style={{ fontWeight: 800, fontSize: 17, color: '#0f172a', marginBottom: 6 }}>
+              {error.toLowerCase().includes('authentication') || error.toLowerCase().includes('restricted') ? 'Protected Catalog' : 'Catalog Notice'}
             </div>
+            <div style={{ fontSize: 13, color: '#64748b', lineHeight: 1.5, marginBottom: 20 }}>
+              {error}
+            </div>
+            {error.toLowerCase().includes('authentication') || error.toLowerCase().includes('sign in') ? (
+              <Link
+                to={`/login?redirect=${encodeURIComponent(window.location.pathname)}`}
+                className="btn btn-primary"
+                style={{ padding: '8px 20px', fontSize: 13, textDecoration: 'none' }}
+              >
+                Sign In to View Catalog
+              </Link>
+            ) : (
+              <div style={{ fontSize: 12, color: '#94a3b8' }}>
+                Please contact the administrator for an updated link.
+              </div>
+            )}
           </div>
         ) : filteredProducts.length === 0 ? (
           <div style={{

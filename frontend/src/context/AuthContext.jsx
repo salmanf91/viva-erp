@@ -18,7 +18,9 @@ export function AuthProvider({ children }) {
   }, []);
 
   const login = async (email, password, tenant_id) => {
-    const { data } = await api.post('/auth/login', { email, password, tenant_id });
+    const payload = { email, password };
+    if (tenant_id) payload.tenant_id = tenant_id;
+    const { data } = await api.post('/auth/login', payload);
     localStorage.setItem('erp_user', JSON.stringify(data));
     api.defaults.headers.common['Authorization'] = `Bearer ${data.token}`;
     setUser(data);

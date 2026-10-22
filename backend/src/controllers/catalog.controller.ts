@@ -1,10 +1,11 @@
 import { Request, Response } from 'express';
+import jwt from 'jsonwebtoken';
 import { query } from '../config/db';
 import { masterQuery } from '../config/masterDb';
 import { getTenantPool } from '../config/tenantDbManager';
 import { AuthRequest } from '../middleware/auth';
 
-export const VALID_CATALOG_TYPES = ['wholesale', 'retail-vendor', 'retail-customer'] as const;
+export const VALID_CATALOG_TYPES = ['wholesale', 'retail-vendor', 'retail-customer', 'uae-vendor'] as const;
 export type CatalogType = typeof VALID_CATALOG_TYPES[number];
 
 const TYPE_CONFIG: Record<string, { label: string; rateColumn: string; subtitle: string; badge: string }> = {
@@ -25,6 +26,12 @@ const TYPE_CONFIG: Record<string, { label: string; rateColumn: string; subtitle:
     rateColumn: 'retail_customer_rate',
     subtitle: 'Direct retail collection and seasonal styles.',
     badge: '🛍️ Retail / Online'
+  },
+  'uae-vendor': {
+    label: 'UAE Vendor Catalog',
+    rateColumn: 'uae_vendor_rate',
+    subtitle: 'Exclusive export collection and wholesale rates for UAE partners.',
+    badge: '🇦🇪 UAE Vendor Pricing'
   }
 };
 
@@ -62,16 +69,17 @@ export async function getCatalogItems(req: AuthRequest, res: Response): Promise<
   const whereClause = conditions.join(' AND ');
 
   try {
-    const [countRows, data, catRows] = await Promise.all([
+    const [countRows, data, catRows, configCatRows] = await Promise.all([
       query<any[]>(`SELECT COUNT(*) AS total FROM product_showcase WHERE ${whereClause}`, params),
       query<any[]>(
         `SELECT id, tenant_id, name, item_code, category, description, image_url,
-                product_cost, expense, wholesale_rate, retail_vendor_rate, retail_customer_rate,
+                product_cost, expense, wholesale_rate, retail_vendor_rate, retail_customer_rate, uae_vendor_rate,
                 uom, is_active, created_at, updated_at,
                 (product_cost + expense) AS total_cost,
                 (wholesale_rate - (product_cost + expense)) AS wholesale_margin,
                 (retail_vendor_rate - (product_cost + expense)) AS retail_vendor_margin,
-                (retail_customer_rate - (product_cost + expense)) AS retail_customer_margin
+                (retail_customer_rate - (product_cost + expense)) AS retail_customer_margin,
+                (uae_vendor_rate - (product_cost + expense)) AS uae_vendor_margin
          FROM product_showcase 
          WHERE ${whereClause} 
          ORDER BY id DESC 
@@ -81,11 +89,39 @@ export async function getCatalogItems(req: AuthRequest, res: Response): Promise<
       query<any[]>(
         `SELECT DISTINCT category FROM product_showcase WHERE tenant_id = ? AND category IS NOT NULL AND category != '' ORDER BY category ASC`,
         [tenantId]
-      )
+      ),
+      query<any[]>(
+        `SELECT DISTINCT category FROM product_config WHERE tenant_id = ? AND category IS NOT NULL AND category != '' ORDER BY category ASC`,
+        [tenantId]
+      ).catch(() => [])
     ]);
 
     const total = countRows[0]?.total || 0;
-    const categories = (catRows || []).map(r => r.category);
+
+    // Standard garment manufacturing & retail categories
+    const defaultCategories = [
+      'Salwar Suit',
+      'Shawl Nighty',
+      'Ordinary Nighty',
+      'Kurti',
+      'Cotton Fabric',
+      'Western Wear',
+      'Abaya / Burqa',
+      'Gown / Frock',
+      'Saree',
+      'Dupatta',
+      'Nightwear',
+      'Kids Wear',
+      'Bottom Wear',
+      'Co-ord Set',
+      'Kaftan'
+    ];
+
+    const catSet = new Set<string>();
+    (catRows || []).forEach(r => r.category && catSet.add(r.category));
+    (configCatRows || []).forEach(r => r.category && catSet.add(r.category));
+    defaultCategories.forEach(c => catSet.add(c));
+    const categories = Array.from(catSet).sort((a, b) => a.localeCompare(b));
 
     res.json({
       data,
@@ -133,7 +169,7 @@ export async function createCatalogItem(req: AuthRequest, res: Response): Promis
   const { tenantId } = req.user!;
   const {
     name, item_code, category, description, image_url,
-    product_cost, expense, wholesale_rate, retail_vendor_rate, retail_customer_rate,
+    product_cost, expense, wholesale_rate, retail_vendor_rate, retail_customer_rate, uae_vendor_rate,
     uom = 'pcs', is_active = true
   } = req.body;
 
@@ -147,14 +183,15 @@ export async function createCatalogItem(req: AuthRequest, res: Response): Promis
   const wsRate = Math.max(0, parseFloat(wholesale_rate) || 0);
   const rvRate = Math.max(0, parseFloat(retail_vendor_rate) || 0);
   const rcRate = Math.max(0, parseFloat(retail_customer_rate) || 0);
+  const uaeRate = Math.max(0, parseFloat(uae_vendor_rate) || 0);
 
   try {
     const result = await query<any>(
       `INSERT INTO product_showcase (
         tenant_id, name, item_code, category, description, image_url,
-        product_cost, expense, wholesale_rate, retail_vendor_rate, retail_customer_rate,
+        product_cost, expense, wholesale_rate, retail_vendor_rate, retail_customer_rate, uae_vendor_rate,
         uom, is_active
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         tenantId,
         name.trim(),
@@ -167,6 +204,7 @@ export async function createCatalogItem(req: AuthRequest, res: Response): Promis
         wsRate,
         rvRate,
         rcRate,
+        uaeRate,
         uom || 'pcs',
         is_active ? 1 : 0
       ]
@@ -193,7 +231,7 @@ export async function updateCatalogItem(req: AuthRequest, res: Response): Promis
   const { id } = req.params;
   const {
     name, item_code, category, description, image_url,
-    product_cost, expense, wholesale_rate, retail_vendor_rate, retail_customer_rate,
+    product_cost, expense, wholesale_rate, retail_vendor_rate, retail_customer_rate, uae_vendor_rate,
     uom, is_active
   } = req.body;
 
@@ -207,12 +245,13 @@ export async function updateCatalogItem(req: AuthRequest, res: Response): Promis
   const wsRate = Math.max(0, parseFloat(wholesale_rate) || 0);
   const rvRate = Math.max(0, parseFloat(retail_vendor_rate) || 0);
   const rcRate = Math.max(0, parseFloat(retail_customer_rate) || 0);
+  const uaeRate = Math.max(0, parseFloat(uae_vendor_rate) || 0);
 
   try {
     await query(
       `UPDATE product_showcase 
        SET name = ?, item_code = ?, category = ?, description = ?, image_url = ?,
-           product_cost = ?, expense = ?, wholesale_rate = ?, retail_vendor_rate = ?, retail_customer_rate = ?,
+           product_cost = ?, expense = ?, wholesale_rate = ?, retail_vendor_rate = ?, retail_customer_rate = ?, uae_vendor_rate = ?,
            uom = ?, is_active = ?
        WHERE id = ? AND tenant_id = ?`,
       [
@@ -226,6 +265,7 @@ export async function updateCatalogItem(req: AuthRequest, res: Response): Promis
         wsRate,
         rvRate,
         rcRate,
+        uaeRate,
         uom || 'pcs',
         is_active ? 1 : 0,
         id,
@@ -295,6 +335,28 @@ export async function getPublicShowcase(req: Request, res: Response): Promise<vo
   const search = (req.query.search as string || '').trim();
   const category = (req.query.category as string || '').trim();
 
+  // Requirement 2: Put wholesale, retail-vendor, and retail-customer behind authentication so UAE vendor only sees their link
+  if (type !== 'uae-vendor') {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      res.status(401).json({
+        message: 'Authentication required. This catalog tier is restricted to authorized partners and staff. Please sign in to continue.',
+        requiresAuth: true
+      });
+      return;
+    }
+    try {
+      const token = authHeader.split(' ')[1];
+      jwt.verify(token, process.env.JWT_SECRET || 'secret');
+    } catch {
+      res.status(401).json({
+        message: 'Invalid or expired session. Please sign in to access this catalog.',
+        requiresAuth: true
+      });
+      return;
+    }
+  }
+
   try {
     // Resolve tenant details
     let targetTenantId = 1;
@@ -334,6 +396,18 @@ export async function getPublicShowcase(req: Request, res: Response): Promise<vo
       }
     } catch {
       // Fallback to default
+    }
+
+    // Requirement 4: UAE vendor feature is only for Viva Studio, other tenants cannot view it
+    if (type === 'uae-vendor') {
+      const isViva = targetTenantId === 1 || tenantSlugOrId === 'viva_studio' || companyName.toLowerCase().includes('viva');
+      if (!isViva) {
+        res.status(403).json({ message: 'UAE Vendor Catalog is exclusively available for Viva Studio.' });
+        return;
+      }
+      // Force UAE Dirhams currency & symbol
+      currency = 'AED';
+      currencySymbol = 'AED ';
     }
 
     // Query the tenant pool
