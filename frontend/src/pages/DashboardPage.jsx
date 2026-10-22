@@ -1,13 +1,18 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
 
 const fmt = n => '₹' + Number(n || 0).toLocaleString('en-IN');
 
 export default function DashboardPage() {
+  const { user } = useAuth();
   const [stats, setStats]     = useState(null);
   const [pnl, setPnl]         = useState(null);
   const [loading, setLoading] = useState(true);
   const now = new Date();
+
+  const isVivaStudio = !user?.tenant_id || user?.tenant_id === 'viva-studio' || user?.tenant_name?.toLowerCase().includes('viva');
 
   useEffect(() => {
     const m = now.getMonth() + 1, y = now.getFullYear();
@@ -21,6 +26,78 @@ export default function DashboardPage() {
 
   return (
     <>
+      {/* Quick Catalog & Pricing Access Bar */}
+      <div className="card mb16" style={{
+        padding: '16px 20px',
+        background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)',
+        color: '#fff',
+        border: 'none',
+        borderRadius: 12,
+        boxShadow: '0 4px 14px rgba(49, 46, 129, 0.2)'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 14 }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 24 }}>🏷️</span>
+              <div>
+                <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#fff' }}>Product Catalogs &amp; Rate Lists</h3>
+                <div style={{ fontSize: 12, color: '#c7d2fe', marginTop: 2 }}>
+                  View wholesale, vendor &amp; customer prices, or manage design rates and profit margins in one place.
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Link
+              to="/catalog-pricing"
+              className="btn btn-sm"
+              style={{ background: '#4f46e5', color: '#fff', fontWeight: 700, border: '1px solid rgba(255,255,255,0.25)', textDecoration: 'none' }}
+              title="Open full rate master spreadsheet table"
+            >
+              📊 All Rates Master Table
+            </Link>
+            <Link
+              to="/catalog/wholesale"
+              target="_blank"
+              className="btn btn-sm"
+              style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', border: '1px solid rgba(255,255,255,0.25)', textDecoration: 'none' }}
+              title="View Wholesale Catalog"
+            >
+              🏢 Wholesale ↗
+            </Link>
+            <Link
+              to="/catalog/retail-vendor"
+              target="_blank"
+              className="btn btn-sm"
+              style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', border: '1px solid rgba(255,255,255,0.25)', textDecoration: 'none' }}
+              title="View Retail Vendor Catalog"
+            >
+              🏬 Retail Vendor ↗
+            </Link>
+            <Link
+              to="/catalog/retail-customer"
+              target="_blank"
+              className="btn btn-sm"
+              style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', border: '1px solid rgba(255,255,255,0.25)', textDecoration: 'none' }}
+              title="View Retail Customer Catalog"
+            >
+              🛍️ Customer ↗
+            </Link>
+            {isVivaStudio && (
+              <Link
+                to="/catalog/uae-vendor"
+                target="_blank"
+                className="btn btn-sm"
+                style={{ background: 'rgba(16, 185, 129, 0.25)', color: '#a7f3d0', border: '1px solid rgba(52, 211, 153, 0.4)', textDecoration: 'none', fontWeight: 700 }}
+                title="View UAE Vendor Catalog in Dirhams"
+              >
+                🇦🇪 UAE Vendor (AED) ↗
+              </Link>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* KPI row */}
       <div className="g4 mb16">

@@ -10,16 +10,20 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showScreenModal, setShowScreenModal] = useState(false);
   const { login, user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
   useEffect(() => {
     if (user) {
-      // If user came with a redirect parameter
       const params = new URLSearchParams(location.search);
       const redirect = params.get('redirect');
-      navigate(redirect || '/');
+      if (redirect && redirect.startsWith('/catalog/')) {
+        navigate(redirect);
+      } else {
+        setShowScreenModal(true);
+      }
     }
 
     // Check if redirected from /onboard with state
@@ -43,7 +47,11 @@ export default function LoginPage() {
       await login(email, password, workspaceSlug ? workspaceSlug.trim() : undefined);
       const params = new URLSearchParams(location.search);
       const redirect = params.get('redirect');
-      navigate(redirect || '/');
+      if (redirect && redirect.startsWith('/catalog/')) {
+        navigate(redirect);
+      } else {
+        setShowScreenModal(true);
+      }
     } catch (err) {
       setError(err.response?.data?.message || 'Invalid credentials');
     } finally {
@@ -183,6 +191,123 @@ export default function LoginPage() {
           </Link>
         </div>
       </div>
+
+      {/* Screen Selection Modal (Pop-up after Login) */}
+      {showScreenModal && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(11, 15, 25, 0.82)',
+          backdropFilter: 'blur(8px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 9999,
+          padding: 16
+        }}>
+          <div style={{
+            background: '#131b2e',
+            border: '1px solid rgba(255, 255, 255, 0.12)',
+            borderRadius: 16,
+            maxWidth: 520,
+            width: '100%',
+            padding: '28px 24px',
+            boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.65)',
+            textAlign: 'center',
+            color: '#fff'
+          }}>
+            <div style={{ fontSize: 36, marginBottom: 10 }}>👋</div>
+            <h2 style={{ fontSize: 21, fontWeight: 800, color: '#fff', margin: '0 0 6px', letterSpacing: '-0.02em' }}>
+              Welcome to Viva Studio
+            </h2>
+            <p style={{ fontSize: 13, color: '#94a3b8', margin: '0 0 24px', lineHeight: 1.4 }}>
+              Which screen would you like to open?
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {/* Option 1: Product Catalogs & Rate Lists */}
+              <button
+                type="button"
+                onClick={() => {
+                  sessionStorage.setItem('active_screen_mode', 'catalogs');
+                  navigate('/catalogs');
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 16,
+                  padding: '16px 18px',
+                  borderRadius: 12,
+                  background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)',
+                  border: '1.5px solid #6366f1',
+                  color: '#fff',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'transform 0.15s, box-shadow 0.15s',
+                  boxShadow: '0 4px 14px rgba(99, 102, 241, 0.25)'
+                }}
+                onMouseOver={e => e.currentTarget.style.transform = 'translateY(-2px)'}
+                onMouseOut={e => e.currentTarget.style.transform = 'translateY(0)'}
+              >
+                <span style={{ fontSize: 32 }}>🏷️</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    Product Catalogs &amp; Rate Lists
+                    <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: '#10b981', color: '#fff', fontWeight: 700 }}>Client Safe</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: '#c7d2fe', marginTop: 4, lineHeight: 1.35 }}>
+                    Wholesale, Retail Vendor, Customer, &amp; UAE rates. Dashboard financials &amp; accounts details remain strictly private.
+                  </div>
+                </div>
+                <span style={{ fontSize: 20, color: '#a5b4fc', fontWeight: 800 }}>➔</span>
+              </button>
+
+              {/* Option 2: Full Enterprise ERP */}
+              <button
+                type="button"
+                onClick={() => {
+                  sessionStorage.setItem('active_screen_mode', 'erp');
+                  const params = new URLSearchParams(location.search);
+                  const redirect = params.get('redirect');
+                  navigate(redirect || '/');
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 16,
+                  padding: '16px 18px',
+                  borderRadius: 12,
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  border: '1px solid rgba(255, 255, 255, 0.12)',
+                  color: '#fff',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'background 0.15s, border-color 0.15s'
+                }}
+                onMouseOver={e => {
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.09)';
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.25)';
+                }}
+                onMouseOut={e => {
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.12)';
+                }}
+              >
+                <span style={{ fontSize: 32 }}>🏭</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: '#fff' }}>
+                    Enterprise ERP Workspace
+                  </div>
+                  <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 4, lineHeight: 1.35 }}>
+                    Full ERP: Dashboard, Production Log, Inventory, Capital &amp; Partner Accounts, and Financial Reports.
+                  </div>
+                </div>
+                <span style={{ fontSize: 20, color: '#64748b', fontWeight: 800 }}>➔</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

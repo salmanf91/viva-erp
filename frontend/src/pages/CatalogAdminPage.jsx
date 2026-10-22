@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
 import { useDebounce } from '../hooks/useDebounce';
@@ -137,55 +138,91 @@ export default function CatalogAdminPage() {
           </div>
 
           {/* Quick Share Links */}
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <button
-              onClick={() => copyPublicLink('wholesale')}
-              className="btn btn-sm"
-              style={{
-                background: copiedTier === 'wholesale' ? '#10b981' : 'rgba(255,255,255,0.15)',
-                color: '#fff', border: '1px solid rgba(255,255,255,0.25)', backdropFilter: 'blur(4px)'
-              }}
-              title="Copy Wholesale Catalog Link"
-            >
-              {copiedTier === 'wholesale' ? '✓ Link Copied!' : '📋 Wholesale Link'}
-            </button>
-
-            <button
-              onClick={() => copyPublicLink('retail-vendor')}
-              className="btn btn-sm"
-              style={{
-                background: copiedTier === 'retail-vendor' ? '#10b981' : 'rgba(255,255,255,0.15)',
-                color: '#fff', border: '1px solid rgba(255,255,255,0.25)', backdropFilter: 'blur(4px)'
-              }}
-              title="Copy Retail Vendor Catalog Link"
-            >
-              {copiedTier === 'retail-vendor' ? '✓ Link Copied!' : '📋 Retail Vendor Link'}
-            </button>
-
-            <button
-              onClick={() => copyPublicLink('retail-customer')}
-              className="btn btn-sm"
-              style={{
-                background: copiedTier === 'retail-customer' ? '#10b981' : 'rgba(255,255,255,0.15)',
-                color: '#fff', border: '1px solid rgba(255,255,255,0.25)', backdropFilter: 'blur(4px)'
-              }}
-              title="Copy Retail / E-Com Catalog Link"
-            >
-              {copiedTier === 'retail-customer' ? '✓ Link Copied!' : '📋 Retail / E-Com Link'}
-            </button>
-
-            {isVivaStudio && (
-              <button
-                onClick={() => copyPublicLink('uae-vendor')}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            {/* Wholesale */}
+            <div style={{ display: 'inline-flex', borderRadius: 6, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.25)' }}>
+              <Link
+                to="/catalog/wholesale"
+                target="_blank"
                 className="btn btn-sm"
-                style={{
-                  background: copiedTier === 'uae-vendor' ? '#10b981' : '#059669',
-                  color: '#fff', border: '1px solid #10b981', fontWeight: 700
-                }}
-                title="Copy UAE Vendor Catalog Link (Dirhams / AED)"
+                style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', border: 'none', borderRadius: 0, textDecoration: 'none' }}
+                title="Open Wholesale Catalog in new tab"
               >
-                {copiedTier === 'uae-vendor' ? '✓ Link Copied!' : '🇦🇪 UAE Vendor Link'}
+                🏢 Wholesale ↗
+              </Link>
+              <button
+                onClick={() => copyPublicLink('wholesale')}
+                className="btn btn-sm"
+                style={{ background: copiedTier === 'wholesale' ? '#10b981' : 'rgba(255,255,255,0.25)', color: '#fff', border: 'none', borderRadius: 0 }}
+                title="Copy Wholesale Link"
+              >
+                {copiedTier === 'wholesale' ? '✓' : '📋'}
               </button>
+            </div>
+
+            {/* Retail Vendor */}
+            <div style={{ display: 'inline-flex', borderRadius: 6, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.25)' }}>
+              <Link
+                to="/catalog/retail-vendor"
+                target="_blank"
+                className="btn btn-sm"
+                style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', border: 'none', borderRadius: 0, textDecoration: 'none' }}
+                title="Open Retail Vendor Catalog in new tab"
+              >
+                🏪 Retail Vendor ↗
+              </Link>
+              <button
+                onClick={() => copyPublicLink('retail-vendor')}
+                className="btn btn-sm"
+                style={{ background: copiedTier === 'retail-vendor' ? '#10b981' : 'rgba(255,255,255,0.25)', color: '#fff', border: 'none', borderRadius: 0 }}
+                title="Copy Retail Vendor Link"
+              >
+                {copiedTier === 'retail-vendor' ? '✓' : '📋'}
+              </button>
+            </div>
+
+            {/* Retail Customer */}
+            <div style={{ display: 'inline-flex', borderRadius: 6, overflow: 'hidden', border: '1px solid rgba(255,255,255,0.25)' }}>
+              <Link
+                to="/catalog/retail-customer"
+                target="_blank"
+                className="btn btn-sm"
+                style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', border: 'none', borderRadius: 0, textDecoration: 'none' }}
+                title="Open Retail Customer Catalog in new tab"
+              >
+                🛍️ Retail / E-Com ↗
+              </Link>
+              <button
+                onClick={() => copyPublicLink('retail-customer')}
+                className="btn btn-sm"
+                style={{ background: copiedTier === 'retail-customer' ? '#10b981' : 'rgba(255,255,255,0.25)', color: '#fff', border: 'none', borderRadius: 0 }}
+                title="Copy Retail Customer Link"
+              >
+                {copiedTier === 'retail-customer' ? '✓' : '📋'}
+              </button>
+            </div>
+
+            {/* UAE Vendor */}
+            {isVivaStudio && (
+              <div style={{ display: 'inline-flex', borderRadius: 6, overflow: 'hidden', border: '1px solid #10b981' }}>
+                <Link
+                  to="/catalog/uae-vendor"
+                  target="_blank"
+                  className="btn btn-sm"
+                  style={{ background: '#059669', color: '#fff', border: 'none', borderRadius: 0, textDecoration: 'none', fontWeight: 700 }}
+                  title="Open UAE Vendor Catalog in new tab (Dirhams)"
+                >
+                  🇦🇪 UAE Vendor ↗
+                </Link>
+                <button
+                  onClick={() => copyPublicLink('uae-vendor')}
+                  className="btn btn-sm"
+                  style={{ background: copiedTier === 'uae-vendor' ? '#10b981' : '#047857', color: '#fff', border: 'none', borderRadius: 0 }}
+                  title="Copy UAE Vendor Link"
+                >
+                  {copiedTier === 'uae-vendor' ? '✓' : '📋'}
+                </button>
+              </div>
             )}
 
             <button
