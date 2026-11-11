@@ -5,7 +5,8 @@
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "migrate": "node migrate.js"
+    "migrate": "node migrate.js",
+    "test": "node --experimental-strip-types --test tests/**/*.test.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

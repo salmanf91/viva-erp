@@ -144,124 +144,158 @@ export async function getCashLedger(req: AuthRequest, res: Response): Promise<vo
   const { from, to } = req.query;
   if (!from || !to) { res.status(400).json({ message: 'from and to dates required' }); return; }
 
+  // Guarantee valid chronological order for SQL BETWEEN
+  const startDate = String(from) <= String(to) ? String(from) : String(to);
+  const endDate   = String(from) <= String(to) ? String(to) : String(from);
+
   try {
     // 1. Partner investments
-    const investments = await query<any[]>(
-      `SELECT cp.payment_date AS date, 'investment' AS type,
-              CONCAT('💰 Investment — ', p.name) AS description,
-              cp.amount, 'in' AS direction,
-              cp.source AS ref, cp.note, p.name AS party
-       FROM capital_payments cp
-       JOIN partners p ON p.id = cp.partner_id
-       WHERE cp.tenant_id=? AND cp.type='investment'
-         AND cp.payment_date BETWEEN ? AND ?`,
-      [tenantId, from, to]
-    );
+    let investments: any[] = [];
+    try {
+      investments = await query<any[]>(
+        `SELECT cp.payment_date AS date, 'investment' AS type,
+                CONCAT('💰 Investment — ', p.name) AS description,
+                cp.amount, 'in' AS direction,
+                cp.source AS ref, cp.note, p.name AS party
+         FROM capital_payments cp
+         JOIN partners p ON p.id = cp.partner_id
+         WHERE cp.tenant_id=? AND cp.type='investment'
+           AND cp.payment_date BETWEEN ? AND ?`,
+        [tenantId, startDate, endDate]
+      );
+    } catch (e) {
+      console.warn('cash ledger investments query error:', e);
+    }
 
     // 2. Partner drawings
-    const drawings = await query<any[]>(
-      `SELECT cp.payment_date AS date, 'drawing' AS type,
-              CONCAT('🏧 Drawing — ', p.name) AS description,
-              cp.amount, 'out' AS direction,
-              cp.source AS ref, cp.note, p.name AS party
-       FROM capital_payments cp
-       JOIN partners p ON p.id = cp.partner_id
-       WHERE cp.tenant_id=? AND cp.type='drawing'
-         AND cp.payment_date BETWEEN ? AND ?`,
-      [tenantId, from, to]
-    );
+    let drawings: any[] = [];
+    try {
+      drawings = await query<any[]>(
+        `SELECT cp.payment_date AS date, 'drawing' AS type,
+                CONCAT('🏧 Drawing — ', p.name) AS description,
+                cp.amount, 'out' AS direction,
+                cp.source AS ref, cp.note, p.name AS party
+         FROM capital_payments cp
+         JOIN partners p ON p.id = cp.partner_id
+         WHERE cp.tenant_id=? AND cp.type='drawing'
+           AND cp.payment_date BETWEEN ? AND ?`,
+        [tenantId, startDate, endDate]
+      );
+    } catch (e) {
+      console.warn('cash ledger drawings query error:', e);
+    }
 
     // 3. Sales payments received — grouped by receipt
-    const rawClientPayments = await query<any[]>(
-      `SELECT sp.id, sp.payment_date AS date, sp.payment_mode, sp.receipt_no, sp.notes, sp.amount,
-              o.invoice_number, c.name AS client_name, c.id AS client_id
-       FROM sales_payments sp
-       JOIN sales_orders o ON o.id = sp.order_id
-       JOIN clients c ON c.id = o.client_id
-       WHERE sp.tenant_id=? AND sp.payment_date BETWEEN ? AND ?
-       ORDER BY sp.payment_date ASC, sp.id ASC`,
-      [tenantId, from, to]
-    );
+    let clientPayments: any[] = [];
+    try {
+      const rawClientPayments = await query<any[]>(
+        `SELECT sp.id, sp.payment_date AS date, sp.payment_mode, sp.receipt_no, sp.notes, sp.amount,
+                o.invoice_number, c.name AS client_name, c.id AS client_id
+         FROM sales_payments sp
+         JOIN sales_orders o ON o.id = sp.order_id
+         JOIN clients c ON c.id = o.client_id
+         WHERE sp.tenant_id=? AND sp.payment_date BETWEEN ? AND ?
+         ORDER BY sp.payment_date ASC, sp.id ASC`,
+        [tenantId, startDate, endDate]
+      );
 
-    const cashReceiptsMap = new Map<string, any>();
-    for (const sp of rawClientPayments) {
-      const pDate = sp.date ? String(sp.date).slice(0, 10) : '';
-      const key = sp.receipt_no ? `${sp.client_id}_${pDate}_${sp.receipt_no}` : `PAY-${sp.id}`;
-      if (!cashReceiptsMap.has(key)) {
-        const modeLabel = sp.payment_mode ? sp.payment_mode.replace(/_/g, ' ').toUpperCase() : 'CASH';
-        cashReceiptsMap.set(key, {
-          date: sp.date,
-          type: 'sale',
-          description: `💵 Payment (${modeLabel}) — ${sp.client_name}`,
-          amount: 0,
-          direction: 'in',
-          ref: sp.receipt_no || `RCP-${sp.id}`,
-          note: sp.notes || null,
-          party: sp.client_name,
-        });
+      const cashReceiptsMap = new Map<string, any>();
+      for (const sp of rawClientPayments) {
+        const pDate = sp.date ? String(sp.date).slice(0, 10) : '';
+        const key = sp.receipt_no ? `${sp.client_id}_${pDate}_${sp.receipt_no}` : `PAY-${sp.id}`;
+        if (!cashReceiptsMap.has(key)) {
+          const modeLabel = sp.payment_mode ? sp.payment_mode.replace(/_/g, ' ').toUpperCase() : 'CASH';
+          cashReceiptsMap.set(key, {
+            date: sp.date,
+            type: 'sale',
+            description: `💵 Payment (${modeLabel}) — ${sp.client_name}`,
+            amount: 0,
+            direction: 'in',
+            ref: sp.receipt_no || `RCP-${sp.id}`,
+            note: sp.notes || null,
+            party: sp.client_name,
+          });
+        }
+        cashReceiptsMap.get(key).amount += Number(sp.amount || 0);
       }
-      cashReceiptsMap.get(key).amount += Number(sp.amount || 0);
+      clientPayments = Array.from(cashReceiptsMap.values());
+    } catch (e) {
+      console.warn('cash ledger clientPayments query error:', e);
     }
-    const clientPayments = Array.from(cashReceiptsMap.values());
 
     // 4. Legacy single sales_orders payments (where amount_paid > 0 but no sales_payments row exists)
-    const legacyPayments = await query<any[]>(
-      `SELECT o.order_date AS date, 'sale' AS type,
-              CONCAT('💵 Payment (Legacy) — ', c.name) AS description,
-              o.amount_paid AS amount, 'in' AS direction,
-              o.invoice_number AS ref, o.notes AS note, c.name AS party
-       FROM sales_orders o
-       JOIN clients c ON c.id = o.client_id
-       LEFT JOIN sales_payments sp ON sp.order_id = o.id
-       WHERE o.tenant_id=? AND sp.id IS NULL AND o.amount_paid > 0
-         AND o.order_date BETWEEN ? AND ?`,
-      [tenantId, from, to]
-    );
+    let legacyPayments: any[] = [];
+    try {
+      legacyPayments = await query<any[]>(
+        `SELECT o.order_date AS date, 'sale' AS type,
+                CONCAT('💵 Payment (Legacy) — ', c.name) AS description,
+                o.amount_paid AS amount, 'in' AS direction,
+                o.invoice_number AS ref, o.notes AS note, c.name AS party
+         FROM sales_orders o
+         JOIN clients c ON c.id = o.client_id
+         LEFT JOIN sales_payments sp ON sp.order_id = o.id
+         WHERE o.tenant_id=? AND sp.id IS NULL AND o.amount_paid > 0
+           AND o.order_date BETWEEN ? AND ?`,
+        [tenantId, startDate, endDate]
+      );
+    } catch (e) {
+      console.warn('cash ledger legacyPayments query error:', e);
+    }
 
     // 5. Purchases payments made (outflow on purchase/bill payment date)
-    const purchases = await query<any[]>(
-      `SELECT p.invoice_date AS date, 'purchase' AS type,
-              CONCAT('📦 Purchase (', UPPER(COALESCE(p.payment_mode, 'CASH')), ') — ', COALESCE(v.name, 'Unknown Vendor')) AS description,
-              p.total AS amount, 'out' AS direction,
-              p.invoice_no AS ref, p.notes AS note, v.name AS party
-       FROM purchases p
-       LEFT JOIN vendors v ON v.id = p.vendor_id
-       WHERE p.tenant_id=? AND p.status='paid'
-         AND p.invoice_date BETWEEN ? AND ?`,
-      [tenantId, from, to]
-    );
+    let purchases: any[] = [];
+    try {
+      purchases = await query<any[]>(
+        `SELECT p.invoice_date AS date, 'purchase' AS type,
+                CONCAT('📦 Purchase (', UPPER(COALESCE(p.payment_mode, 'CASH')), ') — ', COALESCE(v.name, 'Unknown Vendor')) AS description,
+                (CASE WHEN p.status='paid' THEN (CASE WHEN p.total > 0 THEN p.total ELSE COALESCE(p.advance_paid, 0) END) ELSE COALESCE(p.advance_paid, 0) END) AS amount,
+                'out' AS direction,
+                p.invoice_no AS ref, p.notes AS note, v.name AS party
+         FROM purchases p
+         LEFT JOIN vendors v ON v.id = p.vendor_id
+         WHERE p.tenant_id=? AND (p.status='paid' OR COALESCE(p.advance_paid, 0) > 0)
+           AND p.invoice_date BETWEEN ? AND ?`,
+        [tenantId, startDate, endDate]
+      );
+    } catch (e) {
+      console.warn('cash ledger purchases query error:', e);
+    }
 
     // 6. Direct company expenses (outflow)
-    const companyExpenses = await query<any[]>(
-      `SELECT e.expense_date AS date, 'expense' AS type,
-              CONCAT('🏷️ Expense (', e.category, ') — ', COALESCE(e.description, 'General')) AS description,
-              e.amount, 'out' AS direction,
-              e.bill_number AS ref, e.description AS note, NULL AS party
-       FROM expenses e
-       WHERE e.tenant_id=? AND e.expense_date BETWEEN ? AND ?`,
-      [tenantId, from, to]
-    );
+    let companyExpenses: any[] = [];
+    try {
+      companyExpenses = await query<any[]>(
+        `SELECT e.expense_date AS date, 'expense' AS type,
+                CONCAT('🏷️ Expense (', e.category, ') — ', COALESCE(e.description, 'General')) AS description,
+                e.amount, 'out' AS direction,
+                e.bill_number AS ref, e.description AS note, NULL AS party
+         FROM expenses e
+         WHERE e.tenant_id=? AND e.expense_date BETWEEN ? AND ?`,
+        [tenantId, startDate, endDate]
+      );
+    } catch (e) {
+      console.warn('cash ledger companyExpenses query error:', e);
+    }
 
-    // 7. Staff payroll wages paid (outflow on last day of work month for settled entries)
-    const earningExpr = `(
-      (e.completed_pcs * COALESCE(e.rate_per_pc, (SELECT rate_per_pc FROM products p WHERE p.id=e.product_id), 0))
-      + COALESCE(e.overtime_amount, 0)
-      - COALESCE(e.deductions, 0)
-    )`;
-
-    const payrollRows = await query<any[]>(
-      `SELECT MAX(LAST_DAY(e.entry_date)) AS date, 'payroll' AS type,
-              CONCAT('👷 Payroll — ', MAX(s.name)) AS description,
-              SUM(${earningExpr}) AS amount, 'out' AS direction,
-              CONCAT(MAX(MONTHNAME(e.entry_date)), ' ', MAX(YEAR(e.entry_date))) AS ref,
-              NULL AS note, MAX(s.name) AS party
-       FROM staff_work_entries e
-       JOIN staff s ON s.id = e.staff_id
-       WHERE e.tenant_id=? AND e.is_settled=1
-         AND e.entry_date BETWEEN ? AND ?
-       GROUP BY s.id, YEAR(e.entry_date), MONTH(e.entry_date)`,
-      [tenantId, from, to]
-    );
+    // 7. Staff payroll wages paid (outflow on completion / work date for settled entries)
+    let payrollRows: any[] = [];
+    try {
+      payrollRows = await query<any[]>(
+        `SELECT MAX(LAST_DAY(COALESCE(e.completion_date, e.entry_date))) AS date, 'payroll' AS type,
+                CONCAT('👷 Payroll — ', MAX(s.name)) AS description,
+                SUM(${earningExpr}) AS amount, 'out' AS direction,
+                CONCAT(MAX(MONTHNAME(COALESCE(e.completion_date, e.entry_date))), ' ', MAX(YEAR(COALESCE(e.completion_date, e.entry_date)))) AS ref,
+                NULL AS note, MAX(s.name) AS party
+         FROM staff_work_entries e
+         JOIN staff s ON s.id = e.staff_id
+         WHERE e.tenant_id=? AND e.is_settled=1
+           AND COALESCE(e.completion_date, e.entry_date) BETWEEN ? AND ?
+         GROUP BY s.id, YEAR(COALESCE(e.completion_date, e.entry_date)), MONTH(COALESCE(e.completion_date, e.entry_date))`,
+        [tenantId, startDate, endDate]
+      );
+    } catch (e) {
+      console.warn('cash ledger payrollRows query error:', e);
+    }
 
     // 8. Staff advances paid (outflow on advance date)
     let staffAdvancesRows: any[] = [];
@@ -275,9 +309,11 @@ export async function getCashLedger(req: AuthRequest, res: Response): Promise<vo
          FROM staff_advances a
          JOIN staff s ON s.id = a.staff_id
          WHERE a.tenant_id=? AND a.advance_date BETWEEN ? AND ?`,
-        [tenantId, from, to]
+        [tenantId, startDate, endDate]
       );
-    } catch {}
+    } catch (e) {
+      console.warn('cash ledger staffAdvancesRows query error:', e);
+    }
 
     // Merge and sort chronologically
     const all = [

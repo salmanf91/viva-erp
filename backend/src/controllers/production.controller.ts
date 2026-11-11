@@ -36,17 +36,65 @@ export async function getBatches(req: AuthRequest, res: Response): Promise<void>
     let itemsByBatch = new Map<number, any[]>();
     let staffProgressByBatch = new Map<number, { cut: number, stitch: number }>();
 
+    // Fetch product configs and size rates to attach SKU (item_code) and selling price
+    const configRows = await query<any[]>(
+      `SELECT category, name, item_code, selling_rate FROM product_config WHERE tenant_id = ?`,
+      [tenantId]
+    ).catch(() => []);
+    const configMap = new Map<string, any>();
+    for (const c of configRows) {
+      configMap.set((c.category || '').toLowerCase(), c);
+    }
+
+    const sizeRateRows = await query<any[]>(
+      `SELECT category, size_label, selling_rate FROM product_size_rates WHERE tenant_id = ?`,
+      [tenantId]
+    ).catch(() => []);
+    const sizeRateMap = new Map<string, number>();
+    for (const sr of sizeRateRows) {
+      sizeRateMap.set(`${(sr.category || '').toLowerCase()}__${(sr.size_label || '').toLowerCase()}`, Number(sr.selling_rate || 0));
+    }
+
     if (allBatchIds.length > 0) {
       try {
         const batchItems = await query<any[]>(
-          `SELECT * FROM production_batch_items WHERE tenant_id = ? AND batch_id IN (${allBatchIds.map(() => '?').join(',')}) ORDER BY id ASC`,
+          `SELECT pbi.*, pc.name AS product_name, pc.item_code, pc.selling_rate AS base_selling_rate
+           FROM production_batch_items pbi
+           LEFT JOIN product_config pc ON (LOWER(pc.category) = LOWER(pbi.category) AND pc.tenant_id = pbi.tenant_id)
+           WHERE pbi.tenant_id = ? AND pbi.batch_id IN (${allBatchIds.map(() => '?').join(',')})
+           ORDER BY pbi.id ASC`,
           [tenantId, ...allBatchIds]
         );
         for (const item of batchItems) {
+          const cat = (item.category || '').toLowerCase();
+          const size = (item.size || '').toLowerCase();
+          const sizePrice = sizeRateMap.get(`${cat}__${size}`);
+          item.selling_rate = sizePrice !== undefined ? sizePrice : Number(item.base_selling_rate || configMap.get(cat)?.selling_rate || 0);
+          if (!item.item_code) item.item_code = configMap.get(cat)?.item_code || null;
+          if (!item.product_name) item.product_name = configMap.get(cat)?.name || null;
+
           if (!itemsByBatch.has(item.batch_id)) itemsByBatch.set(item.batch_id, []);
           itemsByBatch.get(item.batch_id)!.push(item);
         }
-      } catch {}
+      } catch {
+        try {
+          const batchItems = await query<any[]>(
+            `SELECT * FROM production_batch_items WHERE tenant_id = ? AND batch_id IN (${allBatchIds.map(() => '?').join(',')}) ORDER BY id ASC`,
+            [tenantId, ...allBatchIds]
+          );
+          for (const item of batchItems) {
+            const cat = (item.category || '').toLowerCase();
+            const size = (item.size || '').toLowerCase();
+            const sizePrice = sizeRateMap.get(`${cat}__${size}`);
+            item.selling_rate = sizePrice !== undefined ? sizePrice : Number(configMap.get(cat)?.selling_rate || 0);
+            item.item_code = configMap.get(cat)?.item_code || null;
+            item.product_name = configMap.get(cat)?.name || null;
+
+            if (!itemsByBatch.has(item.batch_id)) itemsByBatch.set(item.batch_id, []);
+            itemsByBatch.get(item.batch_id)!.push(item);
+          }
+        } catch {}
+      }
 
       try {
         const staffProgress = await query<any[]>(
@@ -69,10 +117,15 @@ export async function getBatches(req: AuthRequest, res: Response): Promise<void>
     }
 
     const enrichBatch = (b: any) => {
+      const cat = (b.category || '').toLowerCase();
+      const cfg = configMap.get(cat);
       const bItems = itemsByBatch.get(b.id) || [
         {
           id: null,
           category: b.category,
+          product_name: cfg?.name || null,
+          item_code: cfg?.item_code || null,
+          selling_rate: Number(cfg?.selling_rate || 0),
           size: null,
           quantity: b.quantity,
           cut_rate: b.cut_rate,
@@ -373,9 +426,33 @@ export async function getBatchDetail(req: AuthRequest, res: Response): Promise<v
     if (!batches[0]) { res.status(404).json({ message: 'Not found' }); return; }
 
     const items = await query<any[]>(
-      `SELECT * FROM production_batch_items WHERE batch_id=? AND tenant_id=? ORDER BY id ASC`,
+      `SELECT pbi.*, pc.name AS product_name, pc.item_code, pc.selling_rate AS base_selling_rate
+       FROM production_batch_items pbi
+       LEFT JOIN product_config pc ON (LOWER(pc.category) = LOWER(pbi.category) AND pc.tenant_id = pbi.tenant_id)
+       WHERE pbi.batch_id=? AND pbi.tenant_id=? ORDER BY pbi.id ASC`,
       [id, tenantId]
-    );
+    ).catch(async () => {
+      return await query<any[]>(
+        `SELECT * FROM production_batch_items WHERE batch_id=? AND tenant_id=? ORDER BY id ASC`,
+        [id, tenantId]
+      );
+    });
+
+    const sizeRateRows = await query<any[]>(
+      `SELECT category, size_label, selling_rate FROM product_size_rates WHERE tenant_id = ?`,
+      [tenantId]
+    ).catch(() => []);
+    const sizeRateMap = new Map<string, number>();
+    for (const sr of sizeRateRows) {
+      sizeRateMap.set(`${(sr.category || '').toLowerCase()}__${(sr.size_label || '').toLowerCase()}`, Number(sr.selling_rate || 0));
+    }
+
+    for (const it of items) {
+      const cat = (it.category || '').toLowerCase();
+      const size = (it.size || '').toLowerCase();
+      const sizePrice = sizeRateMap.get(`${cat}__${size}`);
+      it.selling_rate = sizePrice !== undefined ? sizePrice : Number(it.base_selling_rate || 0);
+    }
 
     const workLogs = await query<any[]>(
       `SELECT e.id, e.entry_date, e.completion_date, e.staff_id, s.name AS staff_name, s.role,
