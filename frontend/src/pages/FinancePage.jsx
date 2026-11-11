@@ -52,7 +52,8 @@ export default function FinancePage() {
   const [pnlLoad,  setPnlLoad]  = useState(false);
 
   // Cash Ledger state
-  const firstDay = `${now.getFullYear()}-04-01`; // business started April
+  const fyYear   = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1;
+  const firstDay = `${fyYear}-04-01`; // Financial year start (April 1st)
   const today    = now.toISOString().slice(0, 10);
   const [from,      setFrom]      = useState(firstDay);
   const [to,        setTo]        = useState(today);
@@ -63,13 +64,23 @@ export default function FinancePage() {
     setPnlLoad(true);
     api.get(`/finance/pnl?month=${pnlMonth}&year=${pnlYear}`)
       .then(r => setPnl(r.data))
+      .catch(err => {
+        console.error('Failed to load P&L:', err);
+        setPnl(null);
+      })
       .finally(() => setPnlLoad(false));
   };
 
   const loadLedger = () => {
     setLedgerLoad(true);
-    api.get(`/finance/cash-ledger?from=${from}&to=${to}`)
-      .then(r => setLedger(r.data))
+    const effFrom = from <= to ? from : to;
+    const effTo   = from <= to ? to : from;
+    api.get(`/finance/cash-ledger?from=${effFrom}&to=${effTo}`)
+      .then(r => setLedger(Array.isArray(r.data) ? r.data : []))
+      .catch(err => {
+        console.error('Failed to load cash ledger:', err);
+        setLedger([]);
+      })
       .finally(() => setLedgerLoad(false));
   };
 

@@ -646,6 +646,16 @@ export default function ProductionPage() {
     };
   };
 
+  const getItemSkuAndPrice = (it) => {
+    const itCfg = configs.find(c => (c.category || '').toLowerCase() === (it?.category || '').toLowerCase()) || {};
+    const sku = it?.item_code || itCfg.item_code || null;
+    const itSize = (it?.size || '').trim().toLowerCase();
+    const sizeRateObj = itSize ? (itCfg.size_rates || []).find(sr => (sr.size_label || '').trim().toLowerCase() === itSize) : null;
+    const sellPrice = sizeRateObj ? Number(sizeRateObj.selling_rate) : (it?.selling_rate !== undefined && Number(it.selling_rate) > 0 ? Number(it.selling_rate) : Number(itCfg.selling_rate || 0));
+    const name = it?.product_name || itCfg.display_name || itCfg.name || getProductLabel(it?.category, configs);
+    return { sku, sellPrice, name, itCfg };
+  };
+
   const load = () => Promise.all([
     api.get(`/production?page=${histPage}&limit=${HIST_PAGE_SIZE}`).then(r => {
       setBatches(r.data.data || []);
@@ -1175,8 +1185,7 @@ export default function ProductionPage() {
             {/* Items & Sizes breakdown pills */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, margin: '8px 0 10px' }}>
               {bItems.map((it, idx) => {
-                const itCfg = configs.find(c => (c.category || '').toLowerCase() === (it.category || '').toLowerCase()) || {};
-                const itName = itCfg.display_name || itCfg.name || getProductLabel(it.category, configs);
+                const { sku, sellPrice, name } = getItemSkuAndPrice(it);
                 return (
                   <div key={idx} style={{
                     background: '#f8fafc',
@@ -1189,9 +1198,19 @@ export default function ProductionPage() {
                     gap: 6
                   }}>
                     <span style={{ width: 7, height: 7, borderRadius: '50%', background: getProductColor(it.category) }} />
-                    <span style={{ fontWeight: 600 }}>{itName}</span>
+                    <span style={{ fontWeight: 600 }}>{name}</span>
+                    {sku && (
+                      <span style={{ fontFamily: 'monospace', fontSize: 10, background: '#e2e8f0', padding: '1px 5px', borderRadius: 4, color: '#334155', fontWeight: 700 }} title="SKU Code">
+                        {sku}
+                      </span>
+                    )}
                     {it.size && <span style={{ background: '#e0e7ff', color: '#3730a3', padding: '1px 5px', borderRadius: 4, fontWeight: 700, fontSize: 11 }}>{it.size}</span>}
                     <span style={{ color: 'var(--muted)', fontWeight: 700 }}>× {it.quantity} pcs</span>
+                    {sellPrice > 0 && (
+                      <span style={{ color: '#059669', fontWeight: 800, fontSize: 11, background: '#ecfdf5', padding: '1px 5px', borderRadius: 4, border: '1px solid #a7f3d0' }} title="Product Selling Price">
+                        ₹{sellPrice.toLocaleString('en-IN')}/pc
+                      </span>
+                    )}
                   </div>
                 );
               })}
@@ -1282,8 +1301,9 @@ export default function ProductionPage() {
             <thead>
               <tr>
                 <th>Batch</th>
-                <th>Products & Sizes</th>
+                <th>Products, SKU &amp; Sizes</th>
                 <th style={{ textAlign: 'right' }}>Total Qty</th>
+                <th style={{ textAlign: 'right', color: 'var(--green)' }}>Selling Price</th>
                 <th>Date</th>
                 <th style={{ textAlign: 'right' }}>Avg Cut</th>
                 <th style={{ textAlign: 'right' }}>Avg Stitch</th>
@@ -1300,29 +1320,49 @@ export default function ProductionPage() {
                   <tr key={b.id}>
                     <td style={{ fontWeight: 700 }}>{b.batch_number}</td>
                     <td>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
                         {bItems.map((it, idx) => {
-                          const itCfg = configs.find(c => (c.category || '').toLowerCase() === (it.category || '').toLowerCase()) || {};
+                          const { sku, sellPrice, name } = getItemSkuAndPrice(it);
                           return (
                             <span key={idx} style={{
-                              background: '#f1f5f9',
-                              padding: '2px 6px',
-                              borderRadius: 4,
+                              background: '#f8fafc',
+                              border: '1px solid #e2e8f0',
+                              padding: '3px 7px',
+                              borderRadius: 5,
                               fontSize: 11,
                               display: 'inline-flex',
                               alignItems: 'center',
-                              gap: 4
+                              gap: 5
                             }}>
                               <span style={{ width: 6, height: 6, borderRadius: '50%', background: getProductColor(it.category) }} />
-                              {itCfg.display_name || itCfg.name || getProductLabel(it.category, configs)}
+                              <strong style={{ color: '#1e293b' }}>{name}</strong>
+                              {sku && (
+                                <span style={{ fontFamily: 'monospace', fontSize: 10, background: '#e2e8f0', padding: '1px 4px', borderRadius: 3, color: '#334155', fontWeight: 700 }} title="SKU Code">
+                                  {sku}
+                                </span>
+                              )}
                               {it.size && <strong style={{ color: '#4f46e5' }}>({it.size})</strong>}
-                              <span style={{ color: 'var(--muted)' }}>: {it.quantity}</span>
+                              <span style={{ color: 'var(--muted)', fontWeight: 600 }}>× {it.quantity}</span>
+                              {sellPrice > 0 && (
+                                <span style={{ color: '#059669', fontWeight: 800, fontSize: 11, background: '#ecfdf5', padding: '0 4px', borderRadius: 3 }} title="Product Selling Price">
+                                  ₹{sellPrice.toLocaleString('en-IN')}
+                                </span>
+                              )}
                             </span>
                           );
                         })}
                       </div>
                     </td>
                     <td style={{ textAlign: 'right', fontWeight: 800, fontSize: 13 }}>{b.quantity} pcs</td>
+                    <td style={{ textAlign: 'right', fontWeight: 800, fontSize: 12, color: 'var(--green)' }}>
+                      {(() => {
+                        const prices = bItems.map(it => getItemSkuAndPrice(it).sellPrice).filter(p => p > 0);
+                        if (prices.length === 0) return <span style={{ color: 'var(--muted)' }}>—</span>;
+                        const minP = Math.min(...prices);
+                        const maxP = Math.max(...prices);
+                        return minP === maxP ? `₹${minP.toLocaleString('en-IN')}` : `₹${minP.toLocaleString('en-IN')}–${maxP.toLocaleString('en-IN')}`;
+                      })()}
+                    </td>
                     <td style={{ color: 'var(--muted)', fontSize: 12 }}>{fmtDate(b.batch_date)}</td>
                     <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--accent)' }}>₹{Number(b.cut_rate || 0).toFixed(2)}</td>
                     <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--cyan)' }}>₹{Number(b.stitch_rate || 0).toFixed(2)}</td>
@@ -1415,7 +1455,9 @@ export default function ProductionPage() {
                 <thead>
                   <tr>
                     <th>Product</th>
+                    <th>SKU Code</th>
                     <th>Size</th>
+                    <th style={{ textAlign: 'right' }}>Selling Price</th>
                     <th style={{ textAlign: 'right' }}>Qty</th>
                     <th style={{ textAlign: 'right' }}>Cut Rate</th>
                     <th style={{ textAlign: 'right' }}>Stitch Rate</th>
@@ -1424,7 +1466,7 @@ export default function ProductionPage() {
                 </thead>
                 <tbody>
                   {(detail.batch?.items || [{ category: detail.batch?.category, size: null, quantity: detail.batch?.quantity, cut_rate: detail.batch?.cut_rate, stitch_rate: detail.batch?.stitch_rate }]).map((it, idx) => {
-                    const itCfg = configs.find(c => (c.category || '').toLowerCase() === (it.category || '').toLowerCase()) || {};
+                    const { sku, sellPrice, name, itCfg } = getItemSkuAndPrice(it);
                     const itAcc = (it.zip_cost !== undefined ? Number(it.zip_cost) : Number(itCfg.zip_cost || 0)) +
                       (it.thread_cost !== undefined ? Number(it.thread_cost) : Number(itCfg.thread_cost || 0)) +
                       (it.canvas_cost !== undefined ? Number(it.canvas_cost) : Number(itCfg.canvas_cost || 0)) +
@@ -1434,8 +1476,20 @@ export default function ProductionPage() {
 
                     return (
                       <tr key={idx}>
-                        <td style={{ fontWeight: 600 }}>{itCfg.display_name || itCfg.name || getProductLabel(it.category, configs)}</td>
+                        <td style={{ fontWeight: 600 }}>{name}</td>
+                        <td>
+                          {sku ? (
+                            <span style={{ fontFamily: 'monospace', fontSize: 11, background: '#f1f5f9', padding: '2px 6px', borderRadius: 4, color: '#334155', fontWeight: 700 }}>
+                              {sku}
+                            </span>
+                          ) : (
+                            <span style={{ color: 'var(--muted)', fontSize: 11 }}>—</span>
+                          )}
+                        </td>
                         <td>{it.size ? <span style={{ background: '#e0e7ff', color: '#3730a3', padding: '1px 6px', borderRadius: 4, fontWeight: 700, fontSize: 11 }}>{it.size}</span> : <span style={{ color: 'var(--muted)' }}>—</span>}</td>
+                        <td style={{ textAlign: 'right', fontWeight: 800, color: 'var(--green)' }}>
+                          {sellPrice > 0 ? `₹${sellPrice.toLocaleString('en-IN')}` : '—'}
+                        </td>
                         <td style={{ textAlign: 'right', fontWeight: 700 }}>{it.quantity} pcs</td>
                         <td style={{ textAlign: 'right', color: 'var(--accent)' }}>₹{Number(it.cut_rate || 0).toFixed(2)}</td>
                         <td style={{ textAlign: 'right', color: 'var(--cyan)' }}>₹{Number(it.stitch_rate || 0).toFixed(2)}</td>

@@ -251,15 +251,41 @@ export async function createOrder(req: AuthRequest, res: Response): Promise<void
 
     if (initialPaid > 0) {
       try {
+        const year = new Date(order_date).getFullYear();
+        const seqRows = await query<any[]>(
+          `SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(receipt_no, '-', -1) AS UNSIGNED)), 0) + 1 AS next_seq
+           FROM sales_payments 
+           WHERE tenant_id=? AND YEAR(payment_date)=? AND receipt_no REGEXP '^RCP-[0-9]{4}-[0-9]+$'`,
+          [tenantId, year]
+        );
+        let seq = Number(seqRows[0]?.next_seq || 1);
+        let receiptNo = `RCP-${year}-${String(seq).padStart(4, '0')}`;
+        while (true) {
+          const existing = await query<any[]>(
+            `SELECT id FROM sales_payments WHERE tenant_id=? AND receipt_no=? LIMIT 1`,
+            [tenantId, receiptNo]
+          );
+          if (!existing || existing.length === 0) break;
+          seq++;
+          receiptNo = `RCP-${year}-${String(seq).padStart(4, '0')}`;
+        }
+
         await query(
-          'INSERT INTO sales_payments (tenant_id, order_id, amount, payment_date, payment_mode) VALUES (?,?,?,?,?)',
-          [tenantId, orderId, initialPaid, order_date, paymentMode]
+          'INSERT INTO sales_payments (tenant_id, order_id, amount, payment_date, payment_mode, receipt_no, notes) VALUES (?,?,?,?,?,?,?)',
+          [tenantId, orderId, initialPaid, order_date, paymentMode, receiptNo, notes || 'Initial order payment']
         );
       } catch {
-        await query(
-          'INSERT INTO sales_payments (tenant_id, order_id, amount, payment_date) VALUES (?,?,?,?)',
-          [tenantId, orderId, initialPaid, order_date]
-        );
+        try {
+          await query(
+            'INSERT INTO sales_payments (tenant_id, order_id, amount, payment_date, payment_mode) VALUES (?,?,?,?,?)',
+            [tenantId, orderId, initialPaid, order_date, paymentMode]
+          );
+        } catch {
+          await query(
+            'INSERT INTO sales_payments (tenant_id, order_id, amount, payment_date) VALUES (?,?,?,?)',
+            [tenantId, orderId, initialPaid, order_date]
+          );
+        }
       }
     }
 
@@ -676,7 +702,8 @@ export async function getReceiptDetails(req: AuthRequest, res: Response): Promis
     }
 
     // 2. Direct match on receipt_no (e.g. RCP-2026-0001, RCP-12, or custom receipt_no)
-    if (!payments.length && !isOrderType) {
+    // If key starts with RCP-, PAY-, or is not purely numeric, match receipt_no first
+    if (!payments.length && (!isOrderType || /^RCP-/i.test(cleanKey) || /^PAY[-_]/i.test(cleanKey))) {
       payments = await query<any[]>(
         `${paymentSelectQuery}
          WHERE p.receipt_no = ? AND p.tenant_id = ?
@@ -699,24 +726,13 @@ export async function getReceiptDetails(req: AuthRequest, res: Response): Promis
         const orderPayments = await query<any[]>(
           `${paymentSelectQuery}
            WHERE p.order_id = ? AND p.tenant_id = ?
-           ORDER BY p.id ASC`,
+           ORDER BY p.payment_date ASC, p.id ASC`,
           [orderId, tenantId]
         );
 
         if (orderPayments.length > 0) {
-          const firstPay = orderPayments[0];
-          // If this payment was part of a receipt with a receipt_no, expand to all payments in that receipt for this client
-          if (firstPay.receipt_no && String(firstPay.receipt_no).trim()) {
-            payments = await query<any[]>(
-              `${paymentSelectQuery}
-               WHERE p.receipt_no = ? AND o.client_id = ? AND p.tenant_id = ?
-               ORDER BY p.id ASC`,
-              [firstPay.receipt_no, firstPay.client_id, tenantId]
-            );
-          }
-          if (!payments.length) {
-            payments = orderPayments;
-          }
+          // An order may have multiple installments/payments: return all of them so receipt is complete
+          payments = orderPayments;
         }
       }
     }
@@ -727,23 +743,12 @@ export async function getReceiptDetails(req: AuthRequest, res: Response): Promis
       const invPayments = await query<any[]>(
         `${paymentSelectQuery}
          WHERE (o.invoice_number = ? OR o.invoice_number = ?) AND p.tenant_id = ?
-         ORDER BY p.id ASC`,
+         ORDER BY p.payment_date ASC, p.id ASC`,
         [cleanKey, possibleInv, tenantId]
       );
 
       if (invPayments.length > 0) {
-        const firstPay = invPayments[0];
-        if (firstPay.receipt_no && String(firstPay.receipt_no).trim()) {
-          payments = await query<any[]>(
-            `${paymentSelectQuery}
-             WHERE p.receipt_no = ? AND o.client_id = ? AND p.tenant_id = ?
-             ORDER BY p.id ASC`,
-            [firstPay.receipt_no, firstPay.client_id, tenantId]
-          );
-        }
-        if (!payments.length) {
-          payments = invPayments;
-        }
+        payments = invPayments;
       }
     }
 
@@ -842,9 +847,10 @@ export async function getReceiptDetails(req: AuthRequest, res: Response): Promis
     }
 
     const first = payments[0];
+    const last = payments[payments.length - 1];
     const clientId = first.client_id;
     const totalReceived = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
-    const coveredOrderIds = payments.map(p => p.order_id);
+    const coveredOrderIds = Array.from(new Set(payments.map(p => p.order_id)));
 
     // Other outstanding invoices for this client (excluding orders covered in this receipt)
     const otherOutstanding = await query<any[]>(
@@ -860,13 +866,63 @@ export async function getReceiptDetails(req: AuthRequest, res: Response): Promis
     const clientTotalOutstanding = otherOutstanding.reduce(
       (s, o) => s + Math.max(0, Number(o.total || 0) - Number(o.amount_paid || 0)),
       0
-    ) + payments.reduce((s, p) => s + Math.max(0, Number(p.order_total || 0) - Number(p.order_amount_paid || 0)), 0);
+    ) + coveredOrderIds.reduce((s, ordId) => {
+      const matchP = payments.find(p => p.order_id === ordId);
+      return s + Math.max(0, Number(matchP?.order_total || 0) - Number(matchP?.order_amount_paid || 0));
+    }, 0);
+
+    // Group allocations by distinct order_id
+    const allocationsMap = new Map<number, any>();
+    for (const p of payments) {
+      if (!allocationsMap.has(p.order_id)) {
+        const orderTotal = Number(p.order_total || 0);
+        const orderPaid = Number(p.order_amount_paid || 0);
+        allocationsMap.set(p.order_id, {
+          payment_id: p.id,
+          order_id: p.order_id,
+          invoice_number: p.invoice_number,
+          order_date: p.order_date,
+          amount_paid_in_receipt: 0,
+          order_total: orderTotal,
+          order_amount_paid: orderPaid,
+          balance_remaining: Math.max(0, orderTotal - orderPaid),
+          status: p.order_status,
+        });
+      }
+      allocationsMap.get(p.order_id).amount_paid_in_receipt += Number(p.amount || 0);
+    }
+
+    const allocations = Array.from(allocationsMap.values()).map(al => ({
+      ...al,
+      previously_paid: Math.max(0, Number(al.order_amount_paid || 0) - Number(al.amount_paid_in_receipt || 0)),
+    }));
+
+    const uniqueReceiptNos = Array.from(new Set(payments.map(p => String(p.receipt_no || '').trim()).filter(Boolean)));
+    const displayReceiptNo = uniqueReceiptNos.length === 1
+      ? uniqueReceiptNos[0]
+      : uniqueReceiptNos.length > 1
+        ? uniqueReceiptNos.join(', ')
+        : (first.receipt_no || `RCP-${first.invoice_number || first.id}`);
+
+    const uniqueModes = Array.from(new Set(payments.map(p => (p.payment_mode || 'cash').trim().toLowerCase())));
+    const displayMode = uniqueModes.join(', ');
+
+    const paymentRecords = payments.map(p => ({
+      id: p.id,
+      order_id: p.order_id,
+      invoice_number: p.invoice_number,
+      amount: Number(p.amount || 0),
+      payment_date: p.payment_date,
+      payment_mode: p.payment_mode || 'cash',
+      receipt_no: p.receipt_no || `RCP-${p.id}`,
+      notes: p.notes || '',
+    }));
 
     res.json({
-      receipt_no: first.receipt_no || `RCP-${first.invoice_number || first.id}`,
-      payment_date: first.payment_date,
-      payment_mode: first.payment_mode || 'cash',
-      notes: first.notes || '',
+      receipt_no: displayReceiptNo,
+      payment_date: last.payment_date,
+      payment_mode: displayMode,
+      notes: Array.from(new Set(payments.map(p => p.notes).filter(Boolean))).join('; ') || '',
       client: {
         id: first.client_id,
         name: first.client_name,
@@ -875,21 +931,8 @@ export async function getReceiptDetails(req: AuthRequest, res: Response): Promis
         address: first.client_address,
       },
       total_amount: totalReceived,
-      allocations: payments.map(p => {
-        const orderTotal = Number(p.order_total || 0);
-        const orderPaid = Number(p.order_amount_paid || 0);
-        return {
-          payment_id: p.id,
-          order_id: p.order_id,
-          invoice_number: p.invoice_number,
-          order_date: p.order_date,
-          amount_paid_in_receipt: Number(p.amount || 0),
-          order_total: orderTotal,
-          order_amount_paid: orderPaid,
-          balance_remaining: Math.max(0, orderTotal - orderPaid),
-          status: p.order_status,
-        };
-      }),
+      allocations,
+      payments: paymentRecords,
       client_total_outstanding: clientTotalOutstanding,
       other_outstanding: otherOutstanding.map(o => ({
         ...o,

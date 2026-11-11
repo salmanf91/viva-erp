@@ -370,7 +370,13 @@ function OrdersTab({ onReload }) {
       {editOrder    && <NewOrderModal order={editOrder} onClose={() => setEditOrder(null)} onSaved={() => { setEditOrder(null); load(); onReload(); }} />}
       {invoice      && <InvoiceModal order={invoice} onClose={() => setInvoice(null)} />}
       {payModal     && <RecordPaymentModal info={payModal} onClose={() => setPayModal(null)} onSave={recordPayment} />}
-      {receiptModal && <PaymentReceiptModal orderId={receiptModal} onClose={() => setReceiptModal(null)} />}
+      {receiptModal && (
+        <PaymentReceiptModal
+          orderId={typeof receiptModal === 'number' || /^\d+$/.test(receiptModal) ? receiptModal : undefined}
+          receiptKey={typeof receiptModal === 'string' && !/^\d+$/.test(receiptModal) ? receiptModal : undefined}
+          onClose={() => setReceiptModal(null)}
+        />
+      )}
     </>
   );
 }
@@ -977,10 +983,11 @@ function PaymentReceiptModal({ receiptKey, orderId, onClose }) {
   const printRef = useRef();
 
   const targetKey = receiptKey || orderId;
+  const isOrderParam = Boolean((orderId && !receiptKey) || (typeof targetKey === 'number') || (/^\d+$/.test(targetKey) && !String(targetKey).startsWith('RCP-') && !String(targetKey).startsWith('PAY-')));
 
   useEffect(() => {
     if (!targetKey) return;
-    const url = (orderId && !receiptKey) ? `/sales/receipts/${orderId}?type=order` : `/sales/receipts/${targetKey}`;
+    const url = isOrderParam ? `/sales/receipts/${targetKey}?type=order` : `/sales/receipts/${targetKey}`;
     api.get(url)
       .then(r => setReceipt(r.data))
       .catch(async () => {
@@ -1014,8 +1021,19 @@ function PaymentReceiptModal({ receiptKey, orderId, onClose }) {
               amount_paid_in_receipt: amtPaid,
               order_total: total,
               order_amount_paid: amtPaid,
+              previously_paid: 0,
               balance_remaining: Math.max(0, total - amtPaid),
               status: ord.status,
+            }],
+            payments: [{
+              id: 0,
+              order_id: ord.id,
+              invoice_number: ord.invoice_number,
+              amount: amtPaid,
+              payment_date: ord.order_date,
+              payment_mode: 'cash',
+              receipt_no: `RCP-${ord.invoice_number}`,
+              notes: ord.notes || '',
             }],
             client_total_outstanding: (ord.other_outstanding || []).reduce((s, o) => s + Math.max(0, Number(o.total || 0) - Number(o.amount_paid || 0)), 0),
             other_outstanding: ord.other_outstanding || [],
@@ -1024,7 +1042,7 @@ function PaymentReceiptModal({ receiptKey, orderId, onClose }) {
           console.error('Failed to load receipt', e);
         }
       });
-  }, [targetKey]);
+  }, [targetKey, isOrderParam]);
 
   if (!receipt) return (
     <div className="modal-overlay">
@@ -1135,6 +1153,37 @@ function PaymentReceiptModal({ receiptKey, orderId, onClose }) {
             </div>
           </div>
 
+          {/* Payment Breakdown / Installments (if multiple payments) */}
+          {receipt.payments && receipt.payments.length > 1 && (
+            <div style={{ padding: '16px 36px 0' }}>
+              <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.08em', color: '#C8860A', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span>💳 Payment Breakdown / Installments ({receipt.payments.length} Payments)</span>
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead>
+                  <tr style={{ borderBottom: '2px solid #C8860A', background: '#fdfaf4' }}>
+                    <th style={{ padding: '6px 8px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', color: '#C8860A' }}>#</th>
+                    <th style={{ padding: '6px 8px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', color: '#C8860A' }}>Receipt #</th>
+                    <th style={{ padding: '6px 8px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', color: '#C8860A' }}>Date</th>
+                    <th style={{ padding: '6px 8px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', color: '#C8860A' }}>Mode</th>
+                    <th style={{ padding: '6px 8px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', color: '#059669', textAlign: 'right' }}>Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {receipt.payments.map((p, pIdx) => (
+                    <tr key={p.id || pIdx} style={{ borderBottom: '1px solid #f5f0e8', background: pIdx % 2 === 1 ? '#fdfaf4' : '#fff' }}>
+                      <td style={{ padding: '7px 8px', color: '#bbb' }}>{pIdx + 1}</td>
+                      <td style={{ padding: '7px 8px', fontWeight: 700, color: '#b45309' }}>{p.receipt_no}</td>
+                      <td style={{ padding: '7px 8px', color: '#666' }}>{fmtDate(p.payment_date?.slice(0, 10))}</td>
+                      <td style={{ padding: '7px 8px', textTransform: 'capitalize' }}>{p.payment_mode || 'Cash'}</td>
+                      <td style={{ padding: '7px 8px', textAlign: 'right', fontWeight: 800, color: '#059669' }}>+{m(p.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
           {/* Invoices Tagged / Breakdown Table */}
           <div style={{ padding: '20px 36px 0' }}>
             <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.08em', color: '#C8860A', marginBottom: 8 }}>
@@ -1147,7 +1196,9 @@ function PaymentReceiptModal({ receiptKey, orderId, onClose }) {
                   <th style={{ padding: '7px 10px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', color: '#C8860A' }}>Invoice #</th>
                   <th style={{ padding: '7px 10px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', color: '#C8860A' }}>Invoice Date</th>
                   <th style={{ padding: '7px 10px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', color: '#C8860A', textAlign: 'right' }}>Invoice Total</th>
+                  <th style={{ padding: '7px 10px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', color: '#777', textAlign: 'right' }}>Prev. Paid</th>
                   <th style={{ padding: '7px 10px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', color: '#059669', textAlign: 'right' }}>Received in Receipt</th>
+                  <th style={{ padding: '7px 10px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', color: '#047857', textAlign: 'right' }}>Total Paid</th>
                   <th style={{ padding: '7px 10px', fontSize: 10, fontWeight: 800, textTransform: 'uppercase', color: '#C8860A', textAlign: 'right' }}>Invoice Balance</th>
                 </tr>
               </thead>
@@ -1158,8 +1209,14 @@ function PaymentReceiptModal({ receiptKey, orderId, onClose }) {
                     <td style={{ padding: '10px 10px', fontWeight: 700, color: 'var(--accent)' }}>{al.invoice_number}</td>
                     <td style={{ padding: '10px 10px', color: '#666' }}>{fmtDate(al.order_date)}</td>
                     <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 600 }}>{m(al.order_total)}</td>
+                    <td style={{ padding: '10px 10px', textAlign: 'right', color: '#666' }}>
+                      {al.previously_paid > 0 ? m(al.previously_paid) : '—'}
+                    </td>
                     <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 800, color: '#059669', fontSize: 14 }}>
                       +{m(al.amount_paid_in_receipt)}
+                    </td>
+                    <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 700, color: '#047857' }}>
+                      {m(al.order_amount_paid !== undefined ? al.order_amount_paid : (al.previously_paid || 0) + al.amount_paid_in_receipt)}
                     </td>
                     <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 700, color: al.balance_remaining > 0 ? '#c0390b' : '#059669' }}>
                       {al.balance_remaining > 0 ? m(al.balance_remaining) : '✓ Paid'}
