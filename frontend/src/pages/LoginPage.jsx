@@ -304,6 +304,43 @@ export default function LoginPage() {
                 </div>
                 <span style={{ fontSize: 20, color: '#64748b', fontWeight: 800 }}>➔</span>
               </button>
+
+              {/* Option 3: Client Salwar Stitching & Job Work */}
+              <button
+                type="button"
+                onClick={() => {
+                  sessionStorage.setItem('active_screen_mode', 'job-work');
+                  navigate('/job-work');
+                }}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 16,
+                  padding: '16px 18px',
+                  borderRadius: 12,
+                  background: 'linear-gradient(135deg, #064e3b 0%, #065f46 100%)',
+                  border: '1.5px solid #10b981',
+                  color: '#fff',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  transition: 'transform 0.15s, box-shadow 0.15s',
+                  boxShadow: '0 4px 14px rgba(16, 185, 129, 0.25)'
+                }}
+                onMouseOver={e => e.currentTarget.style.transform = 'translateY(-2px)'}
+                onMouseOut={e => e.currentTarget.style.transform = 'translateY(0)'}
+              >
+                <span style={{ fontSize: 32 }}>🧵</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 15, fontWeight: 800, color: '#fff', display: 'flex', alignItems: 'center', gap: 8 }}>
+                    Client Salwar Stitching Unit
+                    <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: '#3b82f6', color: '#fff', fontWeight: 700 }}>Job Work</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: '#a7f3d0', marginTop: 4, lineHeight: 1.35 }}>
+                    Client raw salwar intake, Bajpe &amp; Kannur branch allocations, tailor piece wages, expenses &amp; delivery tracking.
+                  </div>
+                </div>
+                <span style={{ fontSize: 20, color: '#6ee7b7', fontWeight: 800 }}>➔</span>
+              </button>
             </div>
           </div>
         </div>

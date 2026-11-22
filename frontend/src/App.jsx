@@ -26,9 +26,11 @@ import DeliveryNotesPage from './pages/DeliveryNotesPage';
 import CatalogAdminPage from './pages/CatalogAdminPage';
 import PublicCatalogPage from './pages/PublicCatalogPage';
 import CatalogsPortalPage from './pages/CatalogsPortalPage';
+import JobWorkPage from './pages/JobWorkPage';
 
 const TITLES = {
   '/':           'Dashboard',
+  '/job-work':   'Client Salwar Stitching & Job Work',
   '/catalog-pricing': 'Product Catalog & Rates',
   '/items':      'Products & Services Master',
   '/reports':    'Reports & Analytics',
@@ -73,6 +75,9 @@ function Guard({ children, path, staffAdminOnly, superAdminOnly }) {
   if (screenMode === 'catalogs') {
     return <Navigate to="/catalogs" replace />;
   }
+  if (screenMode === 'job-work' && path !== '/job-work') {
+    return <Navigate to="/job-work" replace />;
+  }
 
   return <Layout title={TITLES[path] || ''}>{children}</Layout>;
 }
@@ -97,6 +102,7 @@ export default function App() {
 
           {/* Owner / partner / manager / admin routes */}
           <Route path="/"           element={<Guard path="/"><DashboardPage /></Guard>} />
+          <Route path="/job-work"   element={<Guard path="/job-work"><JobWorkPage /></Guard>} />
           <Route path="/catalog"    element={<Navigate to="/catalogs" replace />} />
           <Route path="/catalog-pricing" element={<Guard path="/catalog-pricing"><CatalogAdminPage /></Guard>} />
           <Route path="/items"      element={<Guard path="/items"><ItemsPage /></Guard>} />

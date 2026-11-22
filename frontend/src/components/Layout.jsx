@@ -74,6 +74,10 @@ function getNavItems(user) {
     nav.push({ section: m.feature_garment_production ? 'Production & Sales' : 'Operations & Sales' }, ...opItems);
   }
 
+  // Client Salwar Job Work Unit (Separate Business Segment)
+  nav.push({ section: 'Client Stitching Unit' });
+  nav.push({ to: '/job-work', label: 'Salwar Job Work', icon: '🧵' });
+
   // Saudi ZATCA E-Invoicing
   if (m.feature_zatca_einvoicing) {
     nav.push({ section: 'E-Invoicing' });
@@ -284,6 +288,55 @@ export default function Layout({ children, title }) {
             <div className="page-title">{activeSectionMenu ? activeSectionMenu : title}</div>
           </div>
           <div className="topbar-actions">
+            {location.pathname === '/job-work' ? (
+              <button
+                onClick={() => {
+                  sessionStorage.setItem('active_screen_mode', 'erp');
+                  navigate('/');
+                }}
+                className="btn btn-sm"
+                style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  background: 'rgba(59, 130, 246, 0.1)',
+                  color: '#2563eb',
+                  border: '1px solid rgba(59, 130, 246, 0.25)',
+                  padding: '4px 10px',
+                  borderRadius: 6,
+                  cursor: 'pointer'
+                }}
+                title="Switch to Main Enterprise ERP Workspace"
+              >
+                🏭 Main ERP
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  sessionStorage.setItem('active_screen_mode', 'job-work');
+                  navigate('/job-work');
+                }}
+                className="btn btn-sm"
+                style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  background: 'rgba(16, 185, 129, 0.1)',
+                  color: '#059669',
+                  border: '1px solid rgba(16, 185, 129, 0.25)',
+                  padding: '4px 10px',
+                  borderRadius: 6,
+                  cursor: 'pointer'
+                }}
+                title="Switch to Client Salwar Stitching Unit"
+              >
+                🧵 Salwar Job Work
+              </button>
+            )}
             <button
               onClick={() => {
                 sessionStorage.setItem('active_screen_mode', 'catalogs');

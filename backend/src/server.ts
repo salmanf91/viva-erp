@@ -22,6 +22,7 @@ import rawMaterialRoutes from './routes/rawMaterial.routes';
 import quotationRoutes  from './routes/quotation.routes';
 import deliveryNoteRoutes from './routes/deliveryNote.routes';
 import catalogRoutes     from './routes/catalog.routes';
+import jobWorkRoutes     from './routes/jobWork.routes';
 
 dotenv.config();
 
@@ -53,6 +54,7 @@ app.use('/api/accessories',    accessoryRoutes);
 app.use('/api/finance',        financeRoutes);
 app.use('/api/reports',        reportRoutes);
 app.use('/api/zatca',          zatcaRoutes);
+app.use('/api/job-work',       jobWorkRoutes);
 
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   console.error('Express error handler:', err);
