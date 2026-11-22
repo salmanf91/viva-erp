@@ -9,6 +9,12 @@ export default function JobWorkPage() {
   // Tabs: 'orders' | 'payouts'
   const [activeTab, setActiveTab] = useState('orders');
 
+  // Dynamic Branches
+  const [branches, setBranches] = useState(['Bajpe', 'Kannur']);
+  const [showAddBranchModal, setShowAddBranchModal] = useState(false);
+  const [newBranchInput, setNewBranchInput] = useState('');
+  const [branchContextSetter, setBranchContextSetter] = useState(null);
+
   // Filters
   const [branchFilter, setBranchFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -137,6 +143,41 @@ export default function JobWorkPage() {
     } catch {}
   };
 
+  const loadBranches = async () => {
+    try {
+      const r = await api.get('/job-work/branches');
+      if (Array.isArray(r.data) && r.data.length > 0) {
+        setBranches(r.data);
+      }
+    } catch {}
+  };
+
+  const handleCreateBranch = async (e) => {
+    e?.preventDefault?.();
+    const name = newBranchInput.trim();
+    if (!name) return;
+    try {
+      await api.post('/job-work/branches', { name });
+      if (!branches.includes(name)) {
+        setBranches(prev => [...prev, name].sort((a, b) => a.localeCompare(b)));
+      }
+      if (branchContextSetter) {
+        branchContextSetter(name);
+      }
+      setShowAddBranchModal(false);
+      setNewBranchInput('');
+      setBranchContextSetter(null);
+    } catch (err) {
+      alert(err.response?.data?.message || 'Failed to add branch');
+    }
+  };
+
+  const promptNewBranch = (setterFn) => {
+    setBranchContextSetter(() => setterFn);
+    setNewBranchInput('');
+    setShowAddBranchModal(true);
+  };
+
   const loadStaffPayouts = async () => {
     setPayoutLoading(true);
     try {
@@ -153,6 +194,7 @@ export default function JobWorkPage() {
   useEffect(() => {
     loadOrders(page);
     loadStaff();
+    loadBranches();
   }, [branchFilter, statusFilter, search, page]);
 
   useEffect(() => {
@@ -452,9 +494,18 @@ export default function JobWorkPage() {
           <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--text)', marginTop: 4 }}>
             {Number(stats.totalPcsCollected).toLocaleString()} <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--muted)' }}>pcs</span>
           </div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 6, fontSize: 11 }}>
-            <span className="badge b-blue">Bajpe: {stats.bajpePcs}</span>
-            <span className="badge b-purple">Kannur: {stats.kannurPcs}</span>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6, fontSize: 11 }}>
+            {(stats.branchBreakdown || []).slice(0, 4).map(bb => (
+              <span key={bb.branch} className="badge b-blue">
+                {bb.branch}: {bb.pcs}
+              </span>
+            ))}
+            {(!stats.branchBreakdown || stats.branchBreakdown.length === 0) && (
+              <>
+                <span className="badge b-blue">Bajpe: {stats.bajpePcs || 0}</span>
+                <span className="badge b-purple">Kannur: {stats.kannurPcs || 0}</span>
+              </>
+            )}
           </div>
         </div>
 
@@ -564,12 +615,27 @@ export default function JobWorkPage() {
                 <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Branch:</span>
                 <select
                   value={branchFilter}
-                  onChange={e => { setBranchFilter(e.target.value); setPage(1); }}
+                  onChange={e => {
+                    const val = e.target.value;
+                    if (val === '__add_new__') {
+                      promptNewBranch(name => {
+                        setBranchFilter(name);
+                        setPage(1);
+                      });
+                    } else {
+                      setBranchFilter(val);
+                      setPage(1);
+                    }
+                  }}
                   style={{ padding: '6px 10px', fontSize: 12, borderRadius: 6, fontWeight: 600 }}
                 >
                   <option value="all">All Branches</option>
-                  <option value="Bajpe">Bajpe Branch</option>
-                  <option value="Kannur">Kannur Branch</option>
+                  {branches.map(b => (
+                    <option key={b} value={b}>{b} Branch</option>
+                  ))}
+                  <option value="__add_new__" style={{ color: 'var(--accent)', fontWeight: 700 }}>
+                    ➕ + Add New Branch...
+                  </option>
                 </select>
               </div>
 
@@ -1057,11 +1123,22 @@ export default function JobWorkPage() {
                   </label>
                   <select
                     value={newForm.branch}
-                    onChange={e => setNewForm({ ...newForm, branch: e.target.value })}
+                    onChange={e => {
+                      const val = e.target.value;
+                      if (val === '__add_new__') {
+                        promptNewBranch(name => setNewForm(prev => ({ ...prev, branch: name })));
+                      } else {
+                        setNewForm({ ...newForm, branch: val });
+                      }
+                    }}
                     style={{ width: '100%', padding: '8px 10px', borderRadius: 6, fontSize: 13, fontWeight: 700 }}
                   >
-                    <option value="Bajpe">Bajpe Branch</option>
-                    <option value="Kannur">Kannur Branch</option>
+                    {branches.map(b => (
+                      <option key={b} value={b}>{b} Branch</option>
+                    ))}
+                    <option value="__add_new__" style={{ color: 'var(--accent)', fontWeight: 700 }}>
+                      ➕ + Add New Branch...
+                    </option>
                   </select>
                 </div>
               </div>
@@ -1357,11 +1434,22 @@ export default function JobWorkPage() {
                   </label>
                   <select
                     value={payoutForm.branch}
-                    onChange={e => setPayoutForm({ ...payoutForm, branch: e.target.value })}
+                    onChange={e => {
+                      const val = e.target.value;
+                      if (val === '__add_new__') {
+                        promptNewBranch(name => setPayoutForm(prev => ({ ...prev, branch: name })));
+                      } else {
+                        setPayoutForm({ ...payoutForm, branch: val });
+                      }
+                    }}
                     style={{ width: '100%', padding: '8px 10px', borderRadius: 6, fontSize: 12 }}
                   >
-                    <option value="Bajpe">Bajpe</option>
-                    <option value="Kannur">Kannur</option>
+                    {branches.map(b => (
+                      <option key={b} value={b}>{b}</option>
+                    ))}
+                    <option value="__add_new__" style={{ color: 'var(--accent)', fontWeight: 700 }}>
+                      ➕ + Add New Branch...
+                    </option>
                   </select>
                 </div>
                 <div>
@@ -1738,11 +1826,22 @@ export default function JobWorkPage() {
 
                     <select
                       value={assignForm.branch}
-                      onChange={e => setAssignForm({ ...assignForm, branch: e.target.value })}
+                      onChange={e => {
+                        const val = e.target.value;
+                        if (val === '__add_new__') {
+                          promptNewBranch(name => setAssignForm(prev => ({ ...prev, branch: name })));
+                        } else {
+                          setAssignForm({ ...assignForm, branch: val });
+                        }
+                      }}
                       style={{ padding: '6px 8px', borderRadius: 4, fontSize: 11 }}
                     >
-                      <option value="Bajpe">Bajpe</option>
-                      <option value="Kannur">Kannur</option>
+                      {branches.map(b => (
+                        <option key={b} value={b}>{b}</option>
+                      ))}
+                      <option value="__add_new__" style={{ color: 'var(--accent)', fontWeight: 700 }}>
+                        ➕ + Branch...
+                      </option>
                     </select>
 
                     <button type="submit" className="btn btn-sm btn-primary" style={{ padding: '6px 12px', fontSize: 11 }}>
@@ -1973,6 +2072,76 @@ export default function JobWorkPage() {
           </div>
         </div>
       )}
+
+      {/* ══════════════════════════════════════════════════════════════════════════
+          MODAL: ADD NEW BRANCH DYNAMICALLY
+      ══════════════════════════════════════════════════════════════════════════ */}
+      {showAddBranchModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1100,
+          padding: 16
+        }}>
+          <div style={{
+            background: 'var(--white)',
+            borderRadius: 12,
+            width: '100%',
+            maxWidth: 380,
+            padding: 20,
+            boxShadow: '0 20px 40px rgba(0,0,0,0.25)'
+          }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--text)', marginBottom: 6 }}>
+              🏢 Add New Branch
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--muted)', margin: '0 0 14px' }}>
+              Create a new workshop location or stitching branch.
+            </p>
+
+            <form onSubmit={handleCreateBranch} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--text)', display: 'block', marginBottom: 4 }}>
+                  Branch Name *
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  required
+                  placeholder="e.g. Mangalore, Udupi, Kavoor..."
+                  value={newBranchInput}
+                  onChange={e => setNewBranchInput(e.target.value)}
+                  style={{ width: '100%', padding: '8px 10px', borderRadius: 6, fontSize: 13 }}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 4 }}>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => setShowAddBranchModal(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  style={{ fontWeight: 800 }}
+                >
+                  Save Branch
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

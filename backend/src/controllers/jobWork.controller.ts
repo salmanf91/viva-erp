@@ -112,6 +112,15 @@ export async function getJobOrders(req: AuthRequest, res: Response): Promise<voi
       [tenantId]
     );
 
+    const branchBreakdownRows = await query<any[]>(
+      `SELECT COALESCE(NULLIF(TRIM(branch), ''), 'Bajpe') AS branch, SUM(total_pcs) AS pcs
+       FROM job_work_orders
+       WHERE tenant_id = ?
+       GROUP BY COALESCE(NULLIF(TRIM(branch), ''), 'Bajpe')
+       ORDER BY pcs DESC`,
+      [tenantId]
+    ).catch(() => []);
+
     const totalStaffWages = Number(wageRow?.total_staff_wages || 0);
     const totalExpenses = Number(expenseRow?.total_expenses || 0);
     const totalRevenue = Number(statsRow?.total_revenue || 0);
@@ -131,6 +140,7 @@ export async function getJobOrders(req: AuthRequest, res: Response): Promise<voi
         deliveredPcs: Number(statsRow?.delivered_pcs || 0),
         bajpePcs: Number(statsRow?.bajpe_pcs || 0),
         kannurPcs: Number(statsRow?.kannur_pcs || 0),
+        branchBreakdown: branchBreakdownRows.map(r => ({ branch: r.branch, pcs: Number(r.pcs || 0) })),
         totalRevenue,
         totalCollected: Number(statsRow?.total_collected || 0),
         totalReceivable: Number(statsRow?.total_receivable || 0),
@@ -778,6 +788,82 @@ export async function deleteStaffPayout(req: AuthRequest, res: Response): Promis
     res.json({ message: 'Staff payout entry deleted' });
   } catch (error) {
     console.error('deleteStaffPayout error:', error);
+    res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+// ── DYNAMIC BRANCHES MANAGEMENT ────────────────────────────────────────────────
+export async function getBranches(req: AuthRequest, res: Response): Promise<void> {
+  const { tenantId } = req.user!;
+
+  try {
+    // 1. Fetch from job_work_branches
+    const branchRows = await query<any[]>(
+      `SELECT name FROM job_work_branches WHERE tenant_id = ? AND is_active = 1 ORDER BY name ASC`,
+      [tenantId]
+    ).catch(() => []);
+
+    // 2. Fetch any branches recorded in orders or assignments
+    const usedRows = await query<any[]>(
+      `SELECT DISTINCT branch FROM (
+         SELECT branch FROM job_work_orders WHERE tenant_id = ?
+         UNION
+         SELECT branch FROM job_work_staff_assignments WHERE tenant_id = ?
+       ) t WHERE branch IS NOT NULL AND TRIM(branch) != ''`,
+      [tenantId, tenantId]
+    ).catch(() => []);
+
+    const set = new Set<string>();
+    // Default initial branches
+    set.add('Bajpe');
+    set.add('Kannur');
+
+    for (const b of branchRows) {
+      if (b.name && String(b.name).trim()) set.add(String(b.name).trim());
+    }
+    for (const u of usedRows) {
+      if (u.branch && String(u.branch).trim()) set.add(String(u.branch).trim());
+    }
+
+    const branches = Array.from(set).sort((a, b) => a.localeCompare(b));
+    res.json(branches);
+  } catch (error) {
+    console.error('getBranches error:', error);
+    res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
+  }
+}
+
+export async function addBranch(req: AuthRequest, res: Response): Promise<void> {
+  const { tenantId } = req.user!;
+  const name = req.body.name ? String(req.body.name).trim() : '';
+
+  if (!name) {
+    res.status(400).json({ message: 'Branch name is required' });
+    return;
+  }
+
+  try {
+    // Check if branch already exists
+    const existing = await query<any[]>(
+      `SELECT id FROM job_work_branches WHERE tenant_id = ? AND LOWER(name) = LOWER(?)`,
+      [tenantId, name]
+    );
+
+    if (existing && existing.length > 0) {
+      // Re-activate if was deactivated
+      await query(`UPDATE job_work_branches SET is_active = 1 WHERE id = ?`, [existing[0].id]);
+      res.json({ message: 'Branch available', name });
+      return;
+    }
+
+    await query(
+      `INSERT INTO job_work_branches (tenant_id, name, is_active) VALUES (?, ?, 1)`,
+      [tenantId, name]
+    );
+
+    res.status(201).json({ message: 'Branch created successfully', name });
+  } catch (error) {
+    console.error('addBranch error:', error);
     res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
   }
 }

@@ -14,11 +14,17 @@ import {
   deleteJobExpense,
   getStaffPayoutsSummary,
   recordStaffPayout,
-  deleteStaffPayout
+  deleteStaffPayout,
+  getBranches,
+  addBranch
 } from '../controllers/jobWork.controller';
 
 const router = Router();
 router.use(authenticate);
+
+// Dynamic Branches
+router.get('/branches',            getBranches);
+router.post('/branches',           addBranch);
 
 // Orders CRUD & Delivery
 router.get('/',                    getJobOrders);
@@ -43,3 +49,4 @@ router.post('/staff/payouts',                   recordStaffPayout);
 router.delete('/staff/payouts/:payoutId',       deleteStaffPayout);
 
 export default router;
+

@@ -370,3 +370,12 @@ CREATE TABLE IF NOT EXISTS job_work_staff_payouts (
   INDEX idx_jwsp_tenant_date (tenant_id, payment_date)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS job_work_branches (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  tenant_id INT NOT NULL DEFAULT 1,
+  name VARCHAR(100) NOT NULL,
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_jwb_tenant (tenant_id, is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
