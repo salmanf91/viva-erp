@@ -175,9 +175,15 @@ export async function getOrder(req: AuthRequest, res: Response): Promise<void> {
     if (!orders.length) { res.status(404).json({ message: 'Not found' }); return; }
     const order = orders[0];
     const items = await query(
-      'SELECT * FROM sales_order_items WHERE order_id=?',
-      [id]
-    );
+      `SELECT i.*, 
+              COALESCE(i.item_code, pc.item_code) AS item_code,
+              COALESCE(i.item_name, pc.name, i.category) AS item_name,
+              COALESCE(i.product_id, pc.id) AS product_id
+       FROM sales_order_items i
+       LEFT JOIN product_config pc ON (i.product_id = pc.id OR (pc.tenant_id = ? AND LOWER(TRIM(pc.category)) = LOWER(TRIM(i.category))))
+       WHERE i.order_id=?`,
+      [tenantId, id]
+    ).catch(() => query('SELECT * FROM sales_order_items WHERE order_id=?', [id]));
     // Other outstanding invoices for the same client (excluding this one)
     const otherOutstanding = await query<any[]>(
       `SELECT o.id, o.invoice_number, o.order_date, o.status, o.amount_paid,
@@ -242,11 +248,35 @@ export async function createOrder(req: AuthRequest, res: Response): Promise<void
     );
     const orderId = r.insertId;
 
+    const cfgRows = await query<any[]>('SELECT id, category, name, item_code, selling_rate FROM product_config WHERE tenant_id=?', [tenantId]).catch(() => []);
+    const cfgMap = new Map<string, any>();
+    for (const c of cfgRows) {
+      if (c.category) cfgMap.set(c.category.toLowerCase().trim(), c);
+      if (c.id) cfgMap.set(String(c.id), c);
+      if (c.name) cfgMap.set(c.name.toLowerCase().trim(), c);
+    }
+
     for (const item of items) {
-      await query(
-        'INSERT INTO sales_order_items (order_id, category, item_name, size, quantity, rate_per_pc) VALUES (?,?,?,?,?,?)',
-        [orderId, item.category || 'salwar_suit', item.item_name || item.name || item.category || null, item.size || null, item.quantity, item.rate_per_pc]
-      );
+      const catKey = (item.category || '').toLowerCase().trim();
+      const nameKey = (item.item_name || item.name || '').toLowerCase().trim();
+      const cfg = (item.product_id ? cfgMap.get(String(item.product_id)) : null) || cfgMap.get(catKey) || cfgMap.get(nameKey);
+      const prodId = item.product_id ? Number(item.product_id) : (cfg?.id || null);
+      const itemCode = item.item_code ? String(item.item_code).trim() : (cfg?.item_code || null);
+      const itemName = item.item_name || item.name || cfg?.name || item.category || 'Salwar Suit';
+      const itemCat = item.category || cfg?.category || 'salwar_suit';
+      const itemSize = item.size ? String(item.size).trim() : null;
+
+      try {
+        await query(
+          'INSERT INTO sales_order_items (order_id, product_id, item_code, item_name, category, size, quantity, rate_per_pc) VALUES (?,?,?,?,?,?,?,?)',
+          [orderId, prodId, itemCode, itemName, itemCat, itemSize, item.quantity, item.rate_per_pc]
+        );
+      } catch {
+        await query(
+          'INSERT INTO sales_order_items (order_id, category, item_name, size, quantity, rate_per_pc) VALUES (?,?,?,?,?,?)',
+          [orderId, itemCat, itemName, itemSize, item.quantity, item.rate_per_pc]
+        );
+      }
     }
 
     if (initialPaid > 0) {
@@ -374,11 +404,35 @@ export async function updateOrder(req: AuthRequest, res: Response): Promise<void
 
     await query('DELETE FROM sales_order_items WHERE order_id=?', [id]);
 
+    const cfgRows = await query<any[]>('SELECT id, category, name, item_code, selling_rate FROM product_config WHERE tenant_id=?', [tenantId]).catch(() => []);
+    const cfgMap = new Map<string, any>();
+    for (const c of cfgRows) {
+      if (c.category) cfgMap.set(c.category.toLowerCase().trim(), c);
+      if (c.id) cfgMap.set(String(c.id), c);
+      if (c.name) cfgMap.set(c.name.toLowerCase().trim(), c);
+    }
+
     for (const item of items) {
-      await query(
-        'INSERT INTO sales_order_items (order_id, category, item_name, size, quantity, rate_per_pc) VALUES (?,?,?,?,?,?)',
-        [id, item.category || 'salwar_suit', item.item_name || item.name || item.category || null, item.size || null, item.quantity, item.rate_per_pc]
-      );
+      const catKey = (item.category || '').toLowerCase().trim();
+      const nameKey = (item.item_name || item.name || '').toLowerCase().trim();
+      const cfg = (item.product_id ? cfgMap.get(String(item.product_id)) : null) || cfgMap.get(catKey) || cfgMap.get(nameKey);
+      const prodId = item.product_id ? Number(item.product_id) : (cfg?.id || null);
+      const itemCode = item.item_code ? String(item.item_code).trim() : (cfg?.item_code || null);
+      const itemName = item.item_name || item.name || cfg?.name || item.category || 'Salwar Suit';
+      const itemCat = item.category || cfg?.category || 'salwar_suit';
+      const itemSize = item.size ? String(item.size).trim() : null;
+
+      try {
+        await query(
+          'INSERT INTO sales_order_items (order_id, product_id, item_code, item_name, category, size, quantity, rate_per_pc) VALUES (?,?,?,?,?,?,?,?)',
+          [id, prodId, itemCode, itemName, itemCat, itemSize, item.quantity, item.rate_per_pc]
+        );
+      } catch {
+        await query(
+          'INSERT INTO sales_order_items (order_id, category, item_name, size, quantity, rate_per_pc) VALUES (?,?,?,?,?,?)',
+          [id, itemCat, itemName, itemSize, item.quantity, item.rate_per_pc]
+        );
+      }
     }
 
     const full = await query<any[]>(

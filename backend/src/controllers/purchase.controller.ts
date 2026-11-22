@@ -71,7 +71,17 @@ export async function getPurchaseDetail(req: AuthRequest, res: Response): Promis
          FROM purchases p JOIN vendors v ON v.id = p.vendor_id WHERE p.id = ? AND p.tenant_id = ?`,
         [id, tenantId]
       ) as Promise<any[]>,
-      query('SELECT * FROM purchase_items WHERE purchase_id = ?', [id]) as Promise<any[]>,
+      query(
+        `SELECT pi.*, 
+                COALESCE(pi.item_name, pc.name, rm.name, pi.category) AS item_name,
+                COALESCE(pi.item_code, pc.item_code, rm.code) AS item_code,
+                COALESCE(pi.uom, pc.uom, rm.uom, 'pcs') AS uom
+         FROM purchase_items pi
+         LEFT JOIN product_config pc ON (pi.item_id = pc.id OR (pc.tenant_id = ? AND LOWER(TRIM(pc.category)) = LOWER(TRIM(pi.category))))
+         LEFT JOIN raw_materials rm ON (rm.tenant_id = ? AND LOWER(TRIM(rm.name)) = LOWER(TRIM(pi.category)))
+         WHERE pi.purchase_id = ?`,
+        [tenantId, tenantId, id]
+      ).catch(() => query('SELECT * FROM purchase_items WHERE purchase_id = ?', [id])) as Promise<any[]>,
       query('SELECT * FROM purchase_transport WHERE purchase_id = ?', [id]) as Promise<any[]>,
       query('SELECT * FROM purchase_disputes WHERE purchase_id = ?', [id]) as Promise<any[]>,
     ]);
@@ -107,10 +117,22 @@ export async function createPurchase(req: AuthRequest, res: Response): Promise<v
         rate_per_pc = parseFloat((amount / qty).toFixed(2));
       }
 
+      const itemId = item.item_id ? Number(item.item_id) : (item.id ? Number(item.id) : null);
+      const itemCode = item.item_code ? String(item.item_code).trim() : null;
+      const itemName = item.item_name ? String(item.item_name).trim() : (item.name ? String(item.name).trim() : null);
+      const itemSize = item.size ? String(item.size).trim() : null;
+      const itemUom = item.uom ? String(item.uom).trim() : 'pcs';
+      const itemCategory = (item.category || itemName || 'mixed').trim();
+
       if (qty > 0) {
         subtotal += amount;
         processedItems.push({
-          category: (item.category || 'mixed').trim(),
+          item_id: itemId,
+          item_code: itemCode,
+          item_name: itemName,
+          category: itemCategory,
+          size: itemSize,
+          uom: itemUom,
           quantity: qty,
           rate_per_pc,
           amount
@@ -118,7 +140,12 @@ export async function createPurchase(req: AuthRequest, res: Response): Promise<v
       } else if (item.category && parseFloat(item.amount) > 0) {
         subtotal += parseFloat(item.amount);
         processedItems.push({
-          category: item.category.trim(),
+          item_id: itemId,
+          item_code: itemCode,
+          item_name: itemName,
+          category: itemCategory,
+          size: itemSize,
+          uom: itemUom,
           quantity: qty,
           rate_per_pc: rateInput,
           amount: parseFloat(item.amount)
@@ -169,15 +196,30 @@ export async function createPurchase(req: AuthRequest, res: Response): Promise<v
           }
         } catch {}
 
-        await conn.execute(
-          'INSERT INTO purchase_items (purchase_id,category,quantity,rate_per_pc,amount) VALUES (?,?,?,?,?)',
-          [purchaseId, item.category, item.quantity, item.rate_per_pc, item.amount]
-        );
-        // record stock movement as raw fabric received
-        await conn.execute(
-          'INSERT INTO stock_movements (tenant_id,category,vendor_id,type,quantity,reference,movement_date) VALUES (?,?,?,?,?,?,?)',
-          [tenantId, item.category, vendor_id, 'in', item.quantity, `PUR-${purchaseId}`, invoice_date]
-        );
+        try {
+          await conn.execute(
+            'INSERT INTO purchase_items (purchase_id,item_id,item_code,item_name,category,size,uom,quantity,rate_per_pc,amount) VALUES (?,?,?,?,?,?,?,?,?,?)',
+            [purchaseId, item.item_id || null, item.item_code || null, item.item_name || null, item.category, item.size || null, item.uom || 'pcs', item.quantity, item.rate_per_pc, item.amount]
+          );
+        } catch {
+          await conn.execute(
+            'INSERT INTO purchase_items (purchase_id,category,quantity,rate_per_pc,amount) VALUES (?,?,?,?,?)',
+            [purchaseId, item.category, item.quantity, item.rate_per_pc, item.amount]
+          );
+        }
+
+        // record stock movement as raw fabric or item received
+        try {
+          await conn.execute(
+            'INSERT INTO stock_movements (tenant_id,product_id,item_code,item_name,category,size,vendor_id,type,quantity,unit_rate,reference,movement_date) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+            [tenantId, item.item_id || null, item.item_code || null, item.item_name || null, item.category, item.size || null, vendor_id, 'in', item.quantity, item.rate_per_pc, `PUR-${purchaseId}`, invoice_date]
+          );
+        } catch {
+          await conn.execute(
+            'INSERT INTO stock_movements (tenant_id,category,vendor_id,type,quantity,reference,movement_date) VALUES (?,?,?,?,?,?,?)',
+            [tenantId, item.category, vendor_id, 'in', item.quantity, `PUR-${purchaseId}`, invoice_date]
+          );
+        }
       }
     }
 
@@ -218,7 +260,7 @@ export async function updatePurchase(req: AuthRequest, res: Response): Promise<v
     const taxInclusive = tax_inclusive !== undefined ? !!tax_inclusive : false;
 
     let subtotal = 0;
-    let processedItems: Array<{ category: string; quantity: number; rate_per_pc: number; amount: number }> | null = null;
+    let processedItems: Array<{ item_id?: number | null; item_code?: string | null; item_name?: string | null; category: string; size?: string | null; uom?: string; quantity: number; rate_per_pc: number; amount: number }> | null = null;
 
     if (Array.isArray(items) && items.length > 0) {
       processedItems = [];
@@ -234,9 +276,21 @@ export async function updatePurchase(req: AuthRequest, res: Response): Promise<v
           rate_per_pc = parseFloat((amount / qty).toFixed(2));
         }
 
+        const itemId = item.item_id ? Number(item.item_id) : (item.id ? Number(item.id) : null);
+        const itemCode = item.item_code ? String(item.item_code).trim() : null;
+        const itemName = item.item_name ? String(item.item_name).trim() : (item.name ? String(item.name).trim() : null);
+        const itemSize = item.size ? String(item.size).trim() : null;
+        const itemUom = item.uom ? String(item.uom).trim() : 'pcs';
+        const itemCategory = (item.category || itemName || 'mixed').trim();
+
         subtotal += amount;
         processedItems.push({
-          category: item.category,
+          item_id: itemId,
+          item_code: itemCode,
+          item_name: itemName,
+          category: itemCategory,
+          size: itemSize,
+          uom: itemUom,
           quantity: qty,
           rate_per_pc,
           amount
@@ -259,20 +313,34 @@ export async function updatePurchase(req: AuthRequest, res: Response): Promise<v
           }
         } catch {}
 
-        await conn.execute(
-          'INSERT INTO purchase_items (purchase_id,category,quantity,rate_per_pc,amount) VALUES (?,?,?,?,?)',
-          [id, item.category, item.quantity, item.rate_per_pc, item.amount]
-        );
+        try {
+          await conn.execute(
+            'INSERT INTO purchase_items (purchase_id,item_id,item_code,item_name,category,size,uom,quantity,rate_per_pc,amount) VALUES (?,?,?,?,?,?,?,?,?,?)',
+            [id, item.item_id || null, item.item_code || null, item.item_name || null, item.category, item.size || null, item.uom || 'pcs', item.quantity, item.rate_per_pc, item.amount]
+          );
+        } catch {
+          await conn.execute(
+            'INSERT INTO purchase_items (purchase_id,category,quantity,rate_per_pc,amount) VALUES (?,?,?,?,?)',
+            [id, item.category, item.quantity, item.rate_per_pc, item.amount]
+          );
+        }
       }
 
       // Sync stock movements
       await conn.execute('DELETE FROM stock_movements WHERE reference = CONCAT(\'PUR-\', ?)', [id]);
       for (const item of processedItems) {
         if (item.quantity > 0) {
-          await conn.execute(
-            'INSERT INTO stock_movements (tenant_id,category,vendor_id,type,quantity,reference,movement_date) VALUES (?,?,?,?,?,?,?)',
-            [tenantId, item.category, vendor_id, 'in', item.quantity, `PUR-${id}`, invoice_date]
-          );
+          try {
+            await conn.execute(
+              'INSERT INTO stock_movements (tenant_id,product_id,item_code,item_name,category,size,vendor_id,type,quantity,unit_rate,reference,movement_date) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+              [tenantId, item.item_id || null, item.item_code || null, item.item_name || null, item.category, item.size || null, vendor_id, 'in', item.quantity, item.rate_per_pc, `PUR-${id}`, invoice_date]
+            );
+          } catch {
+            await conn.execute(
+              'INSERT INTO stock_movements (tenant_id,category,vendor_id,type,quantity,reference,movement_date) VALUES (?,?,?,?,?,?,?)',
+              [tenantId, item.category, vendor_id, 'in', item.quantity, `PUR-${id}`, invoice_date]
+            );
+          }
         }
       }
     } else {

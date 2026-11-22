@@ -186,15 +186,21 @@ export default function StockPage() {
   const filteredFinished = finishedBreakdown.filter(item => {
     if (hideLegacy && isLegacyCat(item.category)) return false;
     const q = searchFinished.toLowerCase();
-    const label = getLabel(item.category).toLowerCase();
+    const label = (item.product_name || getLabel(item.category)).toLowerCase();
+    const code = (item.item_code || '').toLowerCase();
     const size = (item.size || '').toLowerCase();
-    return label.includes(q) || size.includes(q);
+    return label.includes(q) || code.includes(q) || size.includes(q);
   });
 
   const finishedTotals = {
     fin: filteredFinished.reduce((s, it) => s + Number(it.on_hand_qty ?? Math.max(0, (it.produced_qty ?? it.qty ?? 0) - (it.sold_qty ?? 0))), 0),
     totalFin: filteredFinished.reduce((s, it) => s + Number(it.produced_qty ?? it.qty ?? 0), 0),
     sold: filteredFinished.reduce((s, it) => s + Number(it.sold_qty ?? 0), 0),
+    totalValue: filteredFinished.reduce((s, it) => {
+      const avail = Number(it.on_hand_qty ?? Math.max(0, (it.produced_qty ?? it.qty ?? 0) - (it.sold_qty ?? 0)));
+      const price = Number(it.selling_rate || it.price || 0);
+      return s + (avail * price);
+    }, 0)
   };
 
   // Filtered sold dispatches log for tab 4
@@ -545,7 +551,7 @@ export default function StockPage() {
           </div>
 
           {/* Metrics summary */}
-          <div className="g3 mb16">
+          <div className="g4 mb16">
             <div className="stat s-green" style={{ padding: '12px 16px' }}>
               <div className="s-label">Ready On Hand</div>
               <div className="s-val" style={{ fontSize: 22 }}>{finishedTotals.fin} pcs</div>
@@ -561,6 +567,11 @@ export default function StockPage() {
               <div className="s-val" style={{ fontSize: 22 }}>{finishedTotals.sold} pcs</div>
               <div className="s-sub">delivered to customers</div>
             </div>
+            <div className="stat s-purple" style={{ padding: '12px 16px' }}>
+              <div className="s-label">Stock Valuation</div>
+              <div className="s-val" style={{ fontSize: 20 }}>{fmt(finishedTotals.totalValue)}</div>
+              <div className="s-sub">ready inventory worth</div>
+            </div>
           </div>
 
           {filteredFinished.length === 0 ? (
@@ -571,12 +582,14 @@ export default function StockPage() {
             <table>
               <thead>
                 <tr>
-                  <th>Product Category</th>
+                  <th>Product (Name &amp; SKU)</th>
                   <th>Size / Variation</th>
-                  <th style={{ textAlign: 'right' }}>Total Produced</th>
-                  <th style={{ textAlign: 'right' }}>Total Sold</th>
-                  <th style={{ textAlign: 'right' }}>On-Hand Available</th>
-                  <th style={{ textAlign: 'center' }}>Stock Status</th>
+                  <th style={{ textAlign: 'right' }}>Selling Price</th>
+                  <th style={{ textAlign: 'right' }}>Produced</th>
+                  <th style={{ textAlign: 'right' }}>Sold</th>
+                  <th style={{ textAlign: 'right' }}>On-Hand</th>
+                  <th style={{ textAlign: 'right' }}>Inventory Value</th>
+                  <th style={{ textAlign: 'center' }}>Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -586,11 +599,19 @@ export default function StockPage() {
                   const available = Number(item.on_hand_qty ?? Math.max(0, produced - sold));
                   const isLow = available > 0 && available <= 10;
                   const isOut = available <= 0;
+                  const price = Number(item.selling_rate || item.price || 0);
 
                   return (
                     <tr key={idx}>
                       <td>
-                        <strong style={{ fontSize: 13 }}>{getLabel(item.category)}</strong>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          {item.item_code && (
+                            <span className="badge b-blue" style={{ fontSize: 10, fontFamily: 'monospace' }}>
+                              {item.item_code}
+                            </span>
+                          )}
+                          <strong style={{ fontSize: 13 }}>{item.product_name || getLabel(item.category)}</strong>
+                        </div>
                       </td>
                       <td>
                         {item.size ? (
@@ -601,6 +622,9 @@ export default function StockPage() {
                           <span style={{ color: 'var(--muted)', fontSize: 12 }}>Standard / Free Size</span>
                         )}
                       </td>
+                      <td style={{ textAlign: 'right', fontWeight: 600, color: '#059669' }}>
+                        {price > 0 ? fmt(price) : '—'}
+                      </td>
                       <td style={{ textAlign: 'right', fontWeight: 600, color: '#0891b2' }}>
                         {produced} pcs
                       </td>
@@ -609,6 +633,9 @@ export default function StockPage() {
                       </td>
                       <td style={{ textAlign: 'right', fontWeight: 800, fontSize: 14, color: isOut ? 'var(--red)' : isLow ? 'var(--yellow)' : 'var(--green)' }}>
                         {available} pcs
+                      </td>
+                      <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--accent)' }}>
+                        {fmt(available * price)}
                       </td>
                       <td style={{ textAlign: 'center' }}>
                         <span className={`badge ${isOut ? 'b-red' : isLow ? 'b-yellow' : 'b-green'}`}>
@@ -645,7 +672,7 @@ export default function StockPage() {
                     <th>Invoice #</th>
                     <th>Date</th>
                     <th>Customer / Client</th>
-                    <th>Product / Item Name</th>
+                    <th>Product / Item &amp; Size</th>
                     <th style={{ textAlign: 'right' }}>Sold Qty</th>
                     <th style={{ textAlign: 'right' }}>Rate / Pc</th>
                     <th style={{ textAlign: 'right' }}>Total Amount</th>
@@ -661,12 +688,21 @@ export default function StockPage() {
                       </td>
                       <td>{s.client_name || 'Direct Client'}</td>
                       <td>
-                        <span className="badge" style={{ background: '#f3e8ff', color: '#7e22ce', fontWeight: 600 }}>
-                          {s.item_name || getLabel(s.category)}
-                        </span>
-                        {s.item_name && s.category && s.item_name !== s.category && (
-                          <span style={{ fontSize: 11, color: 'var(--muted)', marginLeft: 6 }}>({getLabel(s.category)})</span>
-                        )}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          {s.item_code && (
+                            <span className="badge b-blue" style={{ fontSize: 10, fontFamily: 'monospace' }}>
+                              {s.item_code}
+                            </span>
+                          )}
+                          <span style={{ fontWeight: 600 }}>
+                            {s.item_name || getLabel(s.category)}
+                          </span>
+                          {s.size && (
+                            <span className="badge b-purple" style={{ fontSize: 10 }}>
+                              {s.size}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td style={{ textAlign: 'right', fontWeight: 800, color: '#d97706' }}>
                         {s.quantity} pcs

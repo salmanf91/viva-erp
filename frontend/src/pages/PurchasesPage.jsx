@@ -51,7 +51,7 @@ export default function PurchasesPage() {
     tax_inclusive: false,
     discount: '',
     notes: '',
-    items: [{ category: 'Mixed Fabric (Salwar)', quantity: '', price_per_piece: '' }],
+    items: [{ item_id: null, item_code: '', item_name: 'Mixed Fabric (Salwar)', category: 'Mixed Fabric (Salwar)', size: '', uom: 'pcs', quantity: '', price_per_piece: '' }],
     freight: '',
     coolie: '',
     has_dispute: false,
@@ -94,10 +94,19 @@ export default function PurchasesPage() {
       const seen = new Set();
       const unique = [];
       for (const p of combined) {
-        const cat = p.category || p.id;
+        const cat = (p.category || p.id || '').toString();
         if (!seen.has(cat)) {
           seen.add(cat);
-          unique.push({ category: p.category, name: p.name || p.display_name });
+          unique.push({
+            id: p.id,
+            category: p.category,
+            name: p.name || p.display_name,
+            item_code: p.item_code || null,
+            purchase_cost: p.purchase_cost || null,
+            selling_rate: p.selling_rate || null,
+            uom: p.uom || 'pcs',
+            size_rates: p.size_rates || []
+          });
         }
       }
       setProducts(unique);
@@ -159,8 +168,17 @@ export default function PurchasesPage() {
       dispute_amount: '',
       dispute_description: '',
       items: items.length > 0
-        ? items.map(it => ({ category: it.category, quantity: String(it.quantity || ''), price_per_piece: String(it.rate_per_pc || '') }))
-        : [{ category: 'mixed', quantity: '', price_per_piece: '' }],
+        ? items.map(it => ({
+            item_id: it.item_id || null,
+            item_code: it.item_code || '',
+            item_name: it.item_name || it.category,
+            category: it.category,
+            size: it.size || '',
+            uom: it.uom || 'pcs',
+            quantity: String(it.quantity || ''),
+            price_per_piece: String(it.rate_per_pc || '')
+          }))
+        : [{ item_id: null, item_code: '', item_name: 'mixed', category: 'mixed', size: '', uom: 'pcs', quantity: '', price_per_piece: '' }],
     });
     setEditTarget(p);
     setViewMode('edit');
@@ -168,9 +186,62 @@ export default function PurchasesPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const addItem    = () => setForm(f => ({ ...f, items: [...f.items, { category: rawMaterials[0]?.name || 'Mixed Fabric (Salwar)', quantity: '', price_per_piece: '' }] }));
-  const removeItem = i  => setForm(f => ({ ...f, items: f.items.filter((_, idx) => idx !== i) }));
-  const setItem    = (i, k, v) => setForm(f => ({ ...f, items: f.items.map((it, idx) => idx === i ? { ...it, [k]: v } : it) }));
+  const addItem = () => setForm(f => ({
+    ...f,
+    items: [...f.items, {
+      item_id: null,
+      item_code: '',
+      item_name: rawMaterials[0]?.name || 'Mixed Fabric (Salwar)',
+      category: rawMaterials[0]?.name || 'Mixed Fabric (Salwar)',
+      size: '',
+      uom: 'pcs',
+      quantity: '',
+      price_per_piece: ''
+    }]
+  }));
+  const removeItem = i => setForm(f => ({ ...f, items: f.items.filter((_, idx) => idx !== i) }));
+  const setItem = (i, k, v) => setForm(f => ({ ...f, items: f.items.map((it, idx) => idx === i ? { ...it, [k]: v } : it) }));
+
+  const handleItemSelect = (idx, val) => {
+    if (val === '__add_new__') {
+      setRawMatTargetIdx(idx);
+      setShowRawMatModal(true);
+      return;
+    }
+    if (val.startsWith('prod_')) {
+      const prodId = Number(val.replace('prod_', ''));
+      const prod = products.find(p => p.id === prodId) || products.find(p => p.category === val.replace('prod_', ''));
+      if (prod) {
+        setForm(f => ({
+          ...f,
+          items: f.items.map((it, i) => i === idx ? {
+            ...it,
+            item_id: prod.id,
+            item_code: prod.item_code || '',
+            item_name: prod.name || prod.category,
+            category: prod.category,
+            size: prod.size_rates?.[0]?.size_label || it.size || '',
+            uom: prod.uom || 'pcs',
+            price_per_piece: (prod.purchase_cost && Number(prod.purchase_cost) > 0) ? String(prod.purchase_cost) : it.price_per_piece
+          } : it)
+        }));
+        return;
+      }
+    }
+    const rawMat = rawMaterials.find(r => r.name.toLowerCase() === val.toLowerCase());
+    setForm(f => ({
+      ...f,
+      items: f.items.map((it, i) => i === idx ? {
+        ...it,
+        item_id: null,
+        item_code: rawMat?.code || '',
+        item_name: val,
+        category: val,
+        uom: rawMat?.uom || 'pcs',
+        price_per_piece: (rawMat?.default_rate && Number(rawMat.default_rate) > 0) ? String(rawMat.default_rate) : it.price_per_piece
+      } : it)
+    }));
+  };
 
   const handleCreateRawMaterial = async () => {
     const trimmed = rawMatInput.trim();
@@ -256,7 +327,12 @@ export default function PurchasesPage() {
         items: form.items
           .filter(it => (parseFloat(it.quantity) > 0 && parseFloat(it.price_per_piece) > 0) || it.category)
           .map(it => ({
+            item_id: it.item_id || null,
+            item_code: it.item_code || null,
+            item_name: it.item_name || it.category,
             category: it.category,
+            size: it.size || null,
+            uom: it.uom || 'pcs',
             quantity: parseFloat(it.quantity) || 0,
             rate_per_pc: parseFloat(it.price_per_piece) || 0,
             amount: (parseFloat(it.quantity) || 0) * (parseFloat(it.price_per_piece) || 0)
@@ -592,14 +668,15 @@ export default function PurchasesPage() {
                     <table style={{ margin: 0, width: '100%' }}>
                       <thead>
                         <tr style={{ background: 'var(--bg)' }}>
-                          <th style={{ padding: '9px 12px', fontSize: 11, color: '#475569', textAlign: 'left' }}>CATEGORY / ITEM</th>
-                          <th style={{ padding: '9px 10px', fontSize: 11, color: '#475569', textAlign: 'right', width: 110 }}>
+                          <th style={{ padding: '9px 12px', fontSize: 11, color: '#475569', textAlign: 'left' }}>PRODUCT / RAW MATERIAL</th>
+                          <th style={{ padding: '9px 10px', fontSize: 11, color: '#475569', textAlign: 'left', width: 110 }}>SIZE</th>
+                          <th style={{ padding: '9px 10px', fontSize: 11, color: '#475569', textAlign: 'right', width: 100 }}>
                             QTY {isAdvanceEntry ? '(Opt)' : '*'}
                           </th>
                           <th style={{ padding: '9px 10px', fontSize: 11, color: '#475569', textAlign: 'right', width: 130 }}>
                             RATE/PC ({currency}) {isAdvanceEntry ? '(Opt)' : '*'}
                           </th>
-                          <th style={{ padding: '9px 12px', fontSize: 11, color: '#475569', textAlign: 'right', width: 120 }}>AMOUNT</th>
+                          <th style={{ padding: '9px 12px', fontSize: 11, color: '#475569', textAlign: 'right', width: 110 }}>AMOUNT</th>
                           <th style={{ padding: '9px 8px', width: 40 }}></th>
                         </tr>
                       </thead>
@@ -608,36 +685,67 @@ export default function PurchasesPage() {
                           const lineQty = parseFloat(it.quantity) || 0;
                           const lineRate = parseFloat(it.price_per_piece) || 0;
                           const lineAmount = lineQty * lineRate;
+                          const matchedProd = products.find(p => (it.item_id && p.id === it.item_id) || p.category === it.category);
+                          const configuredSizes = (matchedProd?.size_rates || []).map(s => s.size_label).filter(Boolean);
 
                           return (
                             <tr key={idx} style={{ borderBottom: '1px solid var(--border)' }}>
                               <td style={{ padding: '8px 12px' }}>
                                 <select
-                                  value={it.category}
-                                  onChange={e => {
-                                    if (e.target.value === '__add_new__') {
-                                      setRawMatTargetIdx(idx);
-                                      setShowRawMatModal(true);
-                                    } else {
-                                      setItem(idx, 'category', e.target.value);
-                                    }
-                                  }}
+                                  value={it.item_id ? `prod_${it.item_id}` : (products.some(p => p.category === it.category) ? `prod_${it.category}` : it.category)}
+                                  onChange={e => handleItemSelect(idx, e.target.value)}
                                   style={{ width: '100%', padding: '7px 9px', borderRadius: 6, fontSize: 12, fontWeight: 600 }}
                                 >
-                                  <optgroup label="🧵 Raw Materials / Fabric">
-                                    {rawMaterials.map(rm => (
-                                      <option key={rm.id || rm.name} value={rm.name}>{rm.name}</option>
+                                  <optgroup label="👗 Products (Catalog)">
+                                    {products.map(p => (
+                                      <option key={p.id ? `prod_${p.id}` : `prod_${p.category}`} value={p.id ? `prod_${p.id}` : `prod_${p.category}`}>
+                                        {p.item_code ? `[${p.item_code}] ` : ''}{p.name || p.category}{p.purchase_cost ? ` (Cost: ${fmt(p.purchase_cost)})` : ''}
+                                      </option>
                                     ))}
                                   </optgroup>
-                                  {it.category && !rawMaterials.some(r => r.name.toLowerCase() === it.category.toLowerCase()) && (
+                                  <optgroup label="🧵 Raw Materials / Fabric">
+                                    {rawMaterials.map(rm => (
+                                      <option key={rm.id || rm.name} value={rm.name}>
+                                        {rm.code ? `[${rm.code}] ` : ''}{rm.name}{rm.default_rate ? ` (${fmt(rm.default_rate)})` : ''}
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                  {it.category && !rawMaterials.some(r => r.name.toLowerCase() === it.category.toLowerCase()) && !products.some(p => p.category.toLowerCase() === it.category.toLowerCase()) && (
                                     <optgroup label="Other / Legacy">
-                                      <option value={it.category}>{getProductLabel(it.category)}</option>
+                                      <option value={it.category}>{it.item_name || getProductLabel(it.category)}</option>
                                     </optgroup>
                                   )}
                                   <option value="__add_new__" style={{ color: 'var(--accent)', fontWeight: 700 }}>
                                     ➕ + Add New Raw Material...
                                   </option>
                                 </select>
+                                {(it.item_code || (it.uom && it.uom !== 'pcs')) && (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                                    {it.item_code && <span className="badge b-blue" style={{ fontSize: 9, fontFamily: 'monospace' }}>SKU: {it.item_code}</span>}
+                                    {it.uom && it.uom !== 'pcs' && <span style={{ fontSize: 9, color: 'var(--muted)' }}>Unit: {it.uom}</span>}
+                                  </div>
+                                )}
+                              </td>
+
+                              <td style={{ padding: '8px 10px', width: 110 }}>
+                                {configuredSizes.length > 0 ? (
+                                  <select
+                                    value={it.size || ''}
+                                    onChange={e => setItem(idx, 'size', e.target.value)}
+                                    style={{ width: '100%', padding: '7px 9px', borderRadius: 6, fontSize: 12 }}
+                                  >
+                                    <option value="">— Size —</option>
+                                    {configuredSizes.map(s => <option key={s} value={s}>{s}</option>)}
+                                  </select>
+                                ) : (
+                                  <input
+                                    type="text"
+                                    placeholder="Size (Opt)"
+                                    value={it.size || ''}
+                                    onChange={e => setItem(idx, 'size', e.target.value)}
+                                    style={{ width: '100%', padding: '7px 9px', borderRadius: 6, fontSize: 12 }}
+                                  />
+                                )}
                               </td>
 
                               <td style={{ padding: '8px 10px', textAlign: 'right' }}>
@@ -694,6 +802,8 @@ export default function PurchasesPage() {
                       const lineQty = parseFloat(it.quantity) || 0;
                       const lineRate = parseFloat(it.price_per_piece) || 0;
                       const lineAmount = lineQty * lineRate;
+                      const matchedProd = products.find(p => (it.item_id && p.id === it.item_id) || p.category === it.category);
+                      const configuredSizes = (matchedProd?.size_rates || []).map(s => s.size_label).filter(Boolean);
 
                       return (
                         <div key={idx} className="line-item-card" style={{ padding: '10px 12px', marginBottom: 8 }}>
@@ -717,36 +827,65 @@ export default function PurchasesPage() {
 
                           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                             <div>
-                              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Raw Material / Item</label>
+                              <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Product / Raw Material</label>
                               <select
-                                value={it.category}
-                                onChange={e => {
-                                  if (e.target.value === '__add_new__') {
-                                    setRawMatTargetIdx(idx);
-                                    setShowRawMatModal(true);
-                                  } else {
-                                    setItem(idx, 'category', e.target.value);
-                                  }
-                                }}
+                                value={it.item_id ? `prod_${it.item_id}` : (products.some(p => p.category === it.category) ? `prod_${it.category}` : it.category)}
+                                onChange={e => handleItemSelect(idx, e.target.value)}
                                 style={{ width: '100%', padding: '7px 9px', borderRadius: 6, fontSize: 12, fontWeight: 600 }}
                               >
-                                <optgroup label="🧵 Raw Materials / Fabric">
-                                  {rawMaterials.map(rm => (
-                                    <option key={rm.id || rm.name} value={rm.name}>{rm.name}</option>
+                                <optgroup label="👗 Products (Catalog)">
+                                  {products.map(p => (
+                                    <option key={p.id ? `prod_${p.id}` : `prod_${p.category}`} value={p.id ? `prod_${p.id}` : `prod_${p.category}`}>
+                                      {p.item_code ? `[${p.item_code}] ` : ''}{p.name || p.category}{p.purchase_cost ? ` (Cost: ${fmt(p.purchase_cost)})` : ''}
+                                    </option>
                                   ))}
                                 </optgroup>
-                                {it.category && !rawMaterials.some(r => r.name.toLowerCase() === it.category.toLowerCase()) && (
+                                <optgroup label="🧵 Raw Materials / Fabric">
+                                  {rawMaterials.map(rm => (
+                                    <option key={rm.id || rm.name} value={rm.name}>
+                                      {rm.code ? `[${rm.code}] ` : ''}{rm.name}{rm.default_rate ? ` (${fmt(rm.default_rate)})` : ''}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                                {it.category && !rawMaterials.some(r => r.name.toLowerCase() === it.category.toLowerCase()) && !products.some(p => p.category.toLowerCase() === it.category.toLowerCase()) && (
                                   <optgroup label="Other / Legacy">
-                                    <option value={it.category}>{getProductLabel(it.category)}</option>
+                                    <option value={it.category}>{it.item_name || getProductLabel(it.category)}</option>
                                   </optgroup>
                                 )}
                                 <option value="__add_new__" style={{ color: 'var(--accent)', fontWeight: 700 }}>
                                   ➕ + Add New Raw Material...
                                 </option>
                               </select>
+                              {(it.item_code || (it.uom && it.uom !== 'pcs')) && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                                  {it.item_code && <span className="badge b-blue" style={{ fontSize: 9, fontFamily: 'monospace' }}>SKU: {it.item_code}</span>}
+                                  {it.uom && it.uom !== 'pcs' && <span style={{ fontSize: 9, color: 'var(--muted)' }}>Unit: {it.uom}</span>}
+                                </div>
+                              )}
                             </div>
 
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                              <div>
+                                <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Size</label>
+                                {configuredSizes.length > 0 ? (
+                                  <select
+                                    value={it.size || ''}
+                                    onChange={e => setItem(idx, 'size', e.target.value)}
+                                    style={{ width: '100%', padding: '7px 9px', borderRadius: 6, fontSize: 12 }}
+                                  >
+                                    <option value="">—</option>
+                                    {configuredSizes.map(s => <option key={s} value={s}>{s}</option>)}
+                                  </select>
+                                ) : (
+                                  <input
+                                    type="text"
+                                    placeholder="Size"
+                                    value={it.size || ''}
+                                    onChange={e => setItem(idx, 'size', e.target.value)}
+                                    style={{ width: '100%', padding: '7px 9px', borderRadius: 6, fontSize: 12, boxSizing: 'border-box' }}
+                                  />
+                                )}
+                              </div>
                               <div>
                                 <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>
                                   Qty {isAdvanceEntry ? '(Opt)' : '*'}
@@ -759,10 +898,9 @@ export default function PurchasesPage() {
                                   style={{ width: '100%', padding: '7px 9px', textAlign: 'right', borderRadius: 6, fontSize: 12, boxSizing: 'border-box' }}
                                 />
                               </div>
-
                               <div>
                                 <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>
-                                  Rate ({currency}) {isAdvanceEntry ? '(Opt)' : '*'}
+                                  Rate {isAdvanceEntry ? '(Opt)' : '*'}
                                 </label>
                                 <input
                                   type="number"
@@ -1566,16 +1704,24 @@ export default function PurchasesPage() {
             </div>
             <table style={{ marginBottom: 16 }}>
               <thead>
-                <tr><th>Category</th><th style={{ textAlign: 'right' }}>Qty</th><th style={{ textAlign: 'right' }}>Rate/pc</th><th style={{ textAlign: 'right' }}>Amount</th></tr>
+                <tr><th>Item / Product</th><th style={{ textAlign: 'center' }}>Size</th><th style={{ textAlign: 'right' }}>Qty</th><th style={{ textAlign: 'right' }}>Rate/pc</th><th style={{ textAlign: 'right' }}>Amount</th></tr>
               </thead>
               <tbody>
                 {(!detail.items || detail.items.length === 0) && (
-                  <tr><td colSpan={4} style={{ color: 'var(--muted)', textAlign: 'center' }}>No line items (Advance Payment Record).</td></tr>
+                  <tr><td colSpan={5} style={{ color: 'var(--muted)', textAlign: 'center' }}>No line items (Advance Payment Record).</td></tr>
                 )}
                 {detail.items?.map((it, i) => (
                   <tr key={i}>
-                    <td style={{ fontWeight: 600 }}>{getProductLabel(it.category)}</td>
-                    <td style={{ textAlign: 'right' }}>{it.quantity > 0 ? `${it.quantity} pcs` : '—'}</td>
+                    <td style={{ fontWeight: 600 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        {it.item_code && <span className="badge b-blue" style={{ fontSize: 10, fontFamily: 'monospace' }}>{it.item_code}</span>}
+                        <span>{it.item_name || getProductLabel(it.category)}</span>
+                      </div>
+                    </td>
+                    <td style={{ textAlign: 'center' }}>
+                      {it.size ? <span className="badge b-purple" style={{ fontSize: 10 }}>{it.size}</span> : <span style={{ color: 'var(--muted)' }}>—</span>}
+                    </td>
+                    <td style={{ textAlign: 'right' }}>{it.quantity > 0 ? `${it.quantity} ${it.uom || 'pcs'}` : '—'}</td>
                     <td style={{ textAlign: 'right' }}>{it.rate_per_pc > 0 ? fmt(it.rate_per_pc) : '—'}</td>
                     <td style={{ textAlign: 'right', fontWeight: 700 }}>{fmt(it.amount)}</td>
                   </tr>

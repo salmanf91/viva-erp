@@ -325,6 +325,93 @@ export async function initDb(): Promise<void> {
       console.warn('Notice: product_showcase table check:', e instanceof Error ? e.message : String(e));
     }
 
+    // Ensure unified item & product connection columns across Purchase, Stock, Batch, Sales
+    try {
+      // 1. purchase_items
+      const [piCols] = await defaultPool.query<any[]>(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'purchase_items'`,
+        [dbName]
+      );
+      const existingPi = (piCols || []).map(c => c.COLUMN_NAME);
+      if (!existingPi.includes('item_id')) {
+        await defaultPool.query('ALTER TABLE purchase_items ADD COLUMN item_id INT NULL AFTER purchase_id');
+      }
+      if (!existingPi.includes('item_code')) {
+        await defaultPool.query('ALTER TABLE purchase_items ADD COLUMN item_code VARCHAR(100) NULL AFTER item_id');
+      }
+      if (!existingPi.includes('item_name')) {
+        await defaultPool.query('ALTER TABLE purchase_items ADD COLUMN item_name VARCHAR(255) NULL AFTER item_code');
+      }
+      if (!existingPi.includes('size')) {
+        await defaultPool.query('ALTER TABLE purchase_items ADD COLUMN size VARCHAR(50) NULL AFTER category');
+      }
+      if (!existingPi.includes('uom')) {
+        await defaultPool.query("ALTER TABLE purchase_items ADD COLUMN uom VARCHAR(20) DEFAULT 'pcs' AFTER size");
+      }
+
+      // 2. production_batch_items
+      const [pbiCols] = await defaultPool.query<any[]>(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'production_batch_items'`,
+        [dbName]
+      );
+      const existingPbi = (pbiCols || []).map(c => c.COLUMN_NAME);
+      if (!existingPbi.includes('product_id')) {
+        await defaultPool.query('ALTER TABLE production_batch_items ADD COLUMN product_id INT NULL AFTER batch_id');
+      }
+      if (!existingPbi.includes('item_code')) {
+        await defaultPool.query('ALTER TABLE production_batch_items ADD COLUMN item_code VARCHAR(100) NULL AFTER product_id');
+      }
+      if (!existingPbi.includes('product_name')) {
+        await defaultPool.query('ALTER TABLE production_batch_items ADD COLUMN product_name VARCHAR(255) NULL AFTER item_code');
+      }
+      if (!existingPbi.includes('selling_rate')) {
+        await defaultPool.query('ALTER TABLE production_batch_items ADD COLUMN selling_rate DECIMAL(10,2) NULL AFTER quantity');
+      }
+      if (!existingPbi.includes('size')) {
+        await defaultPool.query('ALTER TABLE production_batch_items ADD COLUMN size VARCHAR(50) NULL AFTER size_label');
+      }
+
+      // 3. sales_order_items
+      const [soiCols] = await defaultPool.query<any[]>(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'sales_order_items'`,
+        [dbName]
+      );
+      const existingSoi = (soiCols || []).map(c => c.COLUMN_NAME);
+      if (!existingSoi.includes('product_id')) {
+        await defaultPool.query('ALTER TABLE sales_order_items ADD COLUMN product_id INT NULL AFTER order_id');
+      }
+      if (!existingSoi.includes('item_code')) {
+        await defaultPool.query('ALTER TABLE sales_order_items ADD COLUMN item_code VARCHAR(100) NULL AFTER product_id');
+      }
+      if (!existingSoi.includes('item_name')) {
+        await defaultPool.query('ALTER TABLE sales_order_items ADD COLUMN item_name VARCHAR(255) NULL AFTER item_code');
+      }
+
+      // 4. stock_movements
+      const [smCols] = await defaultPool.query<any[]>(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'stock_movements'`,
+        [dbName]
+      );
+      const existingSm = (smCols || []).map(c => c.COLUMN_NAME);
+      if (!existingSm.includes('product_id')) {
+        await defaultPool.query('ALTER TABLE stock_movements ADD COLUMN product_id INT NULL AFTER vendor_id');
+      }
+      if (!existingSm.includes('item_code')) {
+        await defaultPool.query('ALTER TABLE stock_movements ADD COLUMN item_code VARCHAR(100) NULL AFTER product_id');
+      }
+      if (!existingSm.includes('item_name')) {
+        await defaultPool.query('ALTER TABLE stock_movements ADD COLUMN item_name VARCHAR(255) NULL AFTER item_code');
+      }
+      if (!existingSm.includes('size')) {
+        await defaultPool.query('ALTER TABLE stock_movements ADD COLUMN size VARCHAR(50) NULL AFTER category');
+      }
+      if (!existingSm.includes('unit_rate')) {
+        await defaultPool.query('ALTER TABLE stock_movements ADD COLUMN unit_rate DECIMAL(10,2) NULL AFTER quantity');
+      }
+    } catch (e) {
+      console.warn('Notice: unified item columns check:', e instanceof Error ? e.message : String(e));
+    }
+
   } catch (err) {
     console.warn('initDb warning (schema check):', err instanceof Error ? err.message : String(err));
   }

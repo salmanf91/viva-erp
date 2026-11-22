@@ -18,8 +18,14 @@ CREATE TABLE IF NOT EXISTS production_batches (
 CREATE TABLE IF NOT EXISTS production_batch_items (
   id INT PRIMARY KEY AUTO_INCREMENT,
   batch_id INT NOT NULL,
+  product_id INT NULL,
+  item_code VARCHAR(100) NULL,
+  product_name VARCHAR(255) NULL,
+  category VARCHAR(100) NULL,
   size_label VARCHAR(50) NOT NULL,
+  size VARCHAR(50) NULL,
   quantity INT NOT NULL,
+  selling_rate DECIMAL(10,2) NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (batch_id) REFERENCES production_batches(id) ON DELETE CASCADE
 );
