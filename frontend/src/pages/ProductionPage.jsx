@@ -291,7 +291,12 @@ function BatchItemRowEditor({ item, idx, configs, onUpdate, onRemove, onResetRat
     }}>
       {/* Item Card Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px dashed #e2e8f0', paddingBottom: 6 }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>Item #{idx + 1}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>Item #{idx + 1}</span>
+          {currentCfg.item_code && (
+            <span className="badge b-blue" style={{ fontSize: 10, fontFamily: 'monospace' }}>SKU: {currentCfg.item_code}</span>
+          )}
+        </div>
         {canRemove && (
           <button
             type="button"
@@ -325,9 +330,28 @@ function BatchItemRowEditor({ item, idx, configs, onUpdate, onRemove, onResetRat
         alignItems: 'center'
       }}>
         <div>
-          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 3 }}>Product Category</label>
-          <select value={item.category} onChange={e => onUpdate('category', e.target.value)} style={{ width: '100%', fontWeight: 600 }}>
-            {configs.map(c => <option key={c.category} value={c.category}>{c.display_name || c.name || getProductLabel(c.category, configs)}</option>)}
+          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 3 }}>Product (Name &amp; Code)</label>
+          <select
+            value={item.category}
+            onChange={e => {
+              const newCat = e.target.value;
+              const newCfg = configs.find(c => (c.category || '').toLowerCase() === newCat.toLowerCase());
+              onUpdate('category', newCat);
+              if (newCfg) {
+                if (newCfg.id) onUpdate('product_id', newCfg.id);
+                if (newCfg.item_code) onUpdate('item_code', newCfg.item_code);
+                if (newCfg.name || newCfg.display_name) onUpdate('product_name', newCfg.name || newCfg.display_name);
+                const matchingSizeRate = item.size ? (newCfg.size_rates || []).find(sr => (sr.size_label || '').toLowerCase() === (item.size || '').toLowerCase())?.selling_rate : null;
+                onUpdate('selling_rate', matchingSizeRate !== undefined && matchingSizeRate !== null ? matchingSizeRate : (newCfg.selling_rate || ''));
+              }
+            }}
+            style={{ width: '100%', fontWeight: 600 }}
+          >
+            {configs.map(c => (
+              <option key={c.category} value={c.category}>
+                {c.item_code ? `[${c.item_code}] ` : ''}{c.display_name || c.name || getProductLabel(c.category, configs)}
+              </option>
+            ))}
           </select>
         </div>
 
@@ -337,7 +361,14 @@ function BatchItemRowEditor({ item, idx, configs, onUpdate, onRemove, onResetRat
             type="text"
             placeholder="e.g. M, L, XL, Free"
             value={item.size || ''}
-            onChange={e => onUpdate('size', e.target.value)}
+            onChange={e => {
+              const newSize = e.target.value;
+              onUpdate('size', newSize);
+              const matchingSizeRate = newSize ? (currentCfg?.size_rates || []).find(sr => (sr.size_label || '').toLowerCase() === newSize.toLowerCase())?.selling_rate : null;
+              if (matchingSizeRate !== undefined && matchingSizeRate !== null) {
+                onUpdate('selling_rate', matchingSizeRate);
+              }
+            }}
             style={{ width: '100%' }}
           />
         </div>
@@ -350,6 +381,18 @@ function BatchItemRowEditor({ item, idx, configs, onUpdate, onRemove, onResetRat
             value={item.quantity}
             onChange={e => onUpdate('quantity', e.target.value)}
             style={{ width: '100%', fontWeight: 800, color: 'var(--accent)' }}
+          />
+        </div>
+
+        <div>
+          <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 3 }}>Selling Price (₹)</label>
+          <input
+            type="number"
+            step="0.01"
+            placeholder={String(currentCfg.selling_rate || '0.00')}
+            value={item.selling_rate !== undefined ? item.selling_rate : (currentCfg.selling_rate || '')}
+            onChange={e => onUpdate('selling_rate', e.target.value)}
+            style={{ width: '100%', fontWeight: 700, color: '#059669' }}
           />
         </div>
 
@@ -383,7 +426,14 @@ function BatchItemRowEditor({ item, idx, configs, onUpdate, onRemove, onResetRat
           <button
             key={sz}
             type="button"
-            onClick={() => onUpdate('size', (item.size || '') === sz ? '' : sz)}
+            onClick={() => {
+              const nextSize = (item.size || '') === sz ? '' : sz;
+              onUpdate('size', nextSize);
+              const matchingSizeRate = nextSize ? (currentCfg?.size_rates || []).find(sr => (sr.size_label || '').toLowerCase() === nextSize.toLowerCase())?.selling_rate : null;
+              if (matchingSizeRate !== undefined && matchingSizeRate !== null) {
+                onUpdate('selling_rate', matchingSizeRate);
+              }
+            }}
             style={{
               padding: '2px 8px',
               borderRadius: 6,

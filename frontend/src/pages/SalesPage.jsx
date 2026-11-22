@@ -414,45 +414,66 @@ function NewOrderModal({ order, onClose, onSaved }) {
   const [paymentMode, setPaymentMode] = useState('upi');
   const [items, setItems]       = useState(
     order && order.items
-      ? order.items.map(it => ({ ...it, size: it.size || '', item_name: it.item_name || '' }))
-      : [{ category: 'salwar_suit', item_name: 'Salwar Suit', size: '', quantity: '', rate_per_pc: '450.00' }]
+      ? order.items.map(it => ({
+          ...it,
+          product_id: it.product_id || null,
+          item_code: it.item_code || '',
+          size: it.size || '',
+          item_name: it.item_name || ''
+        }))
+      : [{ product_id: null, item_code: '', category: 'salwar_suit', item_name: 'Salwar Suit', size: '', quantity: '', rate_per_pc: '450.00' }]
   );
   const [saving, setSaving]     = useState(false);
 
   useEffect(() => {
     Promise.all([
       api.get('/sales/clients').then(r => setClients(r.data)),
-      api.get('/production/configs').then(r => setProducts(r.data))
+      api.get('/items?all=1').catch(() => api.get('/production/configs')).then(r => setProducts(r.data || []))
     ]).catch(() => {});
   }, []);
 
   const addItem  = () => {
     const defaultProd = products.find(p => p.category === 'salwar_suit') || products[0];
     const cat = defaultProd?.category || 'salwar_suit';
-    setItems(prev => [...prev, { category: cat, item_name: getProductLabel(cat), size: '', quantity: '', rate_per_pc: defaultProd?.selling_rate || '' }]);
+    setItems(prev => [...prev, {
+      product_id: defaultProd?.id || null,
+      item_code: defaultProd?.item_code || '',
+      category: cat,
+      item_name: defaultProd?.name || getProductLabel(cat),
+      size: '',
+      quantity: '',
+      rate_per_pc: defaultProd?.selling_rate || ''
+    }]);
   };
   const removeItem = i => setItems(prev => prev.filter((_, idx) => idx !== i));
   const setItem  = (i, field, val) => setItems(prev => prev.map((it, idx) => idx === i ? { ...it, [field]: val } : it));
 
   const handleCategoryChange = (i, category) => {
-    const prod = products.find(p => p.category === category);
+    const prod = products.find(p => p.category === category || String(p.id) === category);
     const size = items[i].size || '';
     let rate = '';
     if (prod) {
-      const sizeRateObj = size ? (prod.size_rates || []).find(r => r.size_label.toLowerCase() === size.toLowerCase()) : null;
+      const sizeRateObj = size ? (prod.size_rates || []).find(r => (r.size_label || '').toLowerCase() === size.toLowerCase()) : null;
       rate = sizeRateObj ? sizeRateObj.selling_rate : (prod.selling_rate || '');
     }
-    setItems(prev => prev.map((it, idx) => idx === i ? { ...it, category, rate_per_pc: rate } : it));
+    setItems(prev => prev.map((it, idx) => idx === i ? {
+      ...it,
+      category: prod?.category || category,
+      product_id: prod?.id || null,
+      item_code: prod?.item_code || '',
+      item_name: prod?.name || getProductLabel(prod?.category || category),
+      rate_per_pc: rate
+    } : it));
   };
 
   const handleSizeChange = (i, size) => {
-    const prod = products.find(p => p.category === items[i].category);
+    const prod = products.find(p => p.category === items[i].category || (items[i].product_id && p.id === items[i].product_id));
     let rate = '';
     if (prod) {
-      const sizeRateObj = size ? (prod.size_rates || []).find(r => r.size_label.toLowerCase() === size.toLowerCase()) : null;
+      const sizeRateObj = size ? (prod.size_rates || []).find(r => (r.size_label || '').toLowerCase() === size.toLowerCase()) : null;
       rate = sizeRateObj ? sizeRateObj.selling_rate : (prod.selling_rate || '');
     }
-    setItems(prev => prev.map((it, idx) => idx === i ? { ...it, size, rate_per_pc: rate } : it));
+    setItems(prev => prev.map((it, idx) => idx === i ? { ...it, size, rate_per_pc: rate !== '' ? rate : it.rate_per_pc } : it));
   };
 
   const createClientInline = async () => {
@@ -483,7 +504,15 @@ function NewOrderModal({ order, onClose, onSaved }) {
         discount: discountAmt,
         amount_paid: parseFloat(amountReceived) || 0,
         payment_mode: paymentMode,
-        items: validItems.map(it => ({ category: it.category, item_name: it.item_name || getProductLabel(it.category), size: it.size || null, quantity: +it.quantity, rate_per_pc: +it.rate_per_pc })),
+        items: validItems.map(it => ({
+          product_id: it.product_id || null,
+          item_code: it.item_code || null,
+          category: it.category,
+          item_name: it.item_name || getProductLabel(it.category),
+          size: it.size || null,
+          quantity: +it.quantity,
+          rate_per_pc: +it.rate_per_pc
+        })),
       };
       if (order) {
         await api.put(`/sales/${order.id}`, payload);
@@ -619,10 +648,21 @@ function NewOrderModal({ order, onClose, onSaved }) {
                     borderTop: i > 0 ? '1px solid var(--border)' : 'none',
                     background: '#fff',
                   }}>
-                    <select value={it.category} onChange={e => handleCategoryChange(i, e.target.value)}
-                      style={{ padding: '7px 10px', borderRadius: 7, border: '1.5px solid var(--border)', fontSize: 13, width: '100%' }}>
-                      {products.map(p => <option key={p.category} value={p.category}>{getProductLabel(p.category)}</option>)}
-                    </select>
+                    <div>
+                      <select value={it.category} onChange={e => handleCategoryChange(i, e.target.value)}
+                        style={{ padding: '7px 10px', borderRadius: 7, border: '1.5px solid var(--border)', fontSize: 13, width: '100%' }}>
+                        {products.map(p => (
+                          <option key={p.category} value={p.category}>
+                            {p.item_code ? `[${p.item_code}] ` : ''}{p.name || getProductLabel(p.category)}
+                          </option>
+                        ))}
+                      </select>
+                      {it.item_code && (
+                        <span className="badge b-blue" style={{ fontSize: 9, fontFamily: 'monospace', marginTop: 2, display: 'inline-block' }}>
+                          SKU: {it.item_code}
+                        </span>
+                      )}
+                    </div>
 
                     <select value={it.size} onChange={e => handleSizeChange(i, e.target.value)}
                       style={{ padding: '7px 10px', borderRadius: 7, border: '1.5px solid var(--border)', fontSize: 13, width: '100%' }}>
@@ -689,8 +729,17 @@ function NewOrderModal({ order, onClose, onSaved }) {
                           onChange={e => handleCategoryChange(i, e.target.value)}
                           style={{ width: '100%', padding: '7px 9px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 13 }}
                         >
-                          {products.map(p => <option key={p.category} value={p.category}>{getProductLabel(p.category)}</option>)}
+                          {products.map(p => (
+                            <option key={p.category} value={p.category}>
+                              {p.item_code ? `[${p.item_code}] ` : ''}{p.name || getProductLabel(p.category)}
+                            </option>
+                          ))}
                         </select>
+                        {it.item_code && (
+                          <span className="badge b-blue" style={{ fontSize: 9, fontFamily: 'monospace', marginTop: 2, display: 'inline-block' }}>
+                            SKU: {it.item_code}
+                          </span>
+                        )}
                       </div>
 
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -1461,7 +1510,13 @@ function InvoiceModal({ order, onClose }) {
                 {order.items?.map((it, i) => (
                   <tr key={it.id} style={{ borderBottom: '1px solid #f5f0e8', background: i % 2 === 1 ? '#fdfaf4' : '#fff' }}>
                     <td style={{ padding: '11px 10px', fontSize: 12, color: '#bbb' }}>{i + 1}</td>
-                    <td style={{ padding: '11px 10px', fontWeight: 600, fontSize: 13 }}>{getProductLabel(it.category)}{it.size ? ` (${formatSize(it.size)})` : ''}</td>
+                    <td style={{ padding: '11px 10px', fontWeight: 600, fontSize: 13 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                        {it.item_code && <span style={{ background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe', padding: '1px 5px', borderRadius: 4, fontSize: 10, fontFamily: 'monospace' }}>{it.item_code}</span>}
+                        <span>{it.item_name || getProductLabel(it.category)}</span>
+                        {it.size && <span style={{ background: '#f5f3ff', color: '#6d28d9', border: '1px solid #ddd6fe', padding: '1px 5px', borderRadius: 4, fontSize: 10 }}>{formatSize(it.size)}</span>}
+                      </div>
+                    </td>
                     <td style={{ padding: '11px 10px', textAlign: 'right', fontSize: 13 }}>{it.quantity} pcs</td>
                     <td style={{ padding: '11px 10px', textAlign: 'right', fontSize: 13 }}>{fmt(it.rate_per_pc)}</td>
                     <td style={{ padding: '11px 10px', textAlign: 'right', fontWeight: 700, fontSize: 13 }}>{fmt(it.quantity * it.rate_per_pc)}</td>

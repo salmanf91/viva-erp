@@ -275,12 +275,16 @@ export async function createBatch(req: AuthRequest, res: Response): Promise<void
 
     // Resolve rates and accessories from product_config for any item missing rates
     const [cfgRows] = await conn.execute(
-      'SELECT category, cut_rate, stitch_rate, zip_cost, thread_cost, canvas_cost, plastic_cost, lace_cost, logistics_cost FROM product_config WHERE tenant_id=?',
+      'SELECT id, category, name, item_code, selling_rate, cut_rate, stitch_rate, zip_cost, thread_cost, canvas_cost, plastic_cost, lace_cost, logistics_cost FROM product_config WHERE tenant_id=?',
       [tenantId]
     ) as any[];
     const configMap = new Map<string, any>();
     for (const c of (cfgRows as any[])) {
       configMap.set((c.category || '').toLowerCase(), {
+        id: c.id,
+        name: c.name,
+        item_code: c.item_code,
+        selling_rate: Number(c.selling_rate || 0),
         cut_rate: Number(c.cut_rate ?? 5.00),
         stitch_rate: Number(c.stitch_rate ?? 15.00),
         zip_cost: Number(c.zip_cost ?? 0.00),
@@ -290,6 +294,15 @@ export async function createBatch(req: AuthRequest, res: Response): Promise<void
         lace_cost: Number(c.lace_cost ?? 0.00),
         logistics_cost: Number(c.logistics_cost ?? 0.00),
       });
+    }
+
+    const [sizeRateRows] = await conn.execute(
+      'SELECT category, size_label, selling_rate FROM product_size_rates WHERE tenant_id = ?',
+      [tenantId]
+    ).catch(() => [[]]) as any[];
+    const sizeRateMap = new Map<string, number>();
+    for (const sr of (sizeRateRows as any[] || [])) {
+      sizeRateMap.set(`${(sr.category || '').toLowerCase()}__${(sr.size_label || '').toLowerCase()}`, Number(sr.selling_rate || 0));
     }
 
     let totalQuantity = 0;
@@ -354,16 +367,33 @@ export async function createBatch(req: AuthRequest, res: Response): Promise<void
 
     // Insert batch items
     for (const it of parsedItems) {
+      const cat = (it.category || '').toLowerCase();
+      const cfg = configMap.get(cat);
+      const prodId = (it as any).product_id ? Number((it as any).product_id) : (cfg?.id || null);
+      const itemCode = (it as any).item_code || cfg?.item_code || null;
+      const prodName = (it as any).product_name || cfg?.name || null;
+      const sizeVal = it.size ? String(it.size).trim() : null;
+      const sizeKey = `${cat}__${(sizeVal || '').toLowerCase()}`;
+      const sizeRate = sizeRateMap.get(sizeKey);
+      const sellingRate = (it as any).selling_rate !== undefined && (it as any).selling_rate !== null && (it as any).selling_rate !== ''
+        ? Number((it as any).selling_rate)
+        : (sizeRate !== undefined ? sizeRate : Number(cfg?.selling_rate || 0));
+
       try {
         await conn.execute(
-          `INSERT INTO production_batch_items (tenant_id, batch_id, category, size, quantity, cut_rate, stitch_rate, zip_cost, thread_cost, canvas_cost, plastic_cost, lace_cost, logistics_cost)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO production_batch_items (tenant_id, batch_id, product_id, item_code, product_name, category, size_label, size, quantity, selling_rate, cut_rate, stitch_rate, zip_cost, thread_cost, canvas_cost, plastic_cost, lace_cost, logistics_cost)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             tenantId,
             batchId,
+            prodId,
+            itemCode,
+            prodName,
             it.category,
-            it.size || null,
+            sizeVal || 'Free Size',
+            sizeVal,
             it.quantity,
+            sellingRate,
             it.cut_rate || 0,
             it.stitch_rate || 0,
             it.zip_cost || 0,
@@ -375,12 +405,34 @@ export async function createBatch(req: AuthRequest, res: Response): Promise<void
           ]
         );
       } catch {
-        // Fallback for older schema without accessory columns
-        await conn.execute(
-          `INSERT INTO production_batch_items (tenant_id, batch_id, category, size, quantity, cut_rate, stitch_rate)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [tenantId, batchId, it.category, it.size || null, it.quantity, it.cut_rate || 0, it.stitch_rate || 0]
-        );
+        try {
+          await conn.execute(
+            `INSERT INTO production_batch_items (tenant_id, batch_id, category, size, quantity, cut_rate, stitch_rate, zip_cost, thread_cost, canvas_cost, plastic_cost, lace_cost, logistics_cost)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              tenantId,
+              batchId,
+              it.category,
+              sizeVal,
+              it.quantity,
+              it.cut_rate || 0,
+              it.stitch_rate || 0,
+              it.zip_cost || 0,
+              it.thread_cost || 0,
+              it.canvas_cost || 0,
+              it.plastic_cost || 0,
+              it.lace_cost || 0,
+              it.logistics_cost || 0,
+            ]
+          );
+        } catch {
+          // Fallback for older schema without accessory columns
+          await conn.execute(
+            `INSERT INTO production_batch_items (tenant_id, batch_id, category, size, quantity, cut_rate, stitch_rate)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`,
+            [tenantId, batchId, it.category, sizeVal, it.quantity, it.cut_rate || 0, it.stitch_rate || 0]
+          );
+        }
       }
     }
 
@@ -451,7 +503,9 @@ export async function getBatchDetail(req: AuthRequest, res: Response): Promise<v
       const cat = (it.category || '').toLowerCase();
       const size = (it.size || '').toLowerCase();
       const sizePrice = sizeRateMap.get(`${cat}__${size}`);
-      it.selling_rate = sizePrice !== undefined ? sizePrice : Number(it.base_selling_rate || 0);
+      if (it.selling_rate === undefined || it.selling_rate === null || Number(it.selling_rate) === 0) {
+        it.selling_rate = sizePrice !== undefined ? sizePrice : Number(it.base_selling_rate || 0);
+      }
     }
 
     const workLogs = await query<any[]>(
@@ -542,11 +596,15 @@ export async function updateBatch(req: AuthRequest, res: Response): Promise<void
   try {
     await conn.beginTransaction();
 
-    // Fetch product configs for accessories fallback
+    // Fetch product configs for accessories and SKU fallback
     const [configs] = await conn.execute('SELECT * FROM product_config WHERE tenant_id = ?', [tenantId]) as any[];
     const configMap = new Map<string, any>();
     for (const c of (configs as any[] || [])) {
       configMap.set((c.category || '').toLowerCase(), {
+        id: c.id,
+        name: c.name,
+        item_code: c.item_code,
+        selling_rate: Number(c.selling_rate || 0),
         cut_rate: Number(c.cut_rate ?? 5.00),
         stitch_rate: Number(c.stitch_rate ?? 15.00),
         zip_cost: Number(c.zip_cost ?? 0.00),
@@ -556,6 +614,15 @@ export async function updateBatch(req: AuthRequest, res: Response): Promise<void
         lace_cost: Number(c.lace_cost ?? 0.00),
         logistics_cost: Number(c.logistics_cost ?? 0.00),
       });
+    }
+
+    const [sizeRateRows] = await conn.execute(
+      'SELECT category, size_label, selling_rate FROM product_size_rates WHERE tenant_id = ?',
+      [tenantId]
+    ).catch(() => [[]]) as any[];
+    const sizeRateMap = new Map<string, number>();
+    for (const sr of (sizeRateRows as any[] || [])) {
+      sizeRateMap.set(`${(sr.category || '').toLowerCase()}__${(sr.size_label || '').toLowerCase()}`, Number(sr.selling_rate || 0));
     }
 
     const sets: string[] = [];
@@ -628,16 +695,32 @@ export async function updateBatch(req: AuthRequest, res: Response): Promise<void
         const itLace = (it.lace_cost !== undefined && !isNaN(Number(it.lace_cost))) ? Number(it.lace_cost) : cfg.lace_cost;
         const itLogistics = (it.logistics_cost !== undefined && !isNaN(Number(it.logistics_cost))) ? Number(it.logistics_cost) : cfg.logistics_cost;
 
+        const cat = (it.category || '').toLowerCase();
+        const prodId = (it as any).product_id ? Number((it as any).product_id) : (cfg?.id || null);
+        const itemCode = (it as any).item_code || cfg?.item_code || null;
+        const prodName = (it as any).product_name || cfg?.name || null;
+        const sizeVal = it.size ? String(it.size).trim() : null;
+        const sizeKey = `${cat}__${(sizeVal || '').toLowerCase()}`;
+        const sizeRate = sizeRateMap.get(sizeKey);
+        const sellingRate = (it as any).selling_rate !== undefined && (it as any).selling_rate !== null && (it as any).selling_rate !== ''
+          ? Number((it as any).selling_rate)
+          : (sizeRate !== undefined ? sizeRate : Number(cfg?.selling_rate || 0));
+
         try {
           await conn.execute(
-            `INSERT INTO production_batch_items (tenant_id, batch_id, category, size, quantity, cut_rate, stitch_rate, zip_cost, thread_cost, canvas_cost, plastic_cost, lace_cost, logistics_cost)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO production_batch_items (tenant_id, batch_id, product_id, item_code, product_name, category, size_label, size, quantity, selling_rate, cut_rate, stitch_rate, zip_cost, thread_cost, canvas_cost, plastic_cost, lace_cost, logistics_cost)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               tenantId,
               id,
+              prodId,
+              itemCode,
+              prodName,
               it.category,
-              it.size ? String(it.size).trim() : null,
+              sizeVal || 'Free Size',
+              sizeVal,
               Number(it.quantity) || 0,
+              sellingRate,
               itCut,
               itStitch,
               itZip,
@@ -649,11 +732,33 @@ export async function updateBatch(req: AuthRequest, res: Response): Promise<void
             ]
           );
         } catch {
-          await conn.execute(
-            `INSERT INTO production_batch_items (tenant_id, batch_id, category, size, quantity, cut_rate, stitch_rate)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [tenantId, id, it.category, it.size ? String(it.size).trim() : null, Number(it.quantity) || 0, itCut, itStitch]
-          );
+          try {
+            await conn.execute(
+              `INSERT INTO production_batch_items (tenant_id, batch_id, category, size, quantity, cut_rate, stitch_rate, zip_cost, thread_cost, canvas_cost, plastic_cost, lace_cost, logistics_cost)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                tenantId,
+                id,
+                it.category,
+                sizeVal,
+                Number(it.quantity) || 0,
+                itCut,
+                itStitch,
+                itZip,
+                itThread,
+                itCanvas,
+                itPlastic,
+                itLace,
+                itLogistics,
+              ]
+            );
+          } catch {
+            await conn.execute(
+              `INSERT INTO production_batch_items (tenant_id, batch_id, category, size, quantity, cut_rate, stitch_rate)
+               VALUES (?, ?, ?, ?, ?, ?, ?)`,
+              [tenantId, id, it.category, sizeVal, Number(it.quantity) || 0, itCut, itStitch]
+            );
+          }
         }
       }
     } else {

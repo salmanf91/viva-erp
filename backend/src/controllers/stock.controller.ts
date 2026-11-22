@@ -159,65 +159,126 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
       [tenantId]
     ));
 
-    // 5. Finished goods breakdown by product and size (with produced, sold, and on-hand quantities)
-    const [producedBreakdown, soldBreakdown] = await Promise.all([
+    // 5. Finished goods breakdown by product, code, size, and price
+    const [configs, sizeRates, producedBreakdown, soldBreakdown] = await Promise.all([
+      safe(query<any[]>(`SELECT id, category, name, item_code, selling_rate, uom FROM product_config WHERE tenant_id = ?`, [tenantId]), []),
+      safe(query<any[]>(`SELECT category, size_label, selling_rate FROM product_size_rates WHERE tenant_id = ?`, [tenantId]), []),
       safe(query<any[]>(
         `SELECT
+           COALESCE(pbi.item_code, pc.item_code) AS item_code,
+           COALESCE(pbi.product_name, pc.name, pbi.category, pb.category) AS product_name,
            COALESCE(NULLIF(pbi.category, ''), pb.category) AS category,
-           COALESCE(NULLIF(TRIM(pbi.size), ''), 'Free Size') AS size,
+           COALESCE(NULLIF(TRIM(pbi.size), ''), NULLIF(TRIM(pbi.size_label), ''), 'Free Size') AS size,
+           COALESCE(pbi.selling_rate, pc.selling_rate, 0) AS selling_rate,
            SUM(COALESCE(NULLIF(pbi.quantity, 0), pb.quantity, 0)) AS produced_qty
          FROM production_batches pb
          LEFT JOIN production_batch_items pbi ON pbi.batch_id = pb.id
+         LEFT JOIN product_config pc ON (pbi.product_id = pc.id OR (pc.tenant_id = ? AND LOWER(TRIM(pc.category)) = LOWER(TRIM(COALESCE(pbi.category, pb.category)))))
          WHERE (pb.tenant_id = ? OR pb.tenant_id IS NULL)
            AND (LOWER(COALESCE(pb.status, '')) IN ('finished', 'completed', 'delivered'))
-         GROUP BY COALESCE(NULLIF(pbi.category, ''), pb.category), COALESCE(NULLIF(TRIM(pbi.size), ''), 'Free Size')`,
-        [tenantId]
+         GROUP BY 
+           COALESCE(pbi.item_code, pc.item_code),
+           COALESCE(pbi.product_name, pc.name, pbi.category, pb.category),
+           COALESCE(NULLIF(pbi.category, ''), pb.category),
+           COALESCE(NULLIF(TRIM(pbi.size), ''), NULLIF(TRIM(pbi.size_label), ''), 'Free Size'),
+           COALESCE(pbi.selling_rate, pc.selling_rate, 0)`,
+        [tenantId, tenantId]
       ), []),
       safe(query<any[]>(
         `SELECT
+           COALESCE(i.item_code, pc.item_code) AS item_code,
+           COALESCE(i.item_name, pc.name, i.category) AS product_name,
            (CASE
              WHEN LOWER(COALESCE(i.category, '')) LIKE '%salwar%' OR LOWER(COALESCE(i.item_name, '')) LIKE '%salwar%' THEN 'salwar_suit'
              ELSE i.category
            END) AS category,
            COALESCE(NULLIF(TRIM(i.size), ''), 'Free Size') AS size,
+           COALESCE(i.rate_per_pc, pc.selling_rate, 0) AS selling_rate,
            SUM(i.quantity) AS sold_qty
          FROM sales_order_items i
          JOIN sales_orders o ON o.id = i.order_id
+         LEFT JOIN product_config pc ON (i.product_id = pc.id OR (pc.tenant_id = ? AND LOWER(TRIM(pc.category)) = LOWER(TRIM(i.category))))
          WHERE (o.tenant_id = ? OR o.tenant_id IS NULL)
-         GROUP BY (CASE WHEN LOWER(COALESCE(i.category, '')) LIKE '%salwar%' OR LOWER(COALESCE(i.item_name, '')) LIKE '%salwar%' THEN 'salwar_suit' ELSE i.category END), COALESCE(NULLIF(TRIM(i.size), ''), 'Free Size')`,
-        [tenantId]
+         GROUP BY 
+           COALESCE(i.item_code, pc.item_code),
+           COALESCE(i.item_name, pc.name, i.category),
+           (CASE
+             WHEN LOWER(COALESCE(i.category, '')) LIKE '%salwar%' OR LOWER(COALESCE(i.item_name, '')) LIKE '%salwar%' THEN 'salwar_suit'
+             ELSE i.category
+           END),
+           COALESCE(NULLIF(TRIM(i.size), ''), 'Free Size'),
+           COALESCE(i.rate_per_pc, pc.selling_rate, 0)`,
+        [tenantId, tenantId]
       ), [])
     ]);
 
+    const configByCat = new Map<string, any>();
+    for (const c of configs) {
+      if (c.category) configByCat.set(c.category.toLowerCase().trim(), c);
+    }
+
+    const sizeRateMap = new Map<string, number>();
+    for (const sr of sizeRates) {
+      sizeRateMap.set(`${(sr.category || '').toLowerCase().trim()}__${(sr.size_label || '').toLowerCase().trim()}`, Number(sr.selling_rate || 0));
+    }
+
     const breakdownMap = new Map<string, any>();
     for (const r of producedBreakdown) {
-      const key = `${r.category}_${r.size}`;
+      const catKey = (r.category || '').toLowerCase().trim();
+      const sizeKey = (r.size || 'free size').toLowerCase().trim();
+      const codeKey = (r.item_code || '').toLowerCase().trim();
+      const key = `${codeKey || catKey}__${sizeKey}`;
+
+      const cfg = configByCat.get(catKey);
+      const configuredRate = sizeRateMap.get(`${catKey}__${sizeKey}`);
+      const sellingPrice = Number(r.selling_rate || configuredRate || cfg?.selling_rate || 0);
+
       breakdownMap.set(key, {
+        item_code: r.item_code || cfg?.item_code || null,
+        product_name: r.product_name || cfg?.name || r.category,
         category: r.category,
         size: r.size,
+        selling_rate: sellingPrice,
+        price: sellingPrice,
         produced_qty: Number(r.produced_qty || 0),
         sold_qty: 0,
         on_hand_qty: Number(r.produced_qty || 0),
-        qty: Number(r.produced_qty || 0)
+        qty: Number(r.produced_qty || 0),
+        inventory_value: Number(r.produced_qty || 0) * sellingPrice
       });
     }
 
     for (const s of soldBreakdown) {
-      const key = `${s.category}_${s.size}`;
+      const catKey = (s.category || '').toLowerCase().trim();
+      const sizeKey = (s.size || 'free size').toLowerCase().trim();
+      const codeKey = (s.item_code || '').toLowerCase().trim();
+      const key = `${codeKey || catKey}__${sizeKey}`;
       const soldAmt = Number(s.sold_qty || 0);
+
+      const cfg = configByCat.get(catKey);
+      const configuredRate = sizeRateMap.get(`${catKey}__${sizeKey}`);
+      const sellingPrice = Number(s.selling_rate || configuredRate || cfg?.selling_rate || 0);
+
       if (breakdownMap.has(key)) {
         const item = breakdownMap.get(key);
         item.sold_qty = soldAmt;
         item.on_hand_qty = Math.max(0, item.produced_qty - soldAmt);
         item.qty = item.on_hand_qty;
+        if (!item.item_code && (s.item_code || cfg?.item_code)) item.item_code = s.item_code || cfg?.item_code;
+        item.inventory_value = item.on_hand_qty * (item.selling_rate || sellingPrice);
       } else {
         breakdownMap.set(key, {
+          item_code: s.item_code || cfg?.item_code || null,
+          product_name: s.product_name || cfg?.name || s.category,
           category: s.category,
           size: s.size,
+          selling_rate: sellingPrice,
+          price: sellingPrice,
           produced_qty: 0,
           sold_qty: soldAmt,
           on_hand_qty: 0,
-          qty: 0
+          qty: 0,
+          inventory_value: 0
         });
       }
     }
@@ -246,15 +307,17 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
       [tenantId]
     ));
 
-    // 7. Itemized sales dispatches log (so user can clearly see sold fabrics by order & customer)
+    // 7. Itemized sales dispatches log (with product name, code, size, price)
     const soldDetails = await safe(query<any[]>(
       `SELECT 
          o.id AS order_id,
          o.invoice_number,
          o.order_date,
          COALESCE(c.name, 'Direct Client') AS client_name,
-         COALESCE(NULLIF(i.item_name, ''), i.category) AS item_name,
+         COALESCE(i.item_code, pc.item_code) AS item_code,
+         COALESCE(i.item_name, pc.name, i.category) AS item_name,
          i.category,
+         i.size,
          (CASE
            WHEN LOWER(COALESCE(i.category, '')) LIKE '%salwar%' OR LOWER(COALESCE(i.item_name, '')) LIKE '%salwar%' THEN 'Mixed Fabric (Salwar)'
            WHEN LOWER(COALESCE(i.category, '')) LIKE '%nighty%' OR LOWER(COALESCE(i.item_name, '')) LIKE '%nighty%' THEN 'Mixed Fabric (Nighty)'
@@ -262,13 +325,15 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
          END) AS raw_material_name,
          i.quantity,
          i.rate_per_pc,
+         (i.quantity * i.rate_per_pc) AS total_amount,
          o.status
        FROM sales_order_items i
        JOIN sales_orders o ON o.id = i.order_id
        LEFT JOIN clients c ON c.id = o.client_id
+       LEFT JOIN product_config pc ON (i.product_id = pc.id OR (pc.tenant_id = ? AND LOWER(TRIM(pc.category)) = LOWER(TRIM(i.category))))
        WHERE (o.tenant_id = ? OR o.tenant_id IS NULL)
        ORDER BY o.order_date DESC, o.id DESC`,
-      [tenantId]
+      [tenantId, tenantId]
     ), []);
 
     // 8. Active raw materials master list
