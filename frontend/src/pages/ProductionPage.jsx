@@ -612,6 +612,16 @@ export default function ProductionPage() {
   const [statsActiveCount, setStatsActiveCount] = useState(0);
   const [statsActivePcs, setStatsActivePcs] = useState(0);
   const [stockRawMaterials, setStockRawMaterials] = useState([]);
+  const [finishModalBatch, setFinishModalBatch] = useState(null);
+  const [finishForm, setFinishForm] = useState({
+    product_id: '',
+    item_code: '',
+    product_name: '',
+    category: '',
+    items: [],
+    notes: ''
+  });
+  const [isFinishing, setIsFinishing] = useState(false);
 
   const defaultItemRow = (category, cfgs = []) => {
     const cat = category || cfgs[0]?.category || 'shawl_nighty_lace';
@@ -936,6 +946,209 @@ export default function ProductionPage() {
     if (detail?.batch?.id === id) {
       const r = await api.get(`/production/${id}`);
       setDetail(r.data);
+    }
+  };
+
+  const openFinishModal = async (batch) => {
+    let b = batch;
+    if (!b.items || b.items.length === 0) {
+      try {
+        const res = await api.get(`/production/${batch.id}`);
+        if (res.data?.batch) b = res.data.batch;
+      } catch (err) {
+        console.warn('Could not fetch batch detail for finish modal:', err);
+      }
+    }
+
+    const batchCat = (b.category || '').toLowerCase();
+    const matchedCfg = configs.find(c => 
+      (c.id && b.items?.[0]?.product_id === c.id) ||
+      (c.item_code && b.items?.[0]?.item_code === c.item_code) ||
+      (c.category || '').toLowerCase() === batchCat
+    ) || configs.find(c => (c.category || '').toLowerCase().includes('salwar')) || configs[0] || {};
+
+    const prodId = matchedCfg.id || '';
+    const itemCode = matchedCfg.item_code || '';
+    const prodName = matchedCfg.name || matchedCfg.display_name || getProductLabel(matchedCfg.category || batchCat, configs);
+    const category = matchedCfg.category || batchCat || 'salwar_suit';
+
+    let initialItems = [];
+    if (Array.isArray(b.items) && b.items.length > 0 && b.items.some(it => it.size || Number(it.quantity) > 0)) {
+      initialItems = b.items.map(it => {
+        const sizeRate = (matchedCfg.size_rates || []).find(sr => (sr.size_label || '').toLowerCase() === (it.size || '').toLowerCase());
+        return {
+          product_id: prodId,
+          item_code: itemCode,
+          product_name: prodName,
+          category: category,
+          size: it.size || 'Free Size',
+          quantity: it.quantity || b.quantity || 1,
+          selling_rate: it.selling_rate || sizeRate?.selling_rate || matchedCfg.selling_rate || 0,
+        };
+      });
+    } else if (Array.isArray(matchedCfg.size_rates) && matchedCfg.size_rates.length > 0) {
+      const perSize = Math.floor(b.quantity / matchedCfg.size_rates.length);
+      const rem = b.quantity % matchedCfg.size_rates.length;
+      initialItems = matchedCfg.size_rates.map((sr, idx) => ({
+        product_id: prodId,
+        item_code: itemCode,
+        product_name: prodName,
+        category: category,
+        size: sr.size_label || 'Free Size',
+        quantity: idx === 0 ? perSize + rem : perSize,
+        selling_rate: Number(sr.selling_rate || matchedCfg.selling_rate || 0),
+      }));
+    } else {
+      initialItems = [
+        {
+          product_id: prodId,
+          item_code: itemCode,
+          product_name: prodName,
+          category: category,
+          size: 'Free Size',
+          quantity: b.quantity || 1,
+          selling_rate: Number(matchedCfg.selling_rate || 0),
+        }
+      ];
+    }
+
+    setFinishModalBatch(b);
+    setFinishForm({
+      product_id: prodId,
+      item_code: itemCode,
+      product_name: prodName,
+      category: category,
+      items: initialItems,
+      notes: b.notes || ''
+    });
+  };
+
+  const handleFinishProductChange = (selectedKey) => {
+    const cfg = configs.find(c => String(c.id) === String(selectedKey) || c.category === selectedKey) || {};
+    const prodId = cfg.id || '';
+    const itemCode = cfg.item_code || '';
+    const prodName = cfg.name || cfg.display_name || getProductLabel(cfg.category, configs);
+    const category = cfg.category || 'salwar_suit';
+
+    let newItems = [];
+    const totalBatchQty = finishModalBatch?.quantity || 1;
+    if (Array.isArray(cfg.size_rates) && cfg.size_rates.length > 0) {
+      const perSize = Math.floor(totalBatchQty / cfg.size_rates.length);
+      const rem = totalBatchQty % cfg.size_rates.length;
+      newItems = cfg.size_rates.map((sr, idx) => ({
+        product_id: prodId,
+        item_code: itemCode,
+        product_name: prodName,
+        category: category,
+        size: sr.size_label || 'Free Size',
+        quantity: idx === 0 ? perSize + rem : perSize,
+        selling_rate: Number(sr.selling_rate || cfg.selling_rate || 0),
+      }));
+    } else {
+      newItems = (finishForm.items || []).map(it => ({
+        ...it,
+        product_id: prodId,
+        item_code: itemCode,
+        product_name: prodName,
+        category: category,
+        selling_rate: it.selling_rate || Number(cfg.selling_rate || 0),
+      }));
+      if (newItems.length === 0) {
+        newItems = [{
+          product_id: prodId,
+          item_code: itemCode,
+          product_name: prodName,
+          category: category,
+          size: 'Free Size',
+          quantity: totalBatchQty,
+          selling_rate: Number(cfg.selling_rate || 0),
+        }];
+      }
+    }
+
+    setFinishForm(f => ({
+      ...f,
+      product_id: prodId,
+      item_code: itemCode,
+      product_name: prodName,
+      category: category,
+      items: newItems
+    }));
+  };
+
+  const handleAddFinishItemRow = () => {
+    const cfg = configs.find(c => c.id === finishForm.product_id || c.category === finishForm.category) || {};
+    setFinishForm(f => ({
+      ...f,
+      items: [
+        ...f.items,
+        {
+          product_id: finishForm.product_id,
+          item_code: finishForm.item_code,
+          product_name: finishForm.product_name,
+          category: finishForm.category,
+          size: '',
+          quantity: 0,
+          selling_rate: Number(cfg.selling_rate || 0)
+        }
+      ]
+    }));
+  };
+
+  const handleUpdateFinishItem = (idx, field, val) => {
+    setFinishForm(f => {
+      const updated = [...f.items];
+      updated[idx] = { ...updated[idx], [field]: val };
+      return { ...f, items: updated };
+    });
+  };
+
+  const handleRemoveFinishItem = (idx) => {
+    if (finishForm.items.length <= 1) return;
+    setFinishForm(f => ({
+      ...f,
+      items: f.items.filter((_, i) => i !== idx)
+    }));
+  };
+
+  const submitFinishBatch = async () => {
+    if (!finishModalBatch) return;
+    const validItems = finishForm.items.filter(it => Number(it.quantity) > 0 || it.size);
+    if (validItems.length === 0) {
+      alert('Please specify at least one finished item size and quantity.');
+      return;
+    }
+
+    setIsFinishing(true);
+    try {
+      await api.put(`/production/${finishModalBatch.id}/finish`, {
+        product_id: finishForm.product_id || null,
+        item_code: finishForm.item_code || null,
+        product_name: finishForm.product_name || null,
+        category: finishForm.category || 'salwar_suit',
+        notes: finishForm.notes || null,
+        items: validItems.map(it => ({
+          product_id: it.product_id || finishForm.product_id || null,
+          item_code: it.item_code || finishForm.item_code || null,
+          product_name: it.product_name || finishForm.product_name || null,
+          category: it.category || finishForm.category || 'salwar_suit',
+          size: it.size ? it.size.trim() : 'Free Size',
+          quantity: Number(it.quantity) || 0,
+          selling_rate: Number(it.selling_rate) || 0
+        }))
+      });
+
+      const finishedBatchId = finishModalBatch.id;
+      setFinishModalBatch(null);
+      if (detail?.batch?.id === finishedBatchId) {
+        setDetail(null);
+      }
+      load();
+    } catch (err) {
+      console.error(err);
+      alert('Failed to finish batch: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setIsFinishing(false);
     }
   };
 
@@ -1329,7 +1542,7 @@ export default function ProductionPage() {
               <button
                 className="btn btn-sm"
                 style={{ background: '#dcfce7', border: '1px solid #86efac', color: '#15803d', fontWeight: 700 }}
-                onClick={() => finishBatch(b.id)}
+                onClick={() => openFinishModal(b)}
               >
                 ✓ Mark Finished
               </button>
@@ -1632,7 +1845,7 @@ export default function ProductionPage() {
 
             <div className="modal-actions">
               {detail.batch?.status !== 'finished' && (
-                <button className="btn btn-primary" onClick={() => { finishBatch(detail.batch.id); setDetail(null); }}>
+                <button className="btn btn-primary" onClick={() => { const b = detail.batch; setDetail(null); openFinishModal(b); }}>
                   ✓ Mark Finished
                 </button>
               )}
@@ -1865,6 +2078,248 @@ export default function ProductionPage() {
             <div className="modal-actions">
               <button className="btn btn-ghost" onClick={() => setEditBatch(null)}>Cancel</button>
               <button className="btn btn-primary" onClick={saveBatchEdit}>Save Changes</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Finish Batch: Confirm Ready Garment Output Modal (Approach 2) ── */}
+      {finishModalBatch && (
+        <div className="modal-overlay" onClick={() => !isFinishing && setFinishModalBatch(null)}>
+          <div className="modal" style={{ width: 720, maxWidth: '96vw', maxHeight: '92vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h2 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8, fontSize: 18 }}>
+                <span>🏁</span> Finish Batch: Map Ready Garments
+              </h2>
+              <button className="btn btn-ghost btn-sm" onClick={() => !isFinishing && setFinishModalBatch(null)}>✕</button>
+            </div>
+
+            {/* Batch Raw Info banner */}
+            <div style={{
+              background: '#f8fafc',
+              border: '1.5px solid #e2e8f0',
+              borderRadius: 10,
+              padding: '12px 16px',
+              marginBottom: 16
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                <div>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: 'var(--text)' }}>
+                    Batch #{finishModalBatch.batch_number}
+                  </span>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                    🧵 Consumed: <strong>{finishModalBatch.raw_material_name || getProductLabel(finishModalBatch.category, configs)}</strong>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <span className="badge b-blue" style={{ fontSize: 12, padding: '4px 10px' }}>
+                    Raw Input: {finishModalBatch.quantity} pcs
+                  </span>
+                  <span className="badge b-green" style={{ fontSize: 12, padding: '4px 10px' }}>
+                    Stitched: {finishModalBatch.stitch_pcs || finishModalBatch.quantity} pcs
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Step 1: Finished Product Selection */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
+                👗 1. Target Finished Product (Catalog Mapping)
+              </label>
+              <select
+                value={finishForm.product_id || finishForm.category}
+                onChange={e => handleFinishProductChange(e.target.value)}
+                style={{ width: '100%', padding: '9px 12px', borderRadius: 8, border: '1.5px solid var(--border)', fontWeight: 700, fontSize: 14 }}
+              >
+                {configs.map(c => (
+                  <option key={c.id || c.category} value={c.id || c.category}>
+                    {c.item_code ? `[${c.item_code}] ` : ''}{c.display_name || c.name || getProductLabel(c.category, configs)} {c.selling_rate ? `(Base ₹${c.selling_rate})` : ''}
+                  </option>
+                ))}
+              </select>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                This maps the finished garments into your stock catalog with product code, name, and size.
+              </div>
+            </div>
+
+            {/* Step 2: Size Breakdown & Selling Prices */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <label style={{ fontSize: 12, fontWeight: 700, textTransform: 'uppercase', color: 'var(--muted)' }}>
+                  📏 2. Finished Output Breakdown &amp; Selling Prices
+                </label>
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={handleAddFinishItemRow}
+                  style={{ color: 'var(--accent)', fontWeight: 700 }}
+                >
+                  + Add Size Line
+                </button>
+              </div>
+
+              {/* Items Table */}
+              <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                <table style={{ margin: 0, width: '100%', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: '#f8fafc' }}>
+                      <th style={{ width: '34%' }}>Size / Variation</th>
+                      <th style={{ width: '22%', textAlign: 'right' }}>Finished Pcs</th>
+                      <th style={{ width: '28%', textAlign: 'right' }}>Selling Price (₹)</th>
+                      <th style={{ width: '16%', textAlign: 'center' }}>Remove</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {finishForm.items.map((it, idx) => (
+                      <tr key={idx}>
+                        <td>
+                          <input
+                            type="text"
+                            placeholder="e.g. Free Size, M, L, XL"
+                            value={it.size}
+                            onChange={e => handleUpdateFinishItem(idx, 'size', e.target.value)}
+                            style={{ width: '100%', padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', fontWeight: 600 }}
+                          />
+                          <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
+                            {['Free Size', 'M', 'L', 'XL', 'XXL'].map(sz => (
+                              <button
+                                key={sz}
+                                type="button"
+                                onClick={() => handleUpdateFinishItem(idx, 'size', sz)}
+                                style={{
+                                  fontSize: 10,
+                                  padding: '1px 5px',
+                                  borderRadius: 4,
+                                  border: '1px solid #cbd5e1',
+                                  background: it.size === sz ? 'var(--accent)' : '#fff',
+                                  color: it.size === sz ? '#fff' : 'var(--muted)',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                {sz}
+                              </button>
+                            ))}
+                          </div>
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <input
+                            type="number"
+                            min="0"
+                            placeholder="0"
+                            value={it.quantity}
+                            onChange={e => handleUpdateFinishItem(idx, 'quantity', e.target.value)}
+                            style={{ width: '90px', textAlign: 'right', padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', fontWeight: 700 }}
+                          />
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            <span style={{ fontSize: 12, color: 'var(--muted)' }}>₹</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              placeholder="0.00"
+                              value={it.selling_rate}
+                              onChange={e => handleUpdateFinishItem(idx, 'selling_rate', e.target.value)}
+                              style={{ width: '90px', textAlign: 'right', padding: '6px 8px', borderRadius: 6, border: '1px solid var(--border)', fontWeight: 700, color: '#059669' }}
+                            />
+                          </div>
+                        </td>
+                        <td style={{ textAlign: 'center' }}>
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-sm"
+                            disabled={finishForm.items.length <= 1}
+                            onClick={() => handleRemoveFinishItem(idx)}
+                            style={{ color: 'var(--red)', opacity: finishForm.items.length <= 1 ? 0.3 : 1 }}
+                          >
+                            ✕
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Total & Reconciliation Bar */}
+              {(() => {
+                const totalFinishedPcs = finishForm.items.reduce((s, it) => s + (Number(it.quantity) || 0), 0);
+                const rawPcs = Number(finishModalBatch.quantity || 0);
+                const diff = totalFinishedPcs - rawPcs;
+                const totalInventoryVal = finishForm.items.reduce((s, it) => s + ((Number(it.quantity) || 0) * (Number(it.selling_rate) || 0)), 0);
+
+                return (
+                  <div style={{
+                    marginTop: 12,
+                    background: diff === 0 ? '#f0fdf4' : (diff < 0 ? '#fffbeb' : '#eff6ff'),
+                    border: `1.5px solid ${diff === 0 ? '#86efac' : (diff < 0 ? '#fde68a' : '#bfdbfe')}`,
+                    borderRadius: 8,
+                    padding: '10px 14px',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: 10
+                  }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: diff === 0 ? '#15803d' : (diff < 0 ? '#b45309' : '#1d4ed8') }}>
+                        {diff === 0 && `✅ Total Output: ${totalFinishedPcs} pcs (100% Matched)`}
+                        {diff < 0 && `⚠️ Total Output: ${totalFinishedPcs} pcs (${Math.abs(diff)} pcs less than raw input - Wastage/Scrap)`}
+                        {diff > 0 && `ℹ️ Total Output: ${totalFinishedPcs} pcs (${diff} extra pcs)`}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                        Raw pieces consumed: {rawPcs} pcs
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>
+                        Ready Stock Value
+                      </div>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: '#059669' }}>
+                        ₹{totalInventoryVal.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Optional Completion Notes */}
+            <div style={{ marginBottom: 20 }}>
+              <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>
+                Notes / Inspection Remarks (Optional)
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Inspected, standard packaging completed"
+                value={finishForm.notes}
+                onChange={e => setFinishForm(f => ({ ...f, notes: e.target.value }))}
+                style={{ width: '100%', padding: '7px 10px', borderRadius: 6, border: '1px solid var(--border)' }}
+              />
+            </div>
+
+            {/* Actions */}
+            <div className="modal-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={isFinishing}
+                onClick={() => setFinishModalBatch(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={isFinishing || finishForm.items.reduce((s, it) => s + (Number(it.quantity) || 0), 0) <= 0}
+                onClick={submitFinishBatch}
+                style={{ fontWeight: 800 }}
+              >
+                {isFinishing ? 'Moving to Ready Stock…' : '🏁 Confirm & Move to Ready Stock'}
+              </button>
             </div>
           </div>
         </div>
