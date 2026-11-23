@@ -169,7 +169,7 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
            COALESCE(pbi.product_name, pc.name, pbi.category, pb.category) AS product_name,
            COALESCE(NULLIF(pbi.category, ''), pb.category) AS category,
            COALESCE(NULLIF(TRIM(pbi.size), ''), NULLIF(TRIM(pbi.size_label), ''), 'Free Size') AS size,
-           COALESCE(pbi.selling_rate, pc.selling_rate, 0) AS selling_rate,
+           MAX(COALESCE(pbi.selling_rate, pc.selling_rate, 0)) AS selling_rate,
            SUM(COALESCE(NULLIF(pbi.quantity, 0), pb.quantity, 0)) AS produced_qty
          FROM production_batches pb
          LEFT JOIN production_batch_items pbi ON pbi.batch_id = pb.id
@@ -180,8 +180,7 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
            COALESCE(pbi.item_code, pc.item_code),
            COALESCE(pbi.product_name, pc.name, pbi.category, pb.category),
            COALESCE(NULLIF(pbi.category, ''), pb.category),
-           COALESCE(NULLIF(TRIM(pbi.size), ''), NULLIF(TRIM(pbi.size_label), ''), 'Free Size'),
-           COALESCE(pbi.selling_rate, pc.selling_rate, 0)`,
+           COALESCE(NULLIF(TRIM(pbi.size), ''), NULLIF(TRIM(pbi.size_label), ''), 'Free Size')`,
         [tenantId, tenantId]
       ), []),
       safe(query<any[]>(
@@ -193,7 +192,7 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
              ELSE i.category
            END) AS category,
            COALESCE(NULLIF(TRIM(i.size), ''), 'Free Size') AS size,
-           COALESCE(i.rate_per_pc, pc.selling_rate, 0) AS selling_rate,
+           MAX(COALESCE(i.rate_per_pc, pc.selling_rate, 0)) AS selling_rate,
            SUM(i.quantity) AS sold_qty
          FROM sales_order_items i
          JOIN sales_orders o ON o.id = i.order_id
@@ -206,8 +205,7 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
              WHEN LOWER(COALESCE(i.category, '')) LIKE '%salwar%' OR LOWER(COALESCE(i.item_name, '')) LIKE '%salwar%' THEN 'salwar_suit'
              ELSE i.category
            END),
-           COALESCE(NULLIF(TRIM(i.size), ''), 'Free Size'),
-           COALESCE(i.rate_per_pc, pc.selling_rate, 0)`,
+           COALESCE(NULLIF(TRIM(i.size), ''), 'Free Size')`,
         [tenantId, tenantId]
       ), [])
     ]);
@@ -223,17 +221,22 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
     }
 
     const breakdownMap = new Map<string, any>();
+    const byCodeAndSize = new Map<string, any>();
+    const byNameAndSize = new Map<string, any>();
+    const byCatAndSize  = new Map<string, any[]>();
+
     for (const r of producedBreakdown) {
       const catKey = (r.category || '').toLowerCase().trim();
       const sizeKey = (r.size || 'free size').toLowerCase().trim();
       const codeKey = (r.item_code || '').toLowerCase().trim();
-      const key = `${codeKey || catKey}__${sizeKey}`;
+      const nameKey = (r.product_name || '').toLowerCase().trim();
+      const primaryKey = `${codeKey || catKey || nameKey}__${sizeKey}`;
 
       const cfg = configByCat.get(catKey);
       const configuredRate = sizeRateMap.get(`${catKey}__${sizeKey}`);
       const sellingPrice = Number(r.selling_rate || configuredRate || cfg?.selling_rate || 0);
 
-      breakdownMap.set(key, {
+      const entry = {
         item_code: r.item_code || cfg?.item_code || null,
         product_name: r.product_name || cfg?.name || r.category,
         category: r.category,
@@ -245,29 +248,46 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
         on_hand_qty: Number(r.produced_qty || 0),
         qty: Number(r.produced_qty || 0),
         inventory_value: Number(r.produced_qty || 0) * sellingPrice
-      });
+      };
+
+      breakdownMap.set(primaryKey, entry);
+      if (codeKey) byCodeAndSize.set(`${codeKey}__${sizeKey}`, entry);
+      if (nameKey) byNameAndSize.set(`${nameKey}__${sizeKey}`, entry);
+      if (!byCatAndSize.has(`${catKey}__${sizeKey}`)) byCatAndSize.set(`${catKey}__${sizeKey}`, []);
+      byCatAndSize.get(`${catKey}__${sizeKey}`)!.push(entry);
     }
 
     for (const s of soldBreakdown) {
       const catKey = (s.category || '').toLowerCase().trim();
       const sizeKey = (s.size || 'free size').toLowerCase().trim();
       const codeKey = (s.item_code || '').toLowerCase().trim();
-      const key = `${codeKey || catKey}__${sizeKey}`;
+      const nameKey = (s.product_name || '').toLowerCase().trim();
       const soldAmt = Number(s.sold_qty || 0);
 
-      const cfg = configByCat.get(catKey);
-      const configuredRate = sizeRateMap.get(`${catKey}__${sizeKey}`);
-      const sellingPrice = Number(s.selling_rate || configuredRate || cfg?.selling_rate || 0);
+      let item: any = null;
+      if (codeKey && byCodeAndSize.has(`${codeKey}__${sizeKey}`)) {
+        item = byCodeAndSize.get(`${codeKey}__${sizeKey}`);
+      } else if (nameKey && byNameAndSize.has(`${nameKey}__${sizeKey}`)) {
+        item = byNameAndSize.get(`${nameKey}__${sizeKey}`);
+      } else if (byCatAndSize.has(`${catKey}__${sizeKey}`)) {
+        const candidates = byCatAndSize.get(`${catKey}__${sizeKey}`)!;
+        item = candidates.find(c => c.on_hand_qty > 0) || candidates[0];
+      } else if (breakdownMap.has(`${codeKey || catKey || nameKey}__${sizeKey}`)) {
+        item = breakdownMap.get(`${codeKey || catKey || nameKey}__${sizeKey}`);
+      }
 
-      if (breakdownMap.has(key)) {
-        const item = breakdownMap.get(key);
-        item.sold_qty = soldAmt;
-        item.on_hand_qty = Math.max(0, item.produced_qty - soldAmt);
+      if (item) {
+        item.sold_qty += soldAmt;
+        item.on_hand_qty = Math.max(0, item.produced_qty - item.sold_qty);
         item.qty = item.on_hand_qty;
-        if (!item.item_code && (s.item_code || cfg?.item_code)) item.item_code = s.item_code || cfg?.item_code;
-        item.inventory_value = item.on_hand_qty * (item.selling_rate || sellingPrice);
+        if (!item.item_code && (s.item_code || codeKey)) item.item_code = s.item_code || codeKey;
+        item.inventory_value = item.on_hand_qty * (item.selling_rate || item.price || 0);
       } else {
-        breakdownMap.set(key, {
+        const cfg = configByCat.get(catKey);
+        const configuredRate = sizeRateMap.get(`${catKey}__${sizeKey}`);
+        const sellingPrice = Number(s.selling_rate || configuredRate || cfg?.selling_rate || 0);
+        const primaryKey = `${codeKey || catKey || nameKey}__${sizeKey}`;
+        breakdownMap.set(primaryKey, {
           item_code: s.item_code || cfg?.item_code || null,
           product_name: s.product_name || cfg?.name || s.category,
           category: s.category,
@@ -284,31 +304,82 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
     }
     const finishedBreakdown = Array.from(breakdownMap.values());
 
-    // 6. Sold goods mapped to raw material category (checking both category & item_name)
-    const sold = await safe(query<any[]>(
+    // 6. Sold goods mapped to raw material category (linking products to their source raw materials)
+    const [batchRawMappings, rawMaterialsList] = await Promise.all([
+      safe(query<any[]>(
+        `SELECT DISTINCT
+           LOWER(TRIM(COALESCE(pbi.item_code, pc.item_code, ''))) AS item_code,
+           LOWER(TRIM(COALESCE(pbi.product_name, pc.name, ''))) AS product_name,
+           LOWER(TRIM(COALESCE(pbi.category, pb.category, ''))) AS category,
+           TRIM(pb.raw_material_name) AS raw_material_name
+         FROM production_batches pb
+         LEFT JOIN production_batch_items pbi ON pbi.batch_id = pb.id
+         LEFT JOIN product_config pc ON (pbi.product_id = pc.id OR (pc.tenant_id = ? AND LOWER(TRIM(pc.category)) = LOWER(TRIM(COALESCE(pbi.category, pb.category)))))
+         WHERE (pb.tenant_id = ? OR pb.tenant_id IS NULL)
+           AND pb.raw_material_name IS NOT NULL AND TRIM(pb.raw_material_name) != ''`,
+        [tenantId, tenantId]
+      ), []),
+      safe(query<any[]>(
+        `SELECT id, name, code, uom, default_rate FROM raw_materials WHERE (tenant_id = ? OR tenant_id IS NULL) AND is_active=1 ORDER BY id ASC`,
+        [tenantId]
+      ), [])
+    ]);
+
+    const rawMatByCode = new Map<string, string>();
+    const rawMatByName = new Map<string, string>();
+    const rawMatByCat  = new Map<string, string>();
+    for (const b of batchRawMappings) {
+      if (b.raw_material_name) {
+        if (b.item_code) rawMatByCode.set(b.item_code, b.raw_material_name);
+        if (b.product_name) rawMatByName.set(b.product_name, b.raw_material_name);
+        if (b.category) rawMatByCat.set(b.category, b.raw_material_name);
+      }
+    }
+
+    const defaultSalwarRm = rawMaterialsList.find(r => (r.name || '').toLowerCase().includes('salwar'))?.name || 'Mixed Fabric (Salwar)';
+    const defaultNightyRm = rawMaterialsList.find(r => (r.name || '').toLowerCase().includes('nighty'))?.name || 'Mixed Fabric (Nighty)';
+
+    const soldOrderItems = await safe(query<any[]>(
       `SELECT
-         t.category,
-         SUM(t.qty) AS qty
-       FROM (
-         SELECT
-           (CASE 
-             WHEN LOWER(COALESCE(i.category, '')) LIKE '%salwar%' OR LOWER(COALESCE(i.item_name, '')) LIKE '%salwar%' THEN 'Mixed Fabric (Salwar)'
-             WHEN LOWER(COALESCE(i.category, '')) LIKE '%nighty%' OR LOWER(COALESCE(i.item_name, '')) LIKE '%nighty%' THEN 'Mixed Fabric (Nighty)'
-             WHEN i.category = 'shawl_nighty_lace' THEN 'Mixed Fabric (Nighty)'
-             WHEN i.category = '' OR i.category IS NULL OR LOWER(i.category) = 'mixed' THEN 'Mixed Fabric'
-             ELSE TRIM(COALESCE(i.category, ''))
-           END) COLLATE utf8mb4_unicode_ci AS category,
-           i.quantity AS qty
-         FROM sales_order_items i
-         JOIN sales_orders o ON o.id = i.order_id
-         WHERE (o.tenant_id = ? OR o.tenant_id IS NULL)
-       ) t
-       GROUP BY t.category`,
-      [tenantId]
-    ));
+         COALESCE(i.item_code, pc.item_code) AS item_code,
+         COALESCE(i.item_name, pc.name) AS item_name,
+         i.category,
+         i.quantity AS qty
+       FROM sales_order_items i
+       JOIN sales_orders o ON o.id = i.order_id
+       LEFT JOIN product_config pc ON (i.product_id = pc.id OR (pc.tenant_id = ? AND LOWER(TRIM(pc.category)) = LOWER(TRIM(i.category))))
+       WHERE (o.tenant_id = ? OR o.tenant_id IS NULL)`,
+      [tenantId, tenantId]
+    ), []);
+
+    const soldByRawMat = new Map<string, number>();
+    for (const s of soldOrderItems) {
+      const code = (s.item_code || '').toLowerCase().trim();
+      const name = (s.item_name || '').toLowerCase().trim();
+      const cat  = (s.category || '').toLowerCase().trim();
+      const qty  = Number(s.qty || 0);
+
+      let mappedRm = '';
+      if (code && rawMatByCode.has(code)) {
+        mappedRm = rawMatByCode.get(code)!;
+      } else if (name && rawMatByName.has(name)) {
+        mappedRm = rawMatByName.get(name)!;
+      } else if (cat && rawMatByCat.has(cat)) {
+        mappedRm = rawMatByCat.get(cat)!;
+      } else if (cat.includes('salwar') || name.includes('salwar')) {
+        mappedRm = defaultSalwarRm;
+      } else if (cat.includes('nighty') || name.includes('nighty')) {
+        mappedRm = defaultNightyRm;
+      } else {
+        mappedRm = 'Mixed Fabric';
+      }
+
+      soldByRawMat.set(mappedRm, (soldByRawMat.get(mappedRm) || 0) + qty);
+    }
+    const sold = Array.from(soldByRawMat.entries()).map(([category, qty]) => ({ category, qty }));
 
     // 7. Itemized sales dispatches log (with product name, code, size, price)
-    const soldDetails = await safe(query<any[]>(
+    const soldDetailsRaw = await safe(query<any[]>(
       `SELECT 
          o.id AS order_id,
          o.invoice_number,
@@ -336,11 +407,22 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
       [tenantId, tenantId]
     ), []);
 
+    const soldDetails = soldDetailsRaw.map((item: any) => {
+      const code = (item.item_code || '').toLowerCase().trim();
+      const name = (item.item_name || '').toLowerCase().trim();
+      const cat  = (item.category || '').toLowerCase().trim();
+      let rm = '';
+      if (code && rawMatByCode.has(code)) rm = rawMatByCode.get(code)!;
+      else if (name && rawMatByName.has(name)) rm = rawMatByName.get(name)!;
+      else if (cat && rawMatByCat.has(cat)) rm = rawMatByCat.get(cat)!;
+      else if (cat.includes('salwar') || name.includes('salwar')) rm = defaultSalwarRm;
+      else if (cat.includes('nighty') || name.includes('nighty')) rm = defaultNightyRm;
+      else rm = item.raw_material_name || 'Mixed Fabric';
+      return { ...item, raw_material_name: rm };
+    });
+
     // 8. Active raw materials master list
-    const rawMaterials = await safe(query<any[]>(
-      `SELECT id, name, code, uom, default_rate FROM raw_materials WHERE (tenant_id = ? OR tenant_id IS NULL) AND is_active=1 ORDER BY id ASC`,
-      [tenantId]
-    ), []);
+    const rawMaterials = rawMaterialsList;
 
     res.json({ received, allocated, finished, shawlBreakdown, finishedBreakdown, sold, soldDetails, rawMaterials });
   } catch (error) {

@@ -563,13 +563,134 @@ export async function getBatchDetail(req: AuthRequest, res: Response): Promise<v
 export async function finishBatch(req: AuthRequest, res: Response): Promise<void> {
   const { tenantId } = req.user!;
   const { id } = req.params;
+  const { product_id, item_code, product_name, category, items, notes } = req.body || {};
+
+  const conn = await pool.getConnection();
   try {
-    await query(
-      "UPDATE production_batches SET status='finished' WHERE id=? AND tenant_id=?",
+    await conn.beginTransaction();
+
+    const [batches] = await conn.execute(
+      'SELECT * FROM production_batches WHERE id=? AND tenant_id=?',
       [id, tenantId]
-    );
-    res.json({ message: 'Batch marked as finished' });
-  } catch (error) { console.error(error); res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) }); }
+    ) as any[];
+
+    if (!batches || batches.length === 0) {
+      await conn.rollback();
+      res.status(404).json({ message: 'Batch not found' });
+      return;
+    }
+
+    const batch = batches[0];
+
+    // If items are provided, map finished garments, sizes, quantities, and selling prices
+    if (Array.isArray(items) && items.length > 0) {
+      const validItems = items.filter((it: any) => it && (Number(it.quantity) > 0 || it.size));
+      const totalFinQty = validItems.reduce((s: number, it: any) => s + (Number(it.quantity) || 0), 0);
+      const primaryCategory = category || validItems[0]?.category || batch.category || 'salwar_suit';
+
+      // 1. Update batch status, category, quantity, and notes
+      await conn.execute(
+        `UPDATE production_batches
+         SET status='finished', category=?, quantity=?, notes=COALESCE(?, notes)
+         WHERE id=? AND tenant_id=?`,
+        [primaryCategory, totalFinQty > 0 ? totalFinQty : batch.quantity, notes || null, id, tenantId]
+      );
+
+      // 2. Fetch product config for fallback codes/names/selling rates
+      const [configs] = await conn.execute(
+        'SELECT id, category, name, item_code, selling_rate FROM product_config WHERE tenant_id=?',
+        [tenantId]
+      ).catch(() => [[]]) as any[];
+      const cfgMap = new Map<string, any>();
+      for (const c of (configs as any[] || [])) {
+        if (c.category) cfgMap.set(c.category.toLowerCase().trim(), c);
+        if (c.id) cfgMap.set(String(c.id), c);
+      }
+
+      // 3. Clear and re-populate production_batch_items
+      await conn.execute('DELETE FROM production_batch_items WHERE batch_id=? AND tenant_id=?', [id, tenantId]);
+
+      for (const it of validItems) {
+        const catKey = (it.category || primaryCategory || '').toLowerCase().trim();
+        const cfg = cfgMap.get(catKey) || (it.product_id ? cfgMap.get(String(it.product_id)) : null);
+
+        const prodId = it.product_id ? Number(it.product_id) : (product_id ? Number(product_id) : (cfg?.id || null));
+        const code = it.item_code ? String(it.item_code).trim() : (item_code ? String(item_code).trim() : (cfg?.item_code || null));
+        const name = it.product_name ? String(it.product_name).trim() : (product_name ? String(product_name).trim() : (cfg?.name || primaryCategory));
+        const sizeVal = it.size ? String(it.size).trim() : 'Free Size';
+        const itQty = Number(it.quantity) || 0;
+        const sellingRate = (it.selling_rate !== undefined && it.selling_rate !== null && it.selling_rate !== '')
+          ? Number(it.selling_rate)
+          : Number(cfg?.selling_rate || 0);
+
+        try {
+          await conn.execute(
+            `INSERT INTO production_batch_items 
+             (tenant_id, batch_id, product_id, item_code, product_name, category, size_label, size, quantity, selling_rate, cut_rate, stitch_rate, zip_cost, thread_cost, canvas_cost, plastic_cost, lace_cost, logistics_cost)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              tenantId,
+              id,
+              prodId,
+              code,
+              name,
+              it.category || primaryCategory,
+              sizeVal,
+              sizeVal,
+              itQty,
+              sellingRate,
+              batch.cut_rate || 0,
+              batch.stitch_rate || 0,
+              0, 0, 0, 0, 0, 0
+            ]
+          );
+        } catch {
+          try {
+            await conn.execute(
+              `INSERT INTO production_batch_items 
+               (tenant_id, batch_id, product_id, item_code, product_name, category, size_label, size, quantity, selling_rate, cut_rate, stitch_rate)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              [
+                tenantId,
+                id,
+                prodId,
+                code,
+                name,
+                it.category || primaryCategory,
+                sizeVal,
+                sizeVal,
+                itQty,
+                sellingRate,
+                batch.cut_rate || 0,
+                batch.stitch_rate || 0
+              ]
+            );
+          } catch {
+            await conn.execute(
+              `INSERT INTO production_batch_items (tenant_id, batch_id, category, size, quantity, cut_rate, stitch_rate)
+               VALUES (?, ?, ?, ?, ?, ?, ?)`,
+              [tenantId, id, it.category || primaryCategory, sizeVal, itQty, batch.cut_rate || 0, batch.stitch_rate || 0]
+            );
+          }
+        }
+      }
+    } else {
+      // Standard finish without item override
+      await conn.execute(
+        "UPDATE production_batches SET status='finished' WHERE id=? AND tenant_id=?",
+        [id, tenantId]
+      );
+    }
+
+    await conn.commit();
+    res.json({ message: 'Batch marked as finished and output items mapped to ready stock', batchId: id });
+  } catch (error) {
+    await conn.rollback();
+    console.error('finishBatch error:', error);
+    res.status(500).json({ message: 'Server error', error: error instanceof Error ? error.message : String(error) });
+  } finally {
+    conn.release();
+  }
 }
 
 export async function getProductConfigs(req: AuthRequest, res: Response): Promise<void> {

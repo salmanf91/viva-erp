@@ -60,8 +60,14 @@ export default function StockPage() {
     const norm = normalize(cat);
     const rm = (summary?.rawMaterials || []).find(r => normalize(r.name) === norm);
     if (rm) return rm.name;
-    if (norm.includes('salwar')) return 'Mixed Fabric (Salwar)';
-    if (norm.includes('nighty') || norm === 'shawlnighty' || norm === 'ordinarynighty') return 'Mixed Fabric (Nighty)';
+    if (norm.includes('salwar')) {
+      const activeSalwar = (summary?.rawMaterials || []).find(r => normalize(r.name).includes('salwar'));
+      return activeSalwar ? activeSalwar.name : 'Mixed Fabric (Salwar)';
+    }
+    if (norm.includes('nighty') || norm === 'shawlnighty' || norm === 'ordinarynighty') {
+      const activeNighty = (summary?.rawMaterials || []).find(r => normalize(r.name).includes('nighty'));
+      return activeNighty ? activeNighty.name : 'Mixed Fabric (Nighty)';
+    }
     if (norm === 'mixed' || norm === 'mixedfabric') return 'Mixed Fabric';
     return cat;
   };
