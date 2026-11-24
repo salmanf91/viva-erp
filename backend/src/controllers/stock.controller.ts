@@ -378,16 +378,19 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
     // 6. Sold goods mapped to raw material category (linking products to their source raw materials)
     const [batchRawMappings, rawMaterialsList] = await Promise.all([
       safe(query<any[]>(
-        `SELECT DISTINCT
+        `SELECT
+           pb.id,
            LOWER(TRIM(COALESCE(NULLIF(TRIM(pbi.item_code), ''), NULLIF(TRIM(pc.item_code), ''), ''))) AS item_code,
            LOWER(TRIM(COALESCE(NULLIF(TRIM(pbi.product_name), ''), NULLIF(TRIM(pc.name), ''), ''))) AS product_name,
            LOWER(TRIM(COALESCE(NULLIF(TRIM(pbi.category), ''), pb.category, ''))) AS category,
-           TRIM(pb.raw_material_name) AS raw_material_name
+           TRIM(pb.raw_material_name) AS raw_material_name,
+           LOWER(COALESCE(pb.status, '')) AS status
          FROM production_batches pb
          LEFT JOIN production_batch_items pbi ON pbi.batch_id = pb.id
          LEFT JOIN product_config pc ON (pbi.product_id = pc.id OR (pc.tenant_id = ? AND LOWER(TRIM(pc.category)) = LOWER(TRIM(COALESCE(pbi.category, pb.category)))))
          WHERE (pb.tenant_id = ? OR pb.tenant_id IS NULL)
-           AND pb.raw_material_name IS NOT NULL AND TRIM(pb.raw_material_name) != ''`,
+           AND pb.raw_material_name IS NOT NULL AND TRIM(pb.raw_material_name) != ''
+         ORDER BY (CASE WHEN LOWER(COALESCE(pb.status, '')) IN ('finished', 'completed', 'delivered') THEN 1 ELSE 2 END) ASC, pb.id DESC`,
         [tenantId, tenantId]
       ), []),
       safe(query<any[]>(
@@ -399,20 +402,22 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
     const rawMatByCode = new Map<string, string>();
     const rawMatByName = new Map<string, string>();
     const rawMatByCat  = new Map<string, string>();
+    const finishedRmByCat = new Map<string, string>();
+
     for (const b of batchRawMappings) {
       if (b.raw_material_name) {
-        if (b.item_code) rawMatByCode.set(b.item_code, b.raw_material_name);
-        if (b.product_name) rawMatByName.set(b.product_name, b.raw_material_name);
-        if (b.category) rawMatByCat.set(b.category, b.raw_material_name);
+        const isFin = ['finished', 'completed', 'delivered'].includes(b.status);
+        if (b.item_code && !rawMatByCode.has(b.item_code)) rawMatByCode.set(b.item_code, b.raw_material_name);
+        if (b.product_name && !rawMatByName.has(b.product_name)) rawMatByName.set(b.product_name, b.raw_material_name);
+        if (b.category && !rawMatByCat.has(b.category)) rawMatByCat.set(b.category, b.raw_material_name);
+
+        if (isFin) {
+          if (b.item_code && !finishedRmByCat.has(b.item_code)) finishedRmByCat.set(b.item_code, b.raw_material_name);
+          if (b.product_name && !finishedRmByCat.has(b.product_name)) finishedRmByCat.set(b.product_name, b.raw_material_name);
+          if (b.category && !finishedRmByCat.has(b.category)) finishedRmByCat.set(b.category, b.raw_material_name);
+        }
       }
     }
-
-    const finishedSalwarRm = (finished || []).find(f => (f.category || '').toLowerCase().includes('salwar'))?.category
-      || rawMaterialsList.find(r => (r.name || '').toLowerCase().includes('salwar'))?.name
-      || 'Mixed Fabric (Salwar)';
-    const finishedNightyRm = (finished || []).find(f => (f.category || '').toLowerCase().includes('nighty'))?.category
-      || rawMaterialsList.find(r => (r.name || '').toLowerCase().includes('nighty'))?.name
-      || 'Mixed Fabric (Nighty)';
 
     const soldOrderItems = await safe(query<any[]>(
       `SELECT
@@ -435,18 +440,31 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
       const qty  = Number(s.qty || 0);
 
       let mappedRm = '';
-      if (code && rawMatByCode.has(code)) {
+      // 1. Check direct finished batch mapping
+      if (code && finishedRmByCat.has(code)) {
+        mappedRm = finishedRmByCat.get(code)!;
+      } else if (name && finishedRmByCat.has(name)) {
+        mappedRm = finishedRmByCat.get(name)!;
+      } else if (cat && finishedRmByCat.has(cat)) {
+        mappedRm = finishedRmByCat.get(cat)!;
+      }
+      // 2. Check general batch mapping
+      else if (code && rawMatByCode.has(code)) {
         mappedRm = rawMatByCode.get(code)!;
       } else if (name && rawMatByName.has(name)) {
         mappedRm = rawMatByName.get(name)!;
       } else if (cat && rawMatByCat.has(cat)) {
         mappedRm = rawMatByCat.get(cat)!;
-      } else if (cat.includes('salwar') || name.includes('salwar')) {
-        mappedRm = finishedSalwarRm;
-      } else if (cat.includes('nighty') || name.includes('nighty')) {
-        mappedRm = finishedNightyRm;
-      } else {
-        mappedRm = (finished && finished[0]?.category) || 'Mixed Fabric';
+      }
+      // 3. Fallback to finished stock in hand
+      else if (finished && finished.length > 0) {
+        const candidate = finished.find(f => (f.category || '').toLowerCase().includes(cat) || cat.includes((f.category || '').toLowerCase()))
+          || finished[0];
+        mappedRm = candidate.category;
+      }
+      // 4. Default fallback
+      else {
+        mappedRm = rawMaterialsList[0]?.name || 'Mixed Fabric';
       }
 
       soldByRawMat.set(mappedRm, (soldByRawMat.get(mappedRm) || 0) + qty);
@@ -487,12 +505,14 @@ export async function getStockSummary(req: AuthRequest, res: Response): Promise<
       const name = (item.item_name || '').toLowerCase().trim();
       const cat  = (item.category || '').toLowerCase().trim();
       let rm = '';
-      if (code && rawMatByCode.has(code)) rm = rawMatByCode.get(code)!;
+      if (code && finishedRmByCat.has(code)) rm = finishedRmByCat.get(code)!;
+      else if (name && finishedRmByCat.has(name)) rm = finishedRmByCat.get(name)!;
+      else if (cat && finishedRmByCat.has(cat)) rm = finishedRmByCat.get(cat)!;
+      else if (code && rawMatByCode.has(code)) rm = rawMatByCode.get(code)!;
       else if (name && rawMatByName.has(name)) rm = rawMatByName.get(name)!;
       else if (cat && rawMatByCat.has(cat)) rm = rawMatByCat.get(cat)!;
-      else if (cat.includes('salwar') || name.includes('salwar')) rm = finishedSalwarRm;
-      else if (cat.includes('nighty') || name.includes('nighty')) rm = finishedNightyRm;
-      else rm = item.raw_material_name || 'Mixed Fabric';
+      else if (finished && finished.length > 0) rm = finished[0].category;
+      else rm = item.raw_material_name || rawMaterialsList[0]?.name || 'Mixed Fabric';
       return { ...item, raw_material_name: rm };
     });
 

@@ -60,13 +60,19 @@ export default function StockPage() {
     const norm = normalize(cat);
     const rm = (summary?.rawMaterials || []).find(r => normalize(r.name) === norm);
     if (rm) return rm.name;
+    const finRm = (summary?.finished || []).find(f => normalize(f.category) === norm);
+    if (finRm) return finRm.category;
     if (norm.includes('salwar')) {
-      const activeSalwar = (summary?.rawMaterials || []).find(r => normalize(r.name).includes('salwar'));
-      return activeSalwar ? activeSalwar.name : 'Mixed Fabric (Salwar)';
+      const activeSalwar = (summary?.finished || []).find(f => (f.category || '').toLowerCase().includes('salwar'))
+        || (summary?.rawMaterials || []).find(r => normalize(r.name).includes('salwar'))
+        || (summary?.finished || [])[0];
+      return activeSalwar ? (activeSalwar.name || activeSalwar.category) : 'Mixed Fabric (Salwar)';
     }
     if (norm.includes('nighty') || norm === 'shawlnighty' || norm === 'ordinarynighty') {
-      const activeNighty = (summary?.rawMaterials || []).find(r => normalize(r.name).includes('nighty'));
-      return activeNighty ? activeNighty.name : 'Mixed Fabric (Nighty)';
+      const activeNighty = (summary?.finished || []).find(f => (f.category || '').toLowerCase().includes('nighty'))
+        || (summary?.rawMaterials || []).find(r => normalize(r.name).includes('nighty'))
+        || (summary?.finished || [])[0];
+      return activeNighty ? (activeNighty.name || activeNighty.category) : 'Mixed Fabric (Nighty)';
     }
     if (norm === 'mixed' || norm === 'mixedfabric') return 'Mixed Fabric';
     return cat;
@@ -140,26 +146,32 @@ export default function StockPage() {
   });
 
   // Reconcile sold against finished so if sold was mapped to a variant raw material, it deducts from the finished batch
+  const excessPool = new Map();
+  for (const r of rawRows) {
+    if (r.sold > r.totalFin) {
+      excessPool.set(r.cat, r.sold - r.totalFin);
+    }
+  }
+
   const allRows = rawRows.map(r => {
     let effectiveSold = r.sold;
-    if (r.totalFin > effectiveSold) {
-      const isSalwar = (r.cat || '').toLowerCase().includes('salwar');
-      const isNighty = (r.cat || '').toLowerCase().includes('nighty');
-      if (isSalwar || isNighty) {
-        const otherRows = rawRows.filter(o => o.cat !== r.cat && (
-          (isSalwar && (o.cat || '').toLowerCase().includes('salwar')) ||
-          (isNighty && (o.cat || '').toLowerCase().includes('nighty'))
-        ));
-        for (const o of otherRows) {
-          const excessSold = Math.max(0, o.sold - o.totalFin);
-          if (excessSold > 0) {
-            effectiveSold += excessSold;
-          }
-        }
+    if (r.totalFin > effectiveSold && excessPool.size > 0) {
+      for (const [otherCat, excessQty] of excessPool.entries()) {
+        if (excessQty <= 0 || otherCat === r.cat) continue;
+        const canAbsorb = r.totalFin - effectiveSold;
+        const transfer = Math.min(canAbsorb, excessQty);
+        effectiveSold += transfer;
+        excessPool.set(otherCat, excessQty - transfer);
       }
     }
-    const fin = Math.max(0, r.totalFin - effectiveSold);
-    return { ...r, sold: effectiveSold, fin };
+    return { ...r, effectiveSold };
+  }).map(r => {
+    let finalSold = r.effectiveSold;
+    if (r.totalFin === 0 && excessPool.has(r.cat)) {
+      finalSold = excessPool.get(r.cat) || 0;
+    }
+    const fin = Math.max(0, r.totalFin - finalSold);
+    return { ...r, sold: finalSold, fin };
   }).filter(r => r.rec > 0 || r.alloc > 0 || r.totalFin > 0 || r.sold > 0);
 
   // Global aggregate totals (aggregating accurately by category so unrelated sales don't cancel produced stock)
