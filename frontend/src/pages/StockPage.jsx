@@ -127,25 +127,47 @@ export default function StockPage() {
   const allRawCats = Array.from(uniqueCatsMap.values());
 
   // Build rows keyed by raw material
-  const allRows = allRawCats.map((cat, idx) => {
+  const rawRows = allRawCats.map((cat, idx) => {
     const rec      = get(summary?.received,  cat);
     const alloc    = get(summary?.allocated, cat); // In active production
     const totalFin = get(summary?.finished,  cat); // Total finished produced
     const sold     = get(summary?.sold,      cat);
-    const fin      = Math.max(0, totalFin - sold); // Net finished goods on hand
     const used     = alloc + totalFin;
     const avail    = Math.max(0, rec - used); // Unallocated raw fabric remaining
     const color    = getColor(cat, idx);
     const label    = getLabel(cat);
-    return { cat, label, color, rec, alloc, totalFin, sold, fin, used, avail };
+    return { cat, label, color, rec, alloc, totalFin, sold, used, avail };
+  });
+
+  // Reconcile sold against finished so if sold was mapped to a variant raw material, it deducts from the finished batch
+  const allRows = rawRows.map(r => {
+    let effectiveSold = r.sold;
+    if (r.totalFin > effectiveSold) {
+      const isSalwar = (r.cat || '').toLowerCase().includes('salwar');
+      const isNighty = (r.cat || '').toLowerCase().includes('nighty');
+      if (isSalwar || isNighty) {
+        const otherRows = rawRows.filter(o => o.cat !== r.cat && (
+          (isSalwar && (o.cat || '').toLowerCase().includes('salwar')) ||
+          (isNighty && (o.cat || '').toLowerCase().includes('nighty'))
+        ));
+        for (const o of otherRows) {
+          const excessSold = Math.max(0, o.sold - o.totalFin);
+          if (excessSold > 0) {
+            effectiveSold += excessSold;
+          }
+        }
+      }
+    }
+    const fin = Math.max(0, r.totalFin - effectiveSold);
+    return { ...r, sold: effectiveSold, fin };
   }).filter(r => r.rec > 0 || r.alloc > 0 || r.totalFin > 0 || r.sold > 0);
 
   // Global aggregate totals (aggregating accurately by category so unrelated sales don't cancel produced stock)
   const totalRec = (summary?.received || []).reduce((s, r) => s + Number(r.qty || 0), 0);
   const totalAlloc = (summary?.allocated || []).reduce((s, r) => s + Number(r.qty || 0), 0);
   const totalFinProduced = (summary?.finished || []).reduce((s, r) => s + Number(r.qty || 0), 0);
-  const totalFinOnHand = allRows.reduce((s, r) => s + r.fin, 0);
-  const totalCategorySold = allRows.reduce((s, r) => s + r.sold, 0);
+  const totalCategorySold = (summary?.sold || []).reduce((s, r) => s + Number(r.qty || 0), 0);
+  const totalFinOnHand = Math.max(0, totalFinProduced - totalCategorySold);
   const totalAvail = allRows.reduce((s, r) => s + r.avail, 0);
 
   const totals = {
@@ -166,12 +188,14 @@ export default function StockPage() {
     ? activeRows
     : allRows.filter(r => normalize(r.cat) === normalize(selectedCat));
 
+  const filteredTotalFin = filteredRows.reduce((s, r) => s + r.totalFin, 0);
+  const filteredSold = filteredRows.reduce((s, r) => s + r.sold, 0);
   const filteredTotals = {
     rec: filteredRows.reduce((s, r) => s + r.rec, 0),
     alloc: filteredRows.reduce((s, r) => s + r.alloc, 0),
-    totalFin: filteredRows.reduce((s, r) => s + r.totalFin, 0),
-    sold: filteredRows.reduce((s, r) => s + r.sold, 0),
-    fin: filteredRows.reduce((s, r) => s + r.fin, 0),
+    totalFin: filteredTotalFin,
+    sold: filteredSold,
+    fin: Math.max(0, filteredTotalFin - filteredSold),
     avail: filteredRows.reduce((s, r) => s + r.avail, 0),
     used: filteredRows.reduce((s, r) => s + r.used, 0),
   };
