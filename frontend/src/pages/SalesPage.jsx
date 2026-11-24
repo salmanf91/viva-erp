@@ -390,6 +390,14 @@ function SummaryChip({ label, value, color, small }) {
   );
 }
 
+const STANDARD_GARMENT_SIZES = ['Free Size', 'S', 'M', 'L', 'XL', 'XXL', '3XL', '38', '40', '42', '44'];
+
+function getAvailableSizes(prod) {
+  const custom = (prod?.size_rates || []).map(sr => sr.size_label).filter(Boolean);
+  const set = new Set([...custom, ...STANDARD_GARMENT_SIZES]);
+  return Array.from(set);
+}
+
 // ── New Order Modal ───────────────────────────────────────────────────────────
 
 function NewOrderModal({ order, onClose, onSaved }) {
@@ -428,7 +436,28 @@ function NewOrderModal({ order, onClose, onSaved }) {
   useEffect(() => {
     Promise.all([
       api.get('/sales/clients').then(r => setClients(r.data)),
-      api.get('/items?all=1').catch(() => api.get('/production/configs')).then(r => setProducts(r.data || []))
+      api.get('/items?all=1').catch(() => api.get('/production/configs')).then(r => {
+        const prods = r.data || [];
+        setProducts(prods);
+        if (!order) {
+          setItems(prev => {
+            if (prev.length === 1 && !prev[0].product_id) {
+              const defaultProd = prods.find(p => p.category === prev[0].category) || prods[0];
+              if (defaultProd) {
+                return [{
+                  ...prev[0],
+                  product_id: defaultProd.id || null,
+                  item_code: defaultProd.item_code || '',
+                  category: defaultProd.category || prev[0].category,
+                  item_name: defaultProd.name || getProductLabel(defaultProd.category),
+                  rate_per_pc: defaultProd.selling_rate || prev[0].rate_per_pc
+                }];
+              }
+            }
+            return prev;
+          });
+        }
+      })
     ]).catch(() => {});
   }, []);
 
@@ -448,8 +477,8 @@ function NewOrderModal({ order, onClose, onSaved }) {
   const removeItem = i => setItems(prev => prev.filter((_, idx) => idx !== i));
   const setItem  = (i, field, val) => setItems(prev => prev.map((it, idx) => idx === i ? { ...it, [field]: val } : it));
 
-  const handleCategoryChange = (i, category) => {
-    const prod = products.find(p => p.category === category || String(p.id) === category);
+  const handleCategoryChange = (i, selectedVal) => {
+    const prod = products.find(p => String(p.id) === String(selectedVal) || p.category === selectedVal);
     const size = items[i].size || '';
     let rate = '';
     if (prod) {
@@ -458,16 +487,16 @@ function NewOrderModal({ order, onClose, onSaved }) {
     }
     setItems(prev => prev.map((it, idx) => idx === i ? {
       ...it,
-      category: prod?.category || category,
+      category: prod?.category || selectedVal,
       product_id: prod?.id || null,
       item_code: prod?.item_code || '',
-      item_name: prod?.name || getProductLabel(prod?.category || category),
-      rate_per_pc: rate
+      item_name: prod?.name || getProductLabel(prod?.category || selectedVal),
+      rate_per_pc: rate !== '' ? rate : it.rate_per_pc
     } : it));
   };
 
   const handleSizeChange = (i, size) => {
-    const prod = products.find(p => p.category === items[i].category || (items[i].product_id && p.id === items[i].product_id));
+    const prod = products.find(p => (items[i].product_id && p.id === items[i].product_id) || p.category === items[i].category);
     let rate = '';
     if (prod) {
       const sizeRateObj = size ? (prod.size_rates || []).find(r => (r.size_label || '').toLowerCase() === size.toLowerCase()) : null;
@@ -649,10 +678,12 @@ function NewOrderModal({ order, onClose, onSaved }) {
                     background: '#fff',
                   }}>
                     <div>
-                      <select value={it.category} onChange={e => handleCategoryChange(i, e.target.value)}
+                      <select
+                        value={it.product_id ? String(it.product_id) : it.category}
+                        onChange={e => handleCategoryChange(i, e.target.value)}
                         style={{ padding: '7px 10px', borderRadius: 7, border: '1.5px solid var(--border)', fontSize: 13, width: '100%' }}>
                         {products.map(p => (
-                          <option key={p.category} value={p.category}>
+                          <option key={p.id ? `prod-${p.id}` : p.category} value={p.id ? String(p.id) : p.category}>
                             {p.item_code ? `[${p.item_code}] ` : ''}{p.name || getProductLabel(p.category)}
                           </option>
                         ))}
@@ -666,9 +697,9 @@ function NewOrderModal({ order, onClose, onSaved }) {
 
                     <select value={it.size} onChange={e => handleSizeChange(i, e.target.value)}
                       style={{ padding: '7px 10px', borderRadius: 7, border: '1.5px solid var(--border)', fontSize: 13, width: '100%' }}>
-                      <option value="">—</option>
-                      {(products.find(p => p.category === it.category)?.size_rates || []).map(sr => (
-                        <option key={sr.size_label} value={sr.size_label}>{sr.size_label.toUpperCase()}</option>
+                      <option value="">— Any / Free Size</option>
+                      {getAvailableSizes(products.find(p => (it.product_id && p.id === it.product_id) || p.category === it.category)).map(sz => (
+                        <option key={sz} value={sz}>{sz.toUpperCase()}</option>
                       ))}
                     </select>
 
@@ -723,14 +754,14 @@ function NewOrderModal({ order, onClose, onSaved }) {
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                       <div>
-                        <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Product Category</label>
+                        <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 2 }}>Product</label>
                         <select
-                          value={it.category}
+                          value={it.product_id ? String(it.product_id) : it.category}
                           onChange={e => handleCategoryChange(i, e.target.value)}
                           style={{ width: '100%', padding: '7px 9px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 13 }}
                         >
                           {products.map(p => (
-                            <option key={p.category} value={p.category}>
+                            <option key={p.id ? `prod-${p.id}` : p.category} value={p.id ? String(p.id) : p.category}>
                               {p.item_code ? `[${p.item_code}] ` : ''}{p.name || getProductLabel(p.category)}
                             </option>
                           ))}
@@ -750,9 +781,9 @@ function NewOrderModal({ order, onClose, onSaved }) {
                             onChange={e => handleSizeChange(i, e.target.value)}
                             style={{ width: '100%', padding: '7px 9px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 13 }}
                           >
-                            <option value="">— Default</option>
-                            {(products.find(p => p.category === it.category)?.size_rates || []).map(sr => (
-                              <option key={sr.size_label} value={sr.size_label}>{sr.size_label.toUpperCase()}</option>
+                            <option value="">— Any / Free Size</option>
+                            {getAvailableSizes(products.find(p => (it.product_id && p.id === it.product_id) || p.category === it.category)).map(sz => (
+                              <option key={sz} value={sz}>{sz.toUpperCase()}</option>
                             ))}
                           </select>
                         </div>
